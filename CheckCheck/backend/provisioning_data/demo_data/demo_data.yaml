@@ -1,0 +1,58 @@
+items:
+  - checkcheckserver.model.user.UserCreate:
+      - user_name: user1
+        id: 338e5dbb-22a3-41fe-903d-0b9a04749f5d
+        email: clara@uni.wroc.pl
+        display_name: Clara Immerwahr (User1)
+      - user_name: user2
+        id: 6cb76c19-348e-4620-919d-36ba7642e5e5
+        email: lise@kth.se
+        display_name: Lise Meitner  (User2)
+      - user_name: userman
+        id: 4424ae9b-cd70-4baf-b561-c2bfb6f3d2a2
+        email: emmy@uni-goettingen.de
+        roles: ["usermanager"]
+        display_name: Emmy Noether (Usermanager)
+      - user_name: admin2
+        id: e337335c-426e-4122-9f1f-2a8a69b18fb0
+        email: marie@Lavoisier-lab.fr
+        roles: ["admin"]
+        display_name: Marie Lavoisier (Admin)
+  - checkcheckserver.model.user_auth.UserAuthCreate:
+      - user_id: 338e5dbb-22a3-41fe-903d-0b9a04749f5d
+        auth_source_type: basic
+        basic_password: medlog1234
+      - user_id: 6cb76c19-348e-4620-919d-36ba7642e5e5
+        auth_source_type: basic
+        basic_password: medlog1234
+      - user_id: 4424ae9b-cd70-4baf-b561-c2bfb6f3d2a2
+        auth_source_type: basic
+        basic_password: medlog1234
+      - user_id: e337335c-426e-4122-9f1f-2a8a69b18fb0
+        auth_source_type: basic
+        basic_password: medlog1234
+  - checkcheckserver.model.checklist.CheckListCreate:
+      - name: shopping
+        id: b6f2c61b-d388-4412-8c9a-461ece251116
+        text: "My shopping list"
+        color_id: RedLight
+        owner_id: 338e5dbb-22a3-41fe-903d-0b9a04749f5d
+
+  - checkcheckserver.model.checklist_position.CheckListPositionCreate:
+      - checklist_id: b6f2c61b-d388-4412-8c9a-461ece251116
+        user_id: 338e5dbb-22a3-41fe-903d-0b9a04749f5d
+        index: 0
+        pinned: false
+        archived: false
+        checked_items_collapsed: false
+
+  - checkcheckserver.model.checklist_item.CheckListItemCreate:
+      - text: Cucumber
+        position: 0
+        checklist_id: b6f2c61b-d388-4412-8c9a-461ece251116
+      - text: Banana
+        position: 1
+        checklist_id: b6f2c61b-d388-4412-8c9a-461ece251116
+      - text: Milk
+        position: 2
+        checklist_id: b6f2c61b-d388-4412-8c9a-461ece251116

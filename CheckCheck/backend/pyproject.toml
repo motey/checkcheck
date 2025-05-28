@@ -1,0 +1,50 @@
+[build-system]
+requires = ["setuptools", "setuptools-scm"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "checkcheckserver"
+authors = [{ name = "Tim Bleimehl", email = "bleimehl@helmholtz-munich.de" }]
+description = "A Rest API Server on a Postgres DB to store the medical history of study participants."
+readme = "README.md"
+requires-python = ">=3.11"
+keywords = ["DZD", "CheckCheck"]
+license = { text = "MIT" }
+classifiers = [
+    "Framework :: FastAPI",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+]
+dependencies = [
+    "uvicorn",
+    "oauthlib",
+    "fastapi",
+    "starlette",
+    "python-jose[cryptography]",
+    "passlib[bcrypt]",
+    "Authlib",
+    "httpx",
+    "sqlmodel",
+    "sqlalchemy[asyncio]",
+    "aiosqlite",
+    "itsdangerous",
+    "pyyaml",
+    "pydantic",
+    "pydantic[email]",
+    "pydantic_settings",
+    "getversion",
+    "pip-tools",
+    "python-multipart",
+    "alembic",
+    "email-validator",
+]
+dynamic = ["version"]
+
+[tool.setuptools.packages.find]
+include = ['checkcheckserver', 'provisioning_data']
+
+[project.optional-dependencies]
+test = ["pytest", "requests", "oidc_provider_mock"]
+docs = ["mkdocs", "mkdocstrings[python]", "mkdocs-autorefs", "mkdocs-material"]
+[project.scripts]
+checkcheckserver = "checkcheckserver.main:start"

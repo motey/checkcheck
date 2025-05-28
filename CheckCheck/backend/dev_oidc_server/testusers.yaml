@@ -1,0 +1,40 @@
+Users:
+  - sub: admin
+    userinfo:
+      name: admin
+      email: admin@test.com
+      given_name: Admin Maier
+      groups:
+        - medlog-admins
+        - others
+        - icecream-lovers
+  - sub: admin2
+    name: admin2
+    email: admin2@test.com
+    given_name: Admin Two
+    groups:
+      - others
+      - icecream-lovers
+      - medlog-admins
+  - sub: user1
+    userinfo:
+      name: user1
+      email: user1@test.com
+      given_name: User One
+      groups:
+        - others
+        - icecream-lovers
+  - sub: user2
+    userinfo:
+      name: user2
+      email: user2@test.com
+      given_name: User Two
+      groups:
+        - others
+  - sub: user3
+    userinfo:
+      name: user3
+      email: user3@test.com
+      given_name: User Three
+      groups:
+        - others

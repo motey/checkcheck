@@ -1,0 +1,37 @@
+items:
+  - checkcheckserver.model.checklist_color_scheme.ChecklistColorScheme:
+      - id: YellowLight
+        group: yellow
+        backgroundcolor_hex: "#FFFF99"
+        backgroundcolor_tailwind: bg-yellow-300
+        dark_text: false
+
+      - id: YellowDark
+        group: yellow
+        backgroundcolor_hex: "#a16207"
+        backgroundcolor_tailwind: bg-yellow-700
+        dark_text: true
+
+      - id: RedLight
+        group: red
+        backgroundcolor_hex: "#f87171"
+        backgroundcolor_tailwind: bg-red-400
+        dark_text: false
+
+      - id: RedDark
+        group: red
+        backgroundcolor_hex: "#b91c1c"
+        backgroundcolor_tailwind: bg-red-700
+        dark_text: true
+
+      - id: SlateLight
+        group: red
+        backgroundcolor_hex: "#cbd5e1"
+        backgroundcolor_tailwind: bg-slate-300
+        dark_text: false
+
+      - id: SlateDark
+        group: red
+        backgroundcolor_hex: "#334155"
+        backgroundcolor_tailwind: bg-slate-700
+        dark_text: true
