@@ -2,7 +2,7 @@
   <UContainer
     v-if="checkListId"
     :style="{ backgroundColor: checkList!.color?.backgroundcolor_hex, color: textColor }"
-    class="checklist list-drag-handle shadow rounded gap-0 textareas-inherit-color min-h-48"
+    class="checklist list-drag-handle shadow rounded gap-0 textareas-inherit-color min-h-48 flex flex-col border-1 border-solid border-gray-500"
   >
     <div class="checklist-content flex-1 overflow-y-scroll">
       <UCheckbox
@@ -67,6 +67,8 @@ const appConfig = useAppConfig();
 import { useDebounceFn } from "@vueuse/core";
 import { useCheckListsStore } from "@/stores/checklist";
 import { useCheckListsItemStore } from "@/stores/checklist_item";
+const colorMode = useColorMode()
+
 
 const checkListsStore = useCheckListsStore();
 const checkListsItemStore = useCheckListsItemStore();

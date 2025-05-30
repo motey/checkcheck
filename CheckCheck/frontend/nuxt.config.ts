@@ -1,18 +1,37 @@
 // https://nuxt.com/docs/api/configuration/nuxt-config
 export default defineNuxtConfig({
   future: {
-    compatibilityVersion: 4
+    compatibilityVersion: 4,
   },
 
-  compatibilityDate: '2024-11-27',
+  compatibilityDate: "2024-11-27",
   devtools: { enabled: true },
   ssr: false,
-  modules: ["nuxt-open-fetch", "@nuxt/ui", "@pinia/nuxt", "nuxt-lodash", "@nuxt/fonts", "@nuxt/icon"],
+  modules: [
+    "nuxt-open-fetch",
+    "@nuxt/ui",
+    "@pinia/nuxt",
+    "nuxt-lodash",
+    "@nuxt/fonts",
+    "@nuxt/icon",
+    "@nuxtjs/color-mode",
+  ],
   css: ["~/assets/css/main.css"],
   ui: {
     theme: {
       colors: ["primary", "error"],
     },
+  },
+  colorMode: {
+    preference: "system", // default value of $colorMode.preference
+    fallback: "light", // fallback value if not system preference found
+    hid: "nuxt-color-mode-script",
+    globalName: "__NUXT_COLOR_MODE__",
+    componentName: "ColorScheme",
+    classPrefix: "",
+    classSuffix: "",
+    storage: "localStorage", // or 'sessionStorage' or 'cookie'
+    storageKey: "nuxt-color-mode",
   },
   nitro: {
     devProxy: {
@@ -34,8 +53,8 @@ export default defineNuxtConfig({
   vite: {
     server: {
       hmr: {
-        protocol: 'ws',
-        host: 'localhost',
+        protocol: "ws",
+        host: "localhost",
         port: 3000,
         clientPort: 3000,
       },

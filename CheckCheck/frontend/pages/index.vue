@@ -1,5 +1,6 @@
 <template>
     <NuxtLayout>
+        <Navbar />
         <button @click="logout()">Logout</button>
         <div class="flex justify-start">
             <div class="min-width33 ">

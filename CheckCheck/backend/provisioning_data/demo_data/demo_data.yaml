@@ -35,7 +35,7 @@ items:
       - name: shopping
         id: b6f2c61b-d388-4412-8c9a-461ece251116
         text: "My shopping list"
-        color_id: RedLight
+        color_id: yellow
         owner_id: 338e5dbb-22a3-41fe-903d-0b9a04749f5d
 
   - checkcheckserver.model.checklist_position.CheckListPositionCreate:

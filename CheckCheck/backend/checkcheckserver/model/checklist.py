@@ -38,7 +38,7 @@ class CheckListBase(BaseTable):
         description="A text that will be shown at the header", default_factory=str
     )
     color_id: Optional[str] = Field(
-        default="YellowLight", foreign_key="checklist_color_scheme.id"
+        default="yellow", foreign_key="checklist_color_scheme.id"
     )
 
 

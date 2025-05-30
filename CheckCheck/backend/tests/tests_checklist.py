@@ -18,7 +18,7 @@ def test_checklist_endpoints():
         b={
             "name": "Dont Forget",
             "text": "Items you should not forget",
-            "color_id": "RedLight",
+            "color_id": "yellow",
         },
     )
     first_checklist = res
@@ -41,7 +41,7 @@ def test_checklist_endpoints():
         b={
             "name": "Shopping",
             "text": "Items you have to buy",
-            "color_id": "YellowLight",
+            "color_id": "yellow",
         },
     )
     print("res", res)
@@ -52,7 +52,7 @@ def test_checklist_endpoints():
     )
     dict_must_contain(
         res["color"],
-        required_keys_and_val={"id": "YellowLight"},
+        required_keys_and_val={"id": "yellow"},
         exception_dict_identifier="create second shopping checklist",
     )
     second_check_list_id = res["id"]
@@ -83,7 +83,7 @@ def test_checklist_endpoints():
         required_keys_and_val={
             "name": "Shopping",
             "text": "Things you have to buy",
-            "color_id": "YellowLight",
+            "color_id": "yellow",
         },
         required_keys=["position"],
         exception_dict_identifier="Validate Checklist was updated",

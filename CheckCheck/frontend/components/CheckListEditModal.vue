@@ -21,13 +21,7 @@ const props = defineProps({
   },
 });
 
-const emit = defineEmits<{
-  (e: "close"): void;
-}>(); 
 
-const handleClose = () => {
-  emit("close");
-};
 </script>
 
 <style scoped>

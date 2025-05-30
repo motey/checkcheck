@@ -1,10 +1,10 @@
 <template>
-  <UTooltip text="Archive" :shortcuts="['⌘', 'ToDo']" :popper="{ arrow: true }">
+  <UTooltip text="Collaborate" :shortcuts="['⌘', 'ToDo']" :popper="{ arrow: true }">
     <UButton
       :padded="false"
       color="neutral"
       variant="outline"
-      icon="i-lucide-trash-2"
+      icon="i-lucide-users"
       @click.stop="archiveCheckList()"
     />
   </UTooltip>

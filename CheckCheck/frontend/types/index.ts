@@ -33,5 +33,8 @@ declare global {
     // CheckListItemState
     type CheckListItemStateType = components["schemas"]["CheckListItemStateWithoutChecklistID"]
     type CheckListItemStateUpdateType = components["schemas"]["CheckListItemStateUpdate"]
+
+    // ChecklistColorScheme
+    type ChecklistColorSchemeType = components["schemas"]["ChecklistColorScheme"]
     
 }

@@ -35,7 +35,15 @@ class ChecklistColorScheme(BaseTable, table=True):
         nullable=False,
         unique=True,
     )
-    group: str = Field()
-    backgroundcolor_hex: str = Field()
-    backgroundcolor_tailwind: str = Field()
-    dark_text: bool = Field()
+    display_name: str = Field(description="Name of the color.")
+    sort_order: Optional[int] = Field(
+        description="Reserverd for later use. Color order not implemented yet",
+        default=None,
+    )
+    backgroundcolor_dark_hex: str = Field()
+    backgroundcolor_dark_tailwind: str = Field()
+    backgroundcolor_light_hex: str = Field()
+    backgroundcolor_light_tailwind: str = Field()
+
+    dark_text_in_dark_mode: bool = Field()
+    dark_text_in_light_mode: bool = Field()
