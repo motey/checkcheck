@@ -20,14 +20,16 @@
 <script setup lang="ts">
 import { useCheckListsStore } from '@/stores/checklist'
 import { useCheckListsItemStore } from '@/stores/checklist_item'
-
+import { useCheckListsColorSchemeStore } from '@/stores/color'
 const runtimeConfig = useRuntimeConfig()
 const checkListStore = useCheckListsStore()
 const checkListItemStore = useCheckListsItemStore()
+const checkListsColorSchemeStore = useCheckListsColorSchemeStore()
 const { checkLists, total_backend_count } = storeToRefs(checkListStore)
 
 onMounted(async () => {
-  await checkListStore.fetchNextPage()
+    await checkListStore.fetchNextPage()
+  await checkListsColorSchemeStore.fetchColors()
 })
 function hitme() {
     (async () => {

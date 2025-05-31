@@ -38,6 +38,7 @@ def test_much_data():
     )
 
     colors = [c["id"] for c in req(f"api/color", method="get")]
+    colors.append(None)
 
     def get_random_color():
         return random.choice(colors)

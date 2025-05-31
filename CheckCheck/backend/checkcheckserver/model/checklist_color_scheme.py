@@ -41,9 +41,8 @@ class ChecklistColorScheme(BaseTable, table=True):
         default=None,
     )
     backgroundcolor_dark_hex: str = Field()
-    backgroundcolor_dark_tailwind: str = Field()
     backgroundcolor_light_hex: str = Field()
-    backgroundcolor_light_tailwind: str = Field()
-
-    dark_text_in_dark_mode: bool = Field()
-    dark_text_in_light_mode: bool = Field()
+    textcolor_dark_hex: str = Field()
+    textcolor_light_hex: str = Field()
+    accentcolor_dark_hex: str = Field()
+    accentcolor_light_hex: str = Field()

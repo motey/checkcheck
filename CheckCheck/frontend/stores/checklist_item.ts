@@ -201,14 +201,6 @@ export const useCheckListsItemStore = defineStore("checkListitem", {
       const newPositionIndex = nextPositionIndex.minus(prevPositionIndex).div(2).plus(prevPositionIndex).toNumber();
       return newPositionIndex;
     },
-    async get(checklistId: string, checklistidItemId: string) {
-      if (!checklistId) return;
-      var index = this.checkListsItems[checklistId].findIndex((checklistItem) => checklistItem.id == checklistidItemId);
-      if (index !== -1) {
-        return await this.refresh(checklistId, checklistidItemId);
-      }
-      return this.checkListsItems[checklistId][index];
-    },
     async create(checkListId: string, checklistitem?: CheckListItemCreateType) {
       if (!checkListId) throw new Error("Checklistid empty");
       if (!checklistitem) {
@@ -282,7 +274,7 @@ export const useCheckListsItemStore = defineStore("checkListitem", {
       } catch (error) {
         console.error("Error with ", checklistId, error);
         throw new Error(
-          "Could not refresh checklist item from backend 'GET /checklist/" +
+          "Could not refresh checklist item from backend 'GET /api/checklist/" +
             checklistId +
             "/item/" +
             checklistidItemId +

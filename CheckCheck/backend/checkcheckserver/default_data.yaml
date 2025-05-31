@@ -1,100 +1,100 @@
 items:
   - checkcheckserver.model.checklist_color_scheme.ChecklistColorScheme:
-      - id: yellow
-        display_name: Yellow
-        backgroundcolor_dark_hex: "#FFFF99"
-        backgroundcolor_dark_tailwind: bg-yellow-300
-        backgroundcolor_light_hex: "#a16207"
-        backgroundcolor_light_tailwind: bg-yellow-700
-        dark_text_in_dark_mode: false
-        dark_text_in_light_mode: true
-
-  - checkcheckserver.model.checklist_color_scheme.ChecklistColorScheme:
-      - id: pink
-        display_name: Rose Quartz
-        backgroundcolor_dark_hex: "#F9A8D4"
-        backgroundcolor_dark_tailwind: bg-pink-300
-        backgroundcolor_light_hex: "#9D174D"
-        backgroundcolor_light_tailwind: bg-pink-700
-        dark_text_in_dark_mode: false
-        dark_text_in_light_mode: true
-
-  - checkcheckserver.model.checklist_color_scheme.ChecklistColorScheme:
-      - id: green
-        display_name: Meadow Mist
-        backgroundcolor_dark_hex: "#86EFAC"
-        backgroundcolor_dark_tailwind: bg-green-300
-        backgroundcolor_light_hex: "#166534"
-        backgroundcolor_light_tailwind: bg-green-700
-        dark_text_in_dark_mode: false
-        dark_text_in_light_mode: true
-
-  - checkcheckserver.model.checklist_color_scheme.ChecklistColorScheme:
       - id: blue
-        display_name: Ocean Whisper
-        backgroundcolor_dark_hex: "#93C5FD"
-        backgroundcolor_dark_tailwind: bg-blue-300
-        backgroundcolor_light_hex: "#1D4ED8"
-        backgroundcolor_light_tailwind: bg-blue-700
-        dark_text_in_dark_mode: false
-        dark_text_in_light_mode: true
+        display_name: Blue
+        backgroundcolor_dark_hex: "#00202E"
+        backgroundcolor_light_hex: "#006894"
+        textcolor_dark_hex: "#D0E9F2"
+        textcolor_light_hex: "#001A28"
+        accentcolor_dark_hex: "#4DA6FF"
+        accentcolor_light_hex: "#003F5C"
+
+  - checkcheckserver.model.checklist_color_scheme.ChecklistColorScheme:
+      - id: turquoise
+        display_name: Turquoise
+        backgroundcolor_dark_hex: "#00575C"
+        backgroundcolor_light_hex: "#00B8C2"
+        textcolor_dark_hex: "#B3E0DF"
+        textcolor_light_hex: "#004F54"
+        accentcolor_dark_hex: "#66CCC9"
+        accentcolor_light_hex: "#007973"
+
+  - checkcheckserver.model.checklist_color_scheme.ChecklistColorScheme:
+      - id: glaucous
+        display_name: Glaucous
+        backgroundcolor_dark_hex: "#2C4875"
+        backgroundcolor_light_hex: "#4E78BC"
+        textcolor_dark_hex: "#D3DFF0"
+        textcolor_light_hex: "#1D304D"
+        accentcolor_dark_hex: "#7496D9"
+        accentcolor_light_hex: "#2B4E7F"
+
+  - checkcheckserver.model.checklist_color_scheme.ChecklistColorScheme:
+      - id: lilac
+        display_name: Lilac
+        backgroundcolor_dark_hex: "#5B4C82"
+        backgroundcolor_light_hex: "#8E7EB4"
+        textcolor_dark_hex: "#D6CDE5"
+        textcolor_light_hex: "#463B64"
+        accentcolor_dark_hex: "#A591CF"
+        accentcolor_light_hex: "#5A4A7F"
+
+  - checkcheckserver.model.checklist_color_scheme.ChecklistColorScheme:
+      - id: finn
+        display_name: Finn
+        backgroundcolor_dark_hex: "#6B3E6F"
+        backgroundcolor_light_hex: "#A569AB"
+        textcolor_dark_hex: "#D9C7DE"
+        textcolor_light_hex: "#552D5B"
+        accentcolor_dark_hex: "#B37AB7"
+        accentcolor_light_hex: "#794C88"
+
+  - checkcheckserver.model.checklist_color_scheme.ChecklistColorScheme:
+      - id: magenta_haze
+        display_name: Magenta Haze
+        backgroundcolor_dark_hex: "#9F3C78"
+        backgroundcolor_light_hex: "#CB76A9"
+        textcolor_dark_hex: "#E4C9D9"
+        textcolor_light_hex: "#7A2D5C"
+        accentcolor_dark_hex: "#D490B2"
+        accentcolor_light_hex: "#9E5F82"
+
+  - checkcheckserver.model.checklist_color_scheme.ChecklistColorScheme:
+      - id: red
+        display_name: Red
+        backgroundcolor_dark_hex: "#D7302D"
+        backgroundcolor_light_hex: "#E78483"
+        textcolor_dark_hex: "#FFFFFF"
+        textcolor_light_hex: "#5E1D1C"
+        accentcolor_dark_hex: "#FF6F6A"
+        accentcolor_light_hex: "#9C3E3B"
 
   - checkcheckserver.model.checklist_color_scheme.ChecklistColorScheme:
       - id: orange
-        display_name: Amber Glow
-        backgroundcolor_dark_hex: "#FBBF24"
-        backgroundcolor_dark_tailwind: bg-orange-300
-        backgroundcolor_light_hex: "#92400E"
-        backgroundcolor_light_tailwind: bg-orange-700
-        dark_text_in_dark_mode: false
-        dark_text_in_light_mode: true
+        display_name: Orange
+        backgroundcolor_dark_hex: "#FF4B14"
+        backgroundcolor_light_hex: "#FF997A"
+        textcolor_dark_hex: "#FFFFFF"
+        textcolor_light_hex: "#7E3E23"
+        accentcolor_dark_hex: "#FF7A45"
+        accentcolor_light_hex: "#9F5B3C"
 
   - checkcheckserver.model.checklist_color_scheme.ChecklistColorScheme:
-      - id: teal
-        display_name: Pacific Tide
-        backgroundcolor_dark_hex: "#5EEAD4"
-        backgroundcolor_dark_tailwind: bg-teal-300
-        backgroundcolor_light_hex: "#134E4A"
-        backgroundcolor_light_tailwind: bg-teal-700
-        dark_text_in_dark_mode: false
-        dark_text_in_light_mode: true
+      - id: coffee
+        display_name: Coffee
+        backgroundcolor_dark_hex: "#7E5B44"
+        backgroundcolor_light_hex: "#B48D74"
+        textcolor_dark_hex: "#E7D8CC"
+        textcolor_light_hex: "#4D3A2E"
+        accentcolor_dark_hex: "#B7947A"
+        accentcolor_light_hex: "#7A5F46"
 
   - checkcheckserver.model.checklist_color_scheme.ChecklistColorScheme:
-      - id: purple
-        display_name: Velvet Plum
-        backgroundcolor_dark_hex: "#C4B5FD"
-        backgroundcolor_dark_tailwind: bg-purple-300
-        backgroundcolor_light_hex: "#6B21A8"
-        backgroundcolor_light_tailwind: bg-purple-700
-        dark_text_in_dark_mode: false
-        dark_text_in_light_mode: true
-
-  - checkcheckserver.model.checklist_color_scheme.ChecklistColorScheme:
-      - id: lime
-        display_name: Fresh Fern
-        backgroundcolor_dark_hex: "#BEF264"
-        backgroundcolor_dark_tailwind: bg-lime-300
-        backgroundcolor_light_hex: "#3F6212"
-        backgroundcolor_light_tailwind: bg-lime-700
-        dark_text_in_dark_mode: false
-        dark_text_in_light_mode: true
-
-  - checkcheckserver.model.checklist_color_scheme.ChecklistColorScheme:
-      - id: rose
-        display_name: Wild Rose
-        backgroundcolor_dark_hex: "#FDA4AF"
-        backgroundcolor_dark_tailwind: bg-rose-300
-        backgroundcolor_light_hex: "#9F1239"
-        backgroundcolor_light_tailwind: bg-rose-700
-        dark_text_in_dark_mode: false
-        dark_text_in_light_mode: true
-
-  - checkcheckserver.model.checklist_color_scheme.ChecklistColorScheme:
-      - id: cyan
-        display_name: Arctic Breeze
-        backgroundcolor_dark_hex: "#67E8F9"
-        backgroundcolor_dark_tailwind: bg-cyan-300
-        backgroundcolor_light_hex: "#155E75"
-        backgroundcolor_light_tailwind: bg-cyan-700
-        dark_text_in_dark_mode: false
-        dark_text_in_light_mode: true
+      - id: yellow
+        display_name: Yellow
+        backgroundcolor_dark_hex: "#FFA600"
+        backgroundcolor_light_hex: "#F4BB52"
+        textcolor_dark_hex: "#4D3900"
+        textcolor_light_hex: "#6B4E00"
+        accentcolor_dark_hex: "#FFD54F"
+        accentcolor_light_hex: "#A57500"

@@ -1,15 +1,13 @@
 <template>
   <UContainer
     v-if="checkListId"
-    :style="{ backgroundColor: checkList!.color?.backgroundcolor_hex, color: textColor }"
-    class="checklist list-drag-handle shadow rounded gap-0 textareas-inherit-color min-h-48 flex flex-col border-1 border-solid border-gray-500"
+    :style="{ color: textColor, backgroundColor: backgroundColor, borderColor: accentColor }"
+    :class="backgroundColor"
+    class="checklist list-drag-handle shadow rounded gap-0 textareas-inherit-color min-h-48 flex flex-col border-1 border-solid"
   >
     <div class="checklist-content flex-1 overflow-y-scroll">
-      <UCheckbox
-        v-model="checkList!.position!.checked_items_seperated!"
-        @click.stop="toggleCheckedItemsSeperated()"
-      />
-      
+      <UCheckbox v-model="checkList!.position!.checked_items_seperated!" @click.stop="toggleCheckedItemsSeperated()" />
+
       <div v-if="!editModeActive" class="flex-initial text-lg font-semibold min-h-8">{{ checkList!.name }}</div>
       <UTextarea
         v-if="editModeActive"
@@ -55,7 +53,6 @@
       />
     </div>
     <div class="checklist-footer">
-      
       <UContainer><CheckListFooter :checkListId="checkListId" /></UContainer>
     </div>
   </UContainer>
@@ -67,8 +64,7 @@ const appConfig = useAppConfig();
 import { useDebounceFn } from "@vueuse/core";
 import { useCheckListsStore } from "@/stores/checklist";
 import { useCheckListsItemStore } from "@/stores/checklist_item";
-const colorMode = useColorMode()
-
+const colorMode = useColorMode();
 
 const checkListsStore = useCheckListsStore();
 const checkListsItemStore = useCheckListsItemStore();
@@ -80,7 +76,6 @@ const props = defineProps({
   },
   editModeActive: { type: Boolean, default: false },
   previewModeActive: { type: Boolean, default: false },
-
 });
 
 var showMaxItems: Ref<number | undefined> = ref(undefined);
@@ -88,12 +83,34 @@ if (props.previewModeActive) {
   showMaxItems.value = appConfig.previewItemCount;
 }
 
-
-
-
 const checkList = ref(await checkListsStore.get(props.checkListId));
-const textColor = checkList!.value?.color?.dark_text ? "#fff" : "#000";
 
+const textColor = computed(() => {
+  const { color } = checkList.value;
+  const isDarkModeEnabled = colorMode.value === "dark";
+
+  if (color) {
+    return isDarkModeEnabled ? color.textcolor_dark_hex : color.textcolor_light_hex;
+  }
+  // Checklist has not color theme applied. lets just return a contrast color the background
+  return isDarkModeEnabled ? "#fff" : "#000";
+});
+const accentColor = computed(() => {
+  const { color } = checkList.value;
+  const isDarkModeEnabled = colorMode.value === "dark";
+
+  if (color) {
+    return isDarkModeEnabled ? color.accentcolor_dark_hex : color.accentcolor_light_hex;
+  }
+  // Checklist has not color theme applied. lets just return a contrast color the background
+  return isDarkModeEnabled ? "#fff" : "#000";
+});
+const backgroundColor = computed(() => {
+  const { color } = checkList.value;
+  const isDarkModeEnabled = colorMode.value === "dark";
+
+  return color ? (isDarkModeEnabled ? color.backgroundcolor_dark_hex : color.backgroundcolor_light_hex) : "";
+});
 
 const notesTextField = ref();
 
@@ -136,7 +153,6 @@ const toggleCheckedItemsSeperated = () => {
   text-align: left;
 }
 
-
 .viewport95 {
   max-height: 95vh;
 }
@@ -150,6 +166,4 @@ const toggleCheckedItemsSeperated = () => {
 :deep(.border-dashed) {
   border-color: currentColor !important;
 }
-
-
 </style>

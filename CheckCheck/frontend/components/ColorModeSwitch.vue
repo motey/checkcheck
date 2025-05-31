@@ -9,6 +9,7 @@
       variant="solid"
       @click="setTheme(mode.value)"
     />
+    VAL 'colorMode.value': {{ colorMode.value }}
   </div>
 </template>
 

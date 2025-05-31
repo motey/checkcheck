@@ -3,7 +3,7 @@
     <UButton
       :padded="false"
       color="neutral"
-      variant="outline"
+      variant="ghost"
       icon="i-lucide-users"
       @click.stop="archiveCheckList()"
     />

@@ -4,15 +4,25 @@ export default defineNuxtPlugin(() => {
     // this is needed if an object need to be replaced but we dont want to lose reference
     for (const key of Object.keys(from)) {
       const fromVal = from[key as keyof typeof from];
+      const toKey = key as keyof typeof to;
 
       if (typeof fromVal === "object" && fromVal !== null) {
-        if (!to[key as keyof typeof from]) {
-          // Ensure the nested object exists in `to`
-          to[key as keyof typeof from] = fromVal;
+        // Handle arrays specially - replace entirely
+        if (Array.isArray(fromVal)) {
+          to[toKey] = fromVal;
+        } else {
+          // Handle nested objects
+          if (!to[toKey] || typeof to[toKey] !== "object" || Array.isArray(to[toKey])) {
+            // If target doesn't have this property, or it's not an object, or it's an array
+            // create a new object
+            to[toKey] = {} as any;
+          }
+          // Recursively transfer attributes
+          transferAttrs(fromVal, to[toKey] as object);
         }
-        transferAttrs(fromVal, to[key as keyof typeof from]);
       } else {
-        to[key as keyof typeof from] = fromVal;
+        // Handle primitive values
+        to[toKey] = fromVal;
       }
     }
   };

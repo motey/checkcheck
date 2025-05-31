@@ -38,7 +38,7 @@ class CheckListBase(BaseTable):
         description="A text that will be shown at the header", default_factory=str
     )
     color_id: Optional[str] = Field(
-        default="yellow", foreign_key="checklist_color_scheme.id"
+        default=None, foreign_key="checklist_color_scheme.id"
     )
 
 
@@ -52,8 +52,11 @@ class CheckList(CheckListBase, TimestampedModel, table=True):
         unique=True,
         # sa_column_kwargs={"server_default": text("gen_random_uuid()")},
     )
-    color_id: str = Field(foreign_key="checklist_color_scheme.id")
-    color: ChecklistColorScheme = Relationship(
+    color_id: Optional[str] = Field(
+        foreign_key="checklist_color_scheme.id",
+        default=None,
+    )
+    color: Optional[ChecklistColorScheme] = Relationship(
         sa_relationship_kwargs={"lazy": "joined"}
     )
     owner_id: uuid.UUID = Field(foreign_key="user.id")
@@ -97,5 +100,5 @@ class CheckListApiCreate(CheckListBase):
 
 
 class CheckListApiWithSubObj(CheckListApi):
-    color: ChecklistColorScheme
+    color: Optional[ChecklistColorScheme]
     position: CheckListPositionPublicWithoutChecklistID
