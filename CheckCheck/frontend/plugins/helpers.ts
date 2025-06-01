@@ -140,53 +140,6 @@ export default defineNuxtPlugin(() => {
       return { index: itemNewIndex, movement: null, prev_item: prevItem, next_item: nextItem };
     }
   };
-  const findMovementDirOfItemBasedOnIndexScrwed = (
-    item: CheckListItemType | CheckListType,
-    items: (CheckListItemType | CheckListType)[],
-    reverse_position_index: boolean = false
-  ): {
-    index: number;
-    movement: "up" | "down" | null;
-    prev_item: CheckListItemType | CheckListType | null;
-    next_item: CheckListItemType | CheckListType | null;
-  } => {
-    if (items.length < 2) {
-      return { index: 0, movement: null, prev_item: null, next_item: null };
-    }
-
-    const itemNewIndex = items.findIndex((i) => i.id === item.id);
-    if (itemNewIndex === -1) {
-      throw new Error(`Item with id "${item.id}" not found.`);
-    }
-
-    const prevItem = itemNewIndex > 0 ? items[itemNewIndex - 1] : null;
-    const nextItem = itemNewIndex + 1 < items.length ? items[itemNewIndex + 1] : null;
-
-    const isDown = (a: number, b: number): boolean => (reverse_position_index ? a < b : a > b);
-
-    const isUp = (a: number, b: number): boolean => (reverse_position_index ? a > b : a < b);
-
-    // 1. Moved to first place
-    if (itemNewIndex === 0 && nextItem && isUp(item.position.index, nextItem.position.index)) {
-      return { index: 0, movement: "up", prev_item: null, next_item: nextItem };
-    }
-
-    // 2. Moved to last place
-    if (itemNewIndex === items.length - 1 && prevItem && isDown(item.position.index, prevItem.position.index)) {
-      return { index: itemNewIndex, movement: "down", prev_item: prevItem, next_item: null };
-    }
-
-    // 3. Moved within list - check both sides
-    if (prevItem && isDown(item.position.index, prevItem.position.index)) {
-      return { index: itemNewIndex, movement: "down", prev_item: prevItem, next_item: nextItem };
-    }
-
-    if (nextItem && isUp(item.position.index, nextItem.position.index)) {
-      return { index: itemNewIndex, movement: "up", prev_item: prevItem, next_item: nextItem };
-    }
-
-    return { index: itemNewIndex, movement: null, prev_item: prevItem, next_item: nextItem };
-  };
   const findNewPlacementForItem = (
     item: CheckListItemType | CheckListType,
     items: (CheckListItemType | CheckListType)[]
@@ -215,6 +168,7 @@ export default defineNuxtPlugin(() => {
       return { item, target_neighbor_item: neighborItem, placement: "below" };
     }
   };
+  
   return {
     provide: {
       hello: (msg: string) => `Hello ${msg}!`,

@@ -1,7 +1,4 @@
 <template>
-  unCheckedItemCount {{ unCheckedItemCount }}
-  showMaxItems {{ showMaxItems }}
-  showCheckedItemCount {{ showCheckedItemCount }}
   <CheckListItemCollection
     v-if="editModeActive"
     :parentCheckList="checkList"
@@ -32,9 +29,10 @@
     <CheckListItemCollection
       v-if="editModeActive"
       :parentCheckList="checkList"
-      :showMaxItems="unCheckedItemCount"
+      
       :filterCheckedItems="true"
     />
+    
     <CheckListItemCollectionPreview
       v-else
       :parentCheckList="checkList"
@@ -59,14 +57,14 @@ const props = defineProps({
   showMaxItems: { type: Number, required: false },
 });
 
-const checkList = ref(await checkListStore.get(props.parentCheckList.id));
+const checkList = ref(await checkListStore.fetch(props.parentCheckList.id));
 const checkedItemCount = checkListItemStore.getItemCount(checkList.value.id, true);
 const unCheckedItemCount = checkListItemStore.getItemCount(checkList.value.id, false);
 
 const showCheckedItemCount: ComputedRef<number | undefined> = computed(() => {
   if (props.showMaxItems) {
-    if (props.showMaxItems - unCheckedItemCount.value > 0 && !checkList.value.position.checked_items_collapsed) {
-      return props.showMaxItems - unCheckedItemCount.value;
+    if (props.showMaxItems - unCheckedItemCount > 0 && !checkList.value.position.checked_items_collapsed) {
+      return props.showMaxItems - unCheckedItemCount;
     } else {
       return 0;
     }

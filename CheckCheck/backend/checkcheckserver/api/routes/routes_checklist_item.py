@@ -121,7 +121,7 @@ async def list_items(
         description="Only return certain checklist items by id. If left empty all checklists will be returned.",
     ),
     checked: Optional[bool] = Query(None),
-    limit_per_checklist: Annotated[int | None, Query(lt=16)] = 9,
+    limit_per_checklist: Annotated[int | None, Query(lt=24)] = 9,
     checklist_item_crud: CheckListItemCRUD = Depends(CheckListItemCRUD.get_crud),
     checklist_ids_with_user_access: List[uuid.UUID] = Depends(
         checklist_ids_with_access

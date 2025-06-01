@@ -3,36 +3,36 @@
     v-if="checkListId"
     :style="{ color: textColor, backgroundColor: backgroundColor, borderColor: accentColor }"
     :class="backgroundColor"
-    class="checklist list-drag-handle shadow rounded gap-0 textareas-inherit-color min-h-48 flex flex-col border-1 border-solid"
+    class="checklist list-drag-handle shadow rounded gap-0 textareas-inherit-color min-h-48 max-h-[95vh] flex flex-col border-1 border-solid"
   >
-    <div class="checklist-content flex-1 overflow-y-scroll">
-      <UCheckbox v-model="checkList!.position!.checked_items_seperated!" @click.stop="toggleCheckedItemsSeperated()" />
 
-      <div v-if="!editModeActive" class="flex-initial text-lg font-semibold min-h-8">{{ checkList!.name }}</div>
-      <UTextarea
-        v-if="editModeActive"
-        autoresize
-        variant="none"
-        :rows="0"
-        :padded="false"
-        placeholder="Enter a checklist title..."
-        v-model="checkList!.name!"
-        class="flex-initial w-full grow pl-1 text-2xl font-semibold"
-      />
-      <p v-if="!editModeActive" class="line-clamp-3">{{ checkList!.text }}</p>
-      <UTextarea
-        v-if="editModeActive"
-        ref="notesTextField"
-        :autofocus="true"
-        autoresize
-        variant="none"
-        :rows="0"
-        :padded="false"
-        placeholder="Enter some notes..."
-        v-model="checkList!.text!"
-        class="w-full grow pl-1"
-      />
-
+    <div v-if="!editModeActive" class="flex-none text-lg font-semibold min-h-8">
+      {{ checkList!.name }}
+    </div>
+    <UTextarea
+      v-if="editModeActive"
+      autoresize
+      variant="none"
+      :rows="0"
+      :padded="false"
+      placeholder="Enter a checklist title..."
+      v-model="checkList!.name!"
+      class="flex-initial w-full grow pl-1 text-2xl font-semibold"
+    />
+    <p v-if="!editModeActive" class="flex-none line-clamp-3">{{ checkList!.text }}</p>
+    <UTextarea
+      v-if="editModeActive"
+      ref="notesTextField"
+      :autofocus="true"
+      autoresize
+      variant="none"
+      :rows="0"
+      :padded="false"
+      placeholder="Enter some notes..."
+      v-model="checkList!.text!"
+      class="w-full flex-none pl-1"
+    />
+    <div class="checklist-items-collection max-h-[90vm] overflow-y-scroll">
       <CheckListItemCollectionSeperated
         v-if="checkList?.position?.checked_items_seperated"
         :parentCheckList="checkList"
@@ -41,18 +41,19 @@
       />
       <CheckListItemCollection
         v-else-if="editModeActive"
-        :parentCheckList="checkList"
+        :parentCheckList="checkList!"
         :showMaxItems="showMaxItems"
         :filterCheckedItems="undefined"
       />
       <CheckListItemCollectionPreview
         v-else
-        :parentCheckList="checkList"
+        :parentCheckList="checkList!"
         :showMaxItems="showMaxItems"
         :filterCheckedItems="undefined"
       />
     </div>
-    <div class="checklist-footer">
+
+    <div class="checklist-footer flex-none">
       <UContainer><CheckListFooter :checkListId="checkListId" /></UContainer>
     </div>
   </UContainer>
@@ -86,7 +87,7 @@ if (props.previewModeActive) {
 const checkList = ref(await checkListsStore.get(props.checkListId));
 
 const textColor = computed(() => {
-  const { color } = checkList.value;
+  const { color } = checkList.value!;
   const isDarkModeEnabled = colorMode.value === "dark";
 
   if (color) {
@@ -96,7 +97,7 @@ const textColor = computed(() => {
   return isDarkModeEnabled ? "#fff" : "#000";
 });
 const accentColor = computed(() => {
-  const { color } = checkList.value;
+  const { color } = checkList.value!;
   const isDarkModeEnabled = colorMode.value === "dark";
 
   if (color) {
@@ -106,7 +107,7 @@ const accentColor = computed(() => {
   return isDarkModeEnabled ? "#fff" : "#000";
 });
 const backgroundColor = computed(() => {
-  const { color } = checkList.value;
+  const { color } = checkList.value!;
   const isDarkModeEnabled = colorMode.value === "dark";
 
   return color ? (isDarkModeEnabled ? color.backgroundcolor_dark_hex : color.backgroundcolor_light_hex) : "";
@@ -143,9 +144,6 @@ watch(
   (n) => debouncedUpdateCheckListText("name", n!)
 );
 
-const toggleCheckedItemsSeperated = () => {
-  console.log("Change seperated");
-};
 </script>
 
 <style scoped>

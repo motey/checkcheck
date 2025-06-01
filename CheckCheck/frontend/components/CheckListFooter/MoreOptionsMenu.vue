@@ -1,7 +1,7 @@
 <template>
   <UDropdownMenu :items="items" :content="{ align: 'start' }" :ui="{ content: 'w-48' }">
     <UTooltip text="Options" @click.stop>
-      <UButton size="md" color="neutral" variant="ghost" icon="i-lucide-ellipsis-vertical" />
+      <CheckListColoredButton variant="ghost" icon="i-lucide-ellipsis-vertical" :checkListId="checkListId" />
     </UTooltip>
   </UDropdownMenu>
 </template>
@@ -23,7 +23,7 @@ const props = defineProps({
     required: true,
   },
 });
-
+const checkList = ref(checkListsStore.get(props.checkListId));
 const showBookmarks = ref(true);
 const showHistory = ref(false);
 const showDownloads = ref(false);
@@ -40,12 +40,16 @@ const items = computed(
         type: "separator" as const,
       },
       {
-        label: "Show Bookmarks",
-        icon: "i-lucide-bookmark",
+        label: "Seperate Checked Items",
+        icon: "i-lucide-list-todo",
         type: "checkbox" as const,
-        checked: showBookmarks.value,
+        checked: checkList.value!.position.checked_items_seperated!,
         onUpdateChecked(checked: boolean) {
-          showBookmarks.value = checked;
+          (async () => {
+            await checkListsStore.updatePosition(props.checkListId, { checked_items_seperated: checked });
+          })();
+
+          console.log(checked);
         },
         onSelect(e: Event) {
           e.preventDefault();

@@ -18,7 +18,7 @@ items: {
     },
         total_backend_count: number;
 */
-export const useCheckListsStore = defineStore("checkList",{
+export const useCheckListsStore = defineStore("checkList", {
   state: () =>
     ({
       checkLists: [],
@@ -48,7 +48,11 @@ export const useCheckListsStore = defineStore("checkList",{
         return filtered;
       };
     },
-    
+    get: (state) => {
+      return (checkListId: string) => {
+        return state.checkLists[state.checkLists.findIndex((checklist) => checklist.id == checkListId)];
+      };
+    },
   },
   actions: {
     async reorderCheckLists(newOrder: CheckListType[], movedItem: CheckListType) {
@@ -84,19 +88,19 @@ export const useCheckListsStore = defineStore("checkList",{
 
       return resChecklist;
     },
-    async update(checklistid: string, checklist: CheckListUpdateType): Promise<CheckListType | undefined> {
+    async update(checkListId: string, checklist: CheckListUpdateType): Promise<CheckListType | undefined> {
       if (!checklist) return;
       const { $checkapi, $transferAttrs } = useNuxtApp();
       var resChecklist: CheckListType;
       try {
         resChecklist = await $checkapi("/api/checklist/{checklist_id}", {
-          path: { checklist_id: checklistid },
+          path: { checklist_id: checkListId },
           method: "patch",
           body: checklist,
         });
       } catch (error) {
         console.error(checklist);
-        console.error("Could not store updated checklist to backend 'PATCH /checklist/" + checklistid + "'", error);
+        console.error("Could not store updated checklist to backend 'PATCH /checklist/" + checkListId + "'", error);
         return checklist as CheckListType;
       }
       // get index of existing checkList in store
@@ -104,25 +108,25 @@ export const useCheckListsStore = defineStore("checkList",{
 
       // replace-update the new checklist in state
       if (index !== -1) {
-        $transferAttrs(resChecklist,this.checkLists[index]!)
+        $transferAttrs(resChecklist, this.checkLists[index]!);
         //this.checkLists.splice(index, 1, resChecklist); // Replace the item in the store
       } else {
         this.checkLists.push(resChecklist);
-        await this._sort()
+        await this._sort();
       }
       return resChecklist;
     },
-    async refresh(checklistId: string): Promise<CheckListType> {
-      if (!checklistId) throw new Error("Checklistid empty"); // do we need that?
+    async refresh(checkListId: string): Promise<CheckListType> {
+      if (!checkListId) throw new Error("Checklistid empty"); // do we need that?
       const { $checkapi } = useNuxtApp();
       var resChecklist: CheckListType;
       try {
         resChecklist = await $checkapi("/api/checklist/{checklist_id}", {
-          path: { checklist_id: checklistId },
+          path: { checklist_id: checkListId },
           method: "get",
         });
       } catch (error) {
-        console.error("Could not refresh checklist from backend 'GET /checklist/" + checklistId + "'", error);
+        console.error("Could not refresh checklist from backend 'GET /checklist/" + checkListId + "'", error);
         throw new Error("Could not refresh checklist from backend");
       }
       var index = this.checkLists.findIndex((checklist) => checklist.id == resChecklist.id);
@@ -133,19 +137,19 @@ export const useCheckListsStore = defineStore("checkList",{
       }
       return resChecklist;
     },
-    async get(checklistId: string): Promise<CheckListType> {
-      if (!checklistId) throw new Error("Checklistid empty"); // do we need that?
-      var index = this.checkLists.findIndex((checklist) => checklist.id == checklistId);
+    async fetch(checkListId: string): Promise<CheckListType> {
+      if (!checkListId) throw new Error("Checklistid empty"); // do we need that?
+      var index = this.checkLists.findIndex((checklist) => checklist.id == checkListId);
       if (index == -1) {
-        return await this.refresh(checklistId);
+        return await this.refresh(checkListId);
       }
       return this.checkLists[index]!;
     },
-    async archive(checklistId: string, state: boolean = true) {
-      if (!checklistId) throw new Error("Checklistid empty"); // do we need that?
-      const checkList = await this.get(checklistId);
+    async archive(checkListId: string, state: boolean = true) {
+      if (!checkListId) throw new Error("Checklistid empty"); // do we need that?
+      const checkList = await this.fetch(checkListId);
       checkList.position.archived = state;
-      checkList.position = await this.updatePosition(checklistId, checkList.position);
+      checkList.position = await this.updatePosition(checkListId, checkList.position);
     },
     async fetchNextPage() {
       const { $checkapi } = useNuxtApp();
@@ -226,33 +230,33 @@ export const useCheckListsStore = defineStore("checkList",{
       return itemToMove.position;
     },
     async updatePosition(
-      checklistid: string,
-      checklistPosition: CheckListPositionType
+      checkListId: string,
+      checklistPosition: CheckListPositionUpdateType
     ): Promise<CheckListPositionType> {
-      if (!checklistid) throw new Error("checklistid empty");
+      if (!checkListId) throw new Error("checkListId empty");
       const { $checkapi, $transferAttrs } = useNuxtApp();
       var resChecklistPosition: CheckListPositionType;
       try {
         resChecklistPosition = await $checkapi("/api/checklist/{checklist_id}/position", {
-          path: { checklist_id: checklistid },
+          path: { checklist_id: checkListId },
           method: "patch",
           body: checklistPosition,
         });
       } catch (error) {
         console.error(checklistPosition);
         console.error(
-          "Could not store updated checklistPosition to backend 'PATCH /checklist/" + checklistid + "/position'",
+          "Could not store updated checklistPosition to backend 'PATCH /checklist/" + checkListId + "/position'",
           error
         );
         throw new Error("Could not store updated checklistPosition to backend");
       }
       // get index of existing checkList in store
-      var index = this.checkLists.findIndex((checklist) => checklist.id == checklistid);
+      var index = this.checkLists.findIndex((checklist) => checklist.id == checkListId);
       var checkList: CheckListType;
       if (index !== -1) {
         checkList = this.checkLists[index];
       } else {
-        checkList = await this.refresh(checklistid);
+        checkList = await this.refresh(checkListId);
       }
       $transferAttrs(resChecklistPosition, checkList.position);
       return checkList.position;

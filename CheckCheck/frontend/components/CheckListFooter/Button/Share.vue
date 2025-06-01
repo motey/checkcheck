@@ -1,12 +1,12 @@
 <template>
-  <UTooltip text="Collaborate" :shortcuts="['⌘', 'ToDo']" :popper="{ arrow: true }">
-    <UButton
-      :padded="false"
-      color="neutral"
-      variant="ghost"
-      icon="i-lucide-users"
-      @click.stop="archiveCheckList()"
-    />
+  <UTooltip text="Collaborate" :popper="{ arrow: true }">
+    <CheckListColoredButton
+        variant="ghost"
+        :padded="false"
+        icon="i-lucide-users"
+        :checkListId="checkListId"
+        @click.stop="shareDialog()"
+      />
   </UTooltip>
 </template>
 
@@ -24,9 +24,9 @@ const props = defineProps({
   },
 });
 
-function archiveCheckList() {
+function shareDialog() {
   (async () => {
-    await checkListsStore.archive(props.checkListId);
+    console.log("NOT IMPLEMENTED")
   })();
 }
 </script>

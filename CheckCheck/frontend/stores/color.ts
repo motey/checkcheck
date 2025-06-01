@@ -36,12 +36,20 @@ export const useCheckListsColorSchemeStore = defineStore("checkListColorScheme",
       return;
     },
     async updateChecklistColor(
-      checklistId: string,
+      checkListId: string,
       colorId: string | null
     ) {
       const { $checkapi, $transferAttrs } = useNuxtApp();
       const checkListStore = useCheckListsStore()
-      await checkListStore.update(checklistId,{color_id:colorId})
+      await checkListStore.update(checkListId,{color_id:colorId})
+    },
+    async getChecklistColor(
+      checkListId: string,
+    ) {
+      const { $checkapi } = useNuxtApp();
+      const checkListStore = useCheckListsStore()
+      const checklist = await checkListStore.fetch(checkListId)
+      return checklist.color
     },
     async _sort() {
       // this is just a placeholder for a real sorting that still has to be implemented. We want to sort by hue and generate a sort_order on the backend 

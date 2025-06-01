@@ -1,7 +1,12 @@
 <template>
-  <UTooltip @click.stop text="Change Color" :shortcuts="['⌘', 'ToDo']" :popper="{ arrow: true }">
+  <UTooltip @click.stop text="Change Color" :popper="{ arrow: true }">
     <UPopover arrow class="border-0">
-      <UButton @click.stop :padded="false" color="neutral" variant="ghost" icon="i-lucide-palette" />
+      <CheckListColoredButton
+        variant="ghost"
+        icon="i-lucide-palette"
+        :checkListId="checkListId"
+        @click.stop
+      />
       <template #content>
         <UContainer class="flex flex-wrap gap-0 border-0">
           <UTooltip text="No Color" :popper="{ arrow: true }">
@@ -33,9 +38,12 @@
               ❌️
             </UButton>
           </UTooltip>
-          <UTooltip v-for="color in checkListColorSchemeStore.colors" :text="color.display_name" :popper="{ arrow: true }">
+          <UTooltip
+            v-for="color in checkListColorSchemeStore.colors"
+            :text="color.display_name"
+            :popper="{ arrow: true }"
+          >
             <UButton
-              
               @click.stop="setCheckListColor(color.id)"
               :key="color.backgroundcolor_light_hex"
               size="xl"
@@ -85,6 +93,21 @@ const props = defineProps({
     type: String,
     required: true,
   },
+});
+const checkList = ref(await checkListsStore.get(props.checkListId));
+const textColor = computed(() => {
+  const { color } = checkList.value!;
+  const isDarkModeEnabled = colorMode.value === "dark";
+  if (color) {
+    return isDarkModeEnabled ? color.textcolor_dark_hex : color.textcolor_light_hex;
+  }
+  // Checklist has not color theme applied. lets just return a contrast color the background
+  return isDarkModeEnabled ? "#fff" : "#000";
+});
+const backgroundColor = computed(() => {
+  const { color } = checkList.value!;
+  const isDarkModeEnabled = colorMode.value === "dark";
+  return color ? (isDarkModeEnabled ? color.backgroundcolor_dark_hex : color.backgroundcolor_light_hex) : "";
 });
 function setCheckListColor(colorId: string | null) {
   (async () => {

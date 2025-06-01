@@ -15,6 +15,7 @@ declare global {
     type CheckListsPageType = CheckapiResponse<"list_checklists_api_checklist_get">
     // CheckListPosition
     type CheckListPositionType = components["schemas"]["CheckListPositionPublicWithoutChecklistID"]
+    type CheckListPositionUpdateType = components["schemas"]["CheckListPositionUpdate"]
     // CheckListItems Types
     type CheckListItemType = components["schemas"]["CheckListItemRead"]
     type CheckListItemCreateType = components["schemas"]["CheckListItemCreateAPI"]

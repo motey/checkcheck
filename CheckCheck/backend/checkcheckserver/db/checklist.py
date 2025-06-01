@@ -37,7 +37,9 @@ from checkcheckserver.model.checklist_collaborator import (
 from checkcheckserver.db._base_crud import create_crud_base
 from checkcheckserver.api.paginator import QueryParamsInterface
 from checkcheckserver.model.checklist_position import CheckListPosition
-from checkcheckserver.model.checklist import CheckListApi
+from checkcheckserver.model.checklist import CheckListApi, CheckListApiWithSubObj
+from checkcheckserver.model.label import Label
+from checkcheckserver.model.checklist_label import CheckListLabel
 
 log = get_logger()
 config = Config()
@@ -108,9 +110,10 @@ class CheckListCRUD(
     async def list(
         self,
         user_id: uuid.UUID,
+        include_sub_obj: bool = False,
         archived: Optional[bool] = None,
         pagination: QueryParamsInterface = None,
-    ) -> List[CheckList]:
+    ) -> List[CheckList | CheckListApiWithSubObj]:
         query = select(CheckList)
         query = self._add_user_has_access_query(
             query, user_id, join_CheckListPosition=True
@@ -122,7 +125,15 @@ class CheckListCRUD(
         query = query.order_by(desc(CheckListPosition.index))
         if pagination:
             query = pagination.append_to_query(query)
-        query = query.options(selectinload(CheckList.position))
+        if include_sub_obj:
+            query = query.options(selectinload(CheckList.position))
+            query = query.join(
+                CheckListLabel,
+                onclause=and_(
+                    CheckListLabel.checklist_id == CheckList.id,
+                    CheckListLabel.user_id == user_id,
+                ),
+            ).join(Label)
         # log.debug(f"list.checklist.query: {query}")
         results = await self.session.exec(statement=query)
         objs = results.all()

@@ -1,12 +1,12 @@
 <template>
-  <UTooltip text="Archive" :shortcuts="['⌘', 'ToDo']" :popper="{ arrow: true }">
-    <UButton
-      :padded="false"
-      color="neutral"
-      variant="ghost"
-      icon="i-lucide-trash-2"
-      @click.stop="archiveCheckList()"
-    />
+  <UTooltip text="Archive" :popper="{ arrow: true }">
+    <CheckListColoredButton
+        variant="ghost"
+        :padded="false"
+        icon="i-lucide-trash-2"
+        :checkListId="checkListId"
+        @click.stop="archiveCheckList()"
+      />
   </UTooltip>
 </template>
 
