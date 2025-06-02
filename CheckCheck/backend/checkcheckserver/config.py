@@ -100,6 +100,9 @@ class Config(BaseSettings):
         description="Default data like some background jobs and vocabulary that is always loaded in the database. Under normal circustances this is nothing you need to changed. if you need to provision data like a Study into the database use the APP_PROVISIONING_DATA_YAML_FILES param.",
         default=str(Path(checkcheckserver_folder, "default_data.yaml")),
     )
+    NEW_USER_DEFAULT_LABELS: Optional[List[str]] = Field(
+        default=["Work", "Private", "Inspiration"]
+    )
 
     AUTH_BASIC_LOGIN_IS_ENABLED: bool = Field(
         default=True,

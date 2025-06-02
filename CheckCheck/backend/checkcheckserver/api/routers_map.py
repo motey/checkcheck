@@ -91,6 +91,16 @@ def mount_fast_api_routers(fastapi_app: FastAPI):
         prefix="/api",
     )
 
+    from checkcheckserver.api.routes.routes_checklist_label import (
+        fast_api_checklist_label_router,
+    )
+
+    fastapi_app.include_router(
+        fast_api_checklist_label_router,
+        tags=["Checklist Labels"],
+        prefix="/api",
+    )
+
     from checkcheckserver.api.routes.routes_sync_notification import (
         fast_api_sse_sync_router,
     )

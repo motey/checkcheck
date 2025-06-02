@@ -89,6 +89,7 @@ CheckListPublicQueryParams: Type[QueryParamsInterface] = create_query_params_cla
 )
 async def list_checklists(
     archived: Optional[bool] = Query(False),
+    label_id: Optional[uuid.UUID] = None,
     checklist_crud: CheckListCRUD = Depends(CheckListCRUD.get_crud),
     checklist_pos_crud: CheckListPositionCRUD = Depends(CheckListPositionCRUD.get_crud),
     pagination: QueryParamsInterface = Depends(CheckListQueryParams),
@@ -98,6 +99,8 @@ async def list_checklists(
         user_id=current_user.id,
         archived=archived,
         pagination=pagination,
+        include_sub_obj=True,
+        label_id=label_id,
     )
     log.debug(f"result_checklist_items {result_checklist_items}")
     return PaginatedResponse(

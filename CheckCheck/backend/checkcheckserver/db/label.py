@@ -14,17 +14,8 @@ from fastapi import Depends
 import contextlib
 from typing import Optional
 from sqlmodel.ext.asyncio.session import AsyncSession
-from sqlmodel import (
-    Field,
-    select,
-    delete,
-    Column,
-    JSON,
-    SQLModel,
-    func,
-    col,
-    selectinload,
-)
+from sqlmodel import Field, select, delete, Column, JSON, SQLModel, func, col
+from sqlalchemy.orm import selectinload
 
 import uuid
 from uuid import UUID

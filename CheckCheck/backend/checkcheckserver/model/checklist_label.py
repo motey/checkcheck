@@ -24,7 +24,7 @@ log = get_logger()
 config = Config()
 
 
-class CheckListLabelCreate(TimestampedModel, table=False):
+class CheckListLabelCreate(BaseTable, table=False):
     checklist_id: uuid.UUID = Field(foreign_key="checklist.id", primary_key=True)
     label_id: uuid.UUID = Field(foreign_key="label.id", primary_key=True)
     user_id: uuid.UUID = Field(foreign_key="user.id", primary_key=True)

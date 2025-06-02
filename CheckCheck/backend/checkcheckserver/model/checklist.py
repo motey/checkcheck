@@ -67,6 +67,11 @@ class CheckList(CheckListBase, TimestampedModel, table=True):
         back_populates="checklist",
         sa_relationship_kwargs={"lazy": "joined"},
     )
+    labels: List[Label] = Relationship(
+        cascade_delete=False,
+        link_model=CheckListLabel,
+        sa_relationship_kwargs={"lazy": "joined"},
+    )
 
 
 class CheckListUpdate(CheckListBase):
@@ -103,4 +108,4 @@ class CheckListApiCreate(CheckListBase):
 class CheckListApiWithSubObj(CheckListApi):
     color: Optional[ChecklistColorScheme]
     position: CheckListPositionPublicWithoutChecklistID
-    labels: list[Label] = Relationship()
+    labels: list[Label]

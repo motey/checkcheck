@@ -219,8 +219,10 @@ class CRUDBase(
 
         for attr, val in obj.model_dump().items():
             query = query.where(getattr(tbl, attr) == val)
+        log.debug(f"find {tbl.__class__} query: {query}")
         res = await self.session.exec(query)
-        result_objs = res.all()
+        result_objs = list(res.unique())
+        # log.debug(("result_objs", list(result_objs)))
         if len(result_objs) == 0 and raise_exception_if_not_exists:
             raise raise_exception_if_not_exists
         elif len(result_objs) > 1 and raise_exception_if_more_than_one_result:
@@ -270,11 +272,11 @@ class CRUDBase(
         self,
         objects: List[GenericCRUDCreateType],
     ):
-        log.debug(f"Create bulk of {self.table.__name__}")
+        log.debug(f"Create bulk of {self.get_table_cls().__name__}")
         for obj in objects:
             if not isinstance(obj, self.get_create_cls()):
                 raise ValueError(
-                    f"List item is not a {self.table.__name__} instance:\n {obj}"
+                    f"List item is not a {self.get_table_cls().__name__} instance:\n {obj}"
                 )
         self.session.add_all(objects)
         await self.session.commit()

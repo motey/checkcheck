@@ -30,7 +30,7 @@ from authlib.integrations.base_client.errors import OAuthError
 from checkcheckserver.config import Config
 from checkcheckserver.log import get_logger
 from checkcheckserver.model.auth_scheme_info import AuthSchemeInfo
-
+from checkcheckserver.db.label import Label, LabelCRUD
 
 #
 
@@ -56,6 +56,7 @@ from checkcheckserver.api.auth.utils import (
     get_access_token_expires_at_value_from_token,
     generate_client_session_id,
     revoke_token,
+    create_new_user_default_labels,
 )
 
 from checkcheckserver.config import Config
@@ -111,6 +112,7 @@ async def auth_basic_register(
     user_data: UserRegisterAPI = Depends(),
     user_crud: UserCRUD = Depends(UserCRUD.get_crud),
     user_auth_crud: UserAuthCRUD = Depends(UserAuthCRUD.get_crud),
+    label_crud: LabelCRUD = Depends(LabelCRUD.get_crud),
 ):
     if (
         not config.AUTH_BASIC_LOGIN_IS_ENABLED
@@ -128,6 +130,7 @@ async def auth_basic_register(
     user = await user_crud.create(
         UserCreate(**user_data.model_dump(), is_email_verified=False)
     )
+    await create_new_user_default_labels(user.id, label_crud=label_crud)
     await user_auth_crud.create(
         UserAuthCreate(
             user_id=user.id,

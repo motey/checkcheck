@@ -68,6 +68,35 @@ class UserCRUD(
             raise raise_exception_if_none
         return user
 
+    async def create(
+        self,
+        obj: UserCreate,
+        exists_ok: bool = False,
+        raise_custom_exception_if_exists: Exception = None,
+    ) -> User:
+        existing_user_query = select(User).where(User.user_name == obj.user_name)
+
+        existing_user_result = await self.session.exec(statement=existing_user_query)
+        existing_user: User | None = existing_user_result.one_or_none()
+        if existing_user is not None:
+            if exists_ok:
+                return existing_user
+            elif raise_custom_exception_if_exists:
+                raise raise_custom_exception_if_exists
+            else:
+                raise ValueError("Username exists. Can not create user.")
+        user = User.model_validate(obj)
+        self.session.add(user)
+        await self.session.commit()
+        await self.session.refresh(user)
+        from checkcheckserver.db._hooks.create_user import (
+            create_new_user_default_labels,
+        )
+
+        await create_new_user_default_labels(self.session, user.id)
+
+        return user
+
     async def get_by_user_name(
         self,
         user_name: str,

@@ -22,7 +22,7 @@ from sqlmodel import (
 import uuid
 from uuid import UUID
 from sqlmodel.sql import expression as sqlEpression
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import selectinload, with_loader_criteria
 from checkcheckserver.config import Config
 from checkcheckserver.log import get_logger
 from checkcheckserver.model.checklist import (
@@ -112,6 +112,7 @@ class CheckListCRUD(
         user_id: uuid.UUID,
         include_sub_obj: bool = False,
         archived: Optional[bool] = None,
+        label_id: Optional[uuid.UUID] = None,
         pagination: QueryParamsInterface = None,
     ) -> List[CheckList | CheckListApiWithSubObj]:
         query = select(CheckList)
@@ -121,12 +122,21 @@ class CheckListCRUD(
 
         if archived is not None:
             query = query.where(CheckListPosition.archived == archived)
-
+        if label_id is not None:
+            query = query.join(CheckListLabel).where(
+                CheckListLabel.label_id == label_id
+            )
         query = query.order_by(desc(CheckListPosition.index))
         if pagination:
             query = pagination.append_to_query(query)
         if include_sub_obj:
             query = query.options(selectinload(CheckList.position))
+            query = query.options(selectinload(CheckList.color))
+            query = query.options(
+                selectinload(CheckList.labels),
+                with_loader_criteria(CheckListLabel, CheckListLabel.user_id == user_id),
+            )
+            """
             query = query.join(
                 CheckListLabel,
                 onclause=and_(
@@ -134,6 +144,7 @@ class CheckListCRUD(
                     CheckListLabel.user_id == user_id,
                 ),
             ).join(Label)
+            """
         # log.debug(f"list.checklist.query: {query}")
         results = await self.session.exec(statement=query)
         objs = results.all()

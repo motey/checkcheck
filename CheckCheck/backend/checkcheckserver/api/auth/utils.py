@@ -28,6 +28,11 @@ from checkcheckserver.db.user_auth import (
     UserAuthUpdate,
 )
 
+from checkcheckserver.model.label import Label
+from checkcheckserver.db.label import LabelCRUD
+from checkcheckserver.model.checklist_label import CheckListLabel
+from checkcheckserver.db.checklist_label import ChecklistLabelCRUD
+
 from checkcheckserver.db.user_session import UserSessionCRUD, UserSession
 from checkcheckserver.model.user import User
 from checkcheckserver.config import Config
@@ -241,3 +246,15 @@ async def get_userinfo_from_token_or_endpoint(
     log.debug(f"raw_userinfo {raw_userinfo}")
 
     return UserInfoOidc.from_raw_userinfo(raw_userinfo, oidc_config)
+
+
+async def create_new_user_default_labels(
+    user_id: uuid.UUID,
+    label_crud: LabelCRUD,
+):
+    labels = []
+    i = 10
+    for label_name in config.NEW_USER_DEFAULT_LABELS:
+        labels.append(Label(display_name=label_name, sort_order=i, owner_id=user_id))
+        i = i + 10
+    await label_crud.create_bulk(labels)

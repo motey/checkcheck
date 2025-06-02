@@ -1,4 +1,13 @@
-from typing import AsyncGenerator, List, Optional, Literal, Sequence, Annotated, Dict
+from typing import (
+    AsyncGenerator,
+    List,
+    Optional,
+    Literal,
+    Sequence,
+    Annotated,
+    Dict,
+    TYPE_CHECKING,
+)
 import enum
 from pydantic import (
     validate_email,
@@ -20,6 +29,10 @@ from checkcheckserver.model._base_model import (
     TimestampedModel,
 )
 from checkcheckserver.model.checklist_color_scheme import ChecklistColorScheme
+from checkcheckserver.model.checklist_label import CheckListLabel
+
+if TYPE_CHECKING:
+    from checkcheckserver.model.checklist import CheckList
 from checkcheckserver.config import Config
 from checkcheckserver.log import get_logger
 
@@ -60,6 +73,7 @@ class Label(LabelUpdate, table=True):
         index=True,
         nullable=False,
         unique=True,
+        default_factory=uuid.uuid4,
     )
     owner_id: uuid.UUID = Field(foreign_key="user.id")
 
@@ -72,6 +86,6 @@ class Label(LabelUpdate, table=True):
         description="Label order per user",
         default=None,
     )
-    color: ChecklistColorScheme = Relationship(
+    color: Optional[ChecklistColorScheme] = Relationship(
         sa_relationship_kwargs={"lazy": "joined"}
     )
