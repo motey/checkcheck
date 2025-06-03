@@ -16,8 +16,10 @@
 const runtimeConfig = useRuntimeConfig();
 import { useCheckListsStore } from "@/stores/checklist";
 import { useCheckListsItemStore } from "@/stores/checklist_item";
+import { useCheckListsColorSchemeStore } from "@/stores/color";
 const checkListStore = useCheckListsStore();
 const checkListItemStore = useCheckListsItemStore();
+const checkListsColorSchemeStore = useCheckListsColorSchemeStore()
 const { checkLists, total_backend_count } = storeToRefs(checkListStore);
 
 import { useDragAndDrop } from "@formkit/drag-and-drop/vue";
@@ -31,7 +33,10 @@ const loadingInProcess = ref(false);
 
 const overlayCheckListEditor = useOverlay()
 const modalCheckListEditor = overlayCheckListEditor.create(CheckListEditModal)
-
+onMounted(async () => {
+    await checkListStore.fetchNextPage()
+  await checkListsColorSchemeStore.fetchColors()
+})
 
 // Main reactive source for lists
 const checklists = ref<CheckListType[]>([]);
@@ -84,7 +89,7 @@ function openCheckListEditor(checkListId: string) {
 ul {
   margin: 0 auto;
   width: 100%;
-  max-width: 1400px;
+  /*max-width: 1400px;*/
   padding: 0 16px;
 }
 .checklist-preview:hover {

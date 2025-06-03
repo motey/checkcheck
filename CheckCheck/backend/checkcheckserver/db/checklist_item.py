@@ -134,7 +134,7 @@ class CheckListItemCRUD(
         )
 
         result: Dict[uuid.UUID, List[CheckListItem]] = {}
-        for checklist_pos in checklist_pos_query_result.all():
+        for checklist_pos in checklist_pos_query_result.unique().all():
             query = (
                 select(CheckListItem)
                 .join(CheckListItemState)

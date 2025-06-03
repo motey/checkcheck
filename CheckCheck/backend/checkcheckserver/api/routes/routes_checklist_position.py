@@ -125,7 +125,7 @@ async def update_checklist_position(
 ) -> CheckListPosition:
     result_item = await checklist_pos_crud.update(
         update_obj=checklist_obj,
-        user_id=current_user.user_name,
+        user_id=current_user.id,
         checklist_id=checklist_access.checklist.id,
     )
     return result_item

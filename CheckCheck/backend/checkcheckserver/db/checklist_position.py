@@ -169,12 +169,16 @@ class CheckListPositionCRUD(
         user_id: uuid.UUID,
         raise_exception_if_not_exists=None,
     ) -> CheckListPosition:
+        log.debug(("checklist_id", type(checklist_id), checklist_id))
+        log.debug(("user_id", type(user_id), user_id))
         query = select(CheckListPosition).where(
-            CheckListPosition.checklist_id == checklist_id
-            and CheckListPosition.user_id == user_id
+            and_(
+                CheckListPosition.checklist_id == checklist_id,
+                CheckListPosition.user_id == user_id,
+            )
         )
         results = await self.session.exec(statement=query)
-        existing_obj = results.one_or_none()
+        existing_obj = results.unique().one_or_none()
         if existing_obj is None and raise_exception_if_not_exists:
             raise raise_exception_if_not_exists
         elif existing_obj is None:
@@ -222,4 +226,4 @@ class CheckListPositionCRUD(
         current_highest_pos_result = await self.session.exec(
             current_highest_index_query
         )
-        return current_highest_pos_result.one_or_none()
+        return current_highest_pos_result.unique().one_or_none()
