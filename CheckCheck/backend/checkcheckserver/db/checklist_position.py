@@ -94,7 +94,7 @@ class CheckListPositionCRUD(
             and CheckListPosition.user_id == user_id
         )
         results = await self.session.exec(statement=query)
-        result_item = results.one_or_none()
+        result_item = results.unique().one_or_none()
 
         if result_item is None and raise_exception_if_none:
             raise raise_exception_if_none
@@ -129,7 +129,7 @@ class CheckListPositionCRUD(
             .limit(1)
         )
         result = await self.session.exec(query)
-        return result.one_or_none()
+        return result.unique().one_or_none()
 
     async def get_prev(
         self, checklist_id: uuid.UUID, user_id: uuid.UUID

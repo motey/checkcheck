@@ -1,13 +1,13 @@
 <template>
   <div class="sticky z-[99999] top-0 w-full border-b bg-white/75 dark:bg-gray-900/75 backdrop-blur">
     
-    <div class="container mx-auto flex items-center justify-between py-4">
+    <div class="container mx-auto flex items-center justify-between py-1">
       <div class="flex items-center space-x-4">
         <!-- Text on the left -->
 
         <!-- Colored square with rounded corners and icon inside -->
-        <div class="relative bg-amber-400 rounded-lg p-3 w-20 h-20 flex items-center justify-center">
-          <UIcon name="i-lucide-list-checks" class="size-14 text-white" />
+        <div class="relative bg-amber-400 rounded-lg p-0 w-16 h-16 flex items-center justify-center">
+          <UIcon name="i-lucide-list-checks" class="size-12 text-white" />
           <!-- Folded corner -->
           <div class="absolute top-0 right-0 w-6 h-6 overflow-hidden">
             <div class="w-full h-full bg-white/100 dark:bg-gray-900/100 clip-path-folded-corner"></div>

@@ -3,16 +3,19 @@
     <VueAwesomeSideBar
     v-model:miniMenu="miniMenu"
     v-model:collapsed="collapsed"
+    :overLayerOnOpen="false"
     :menu="myMenu"
-    position="relative"
+    :position="sidebarPosition"
     vueRouterEnabel
   ></VueAwesomeSideBar>
 </template>
 <script setup lang="ts">
+import { UButton } from '#components'
 import { ref } from 'vue'
-
-const collapsed = ref(false)
-const miniMenu = ref(false)
+const collapsed = defineModel<boolean>('collapsed')
+const miniMenu = defineModel<boolean>('miniMenu')
+const overlayMenu = defineModel<boolean>('overlayMenu')
+const sidebarPosition = computed(() => (overlayMenu.value ? 'fixed' : 'relative'))
 const myMenu = [
   {
     name: 'Getting Started',
@@ -54,8 +57,8 @@ const myMenu = [
 ]
 
 </script>
-<style scoped>
-:depp(.vas-menu){
+<style>
+.vas-menu{
   height: 100% !important;
 }
 </style>
