@@ -1,6 +1,6 @@
 <template>
   <ul v-if="dragCheckLists" ref="checkListBoard" class="grid gap-4 grid-cols-[repeat(auto-fill,minmax(16rem,1fr))]">
-    <li v-for="checkList in dragCheckLists" :key="checkList.id" class="w-full max-w-64 sm:w-auto checklist-preview">
+    <li v-for="checkList in dragCheckLists" :key="checkList.id" class="w-full  sm:w-auto checklist-preview">
       <CheckList :checkListId="checkList.id" @click="openCheckListEditor(checkList.id)" :previewModeActive="true" />
     </li>
     <li class="no-drag col-span-full text-center py-4" ref="loadMoreTrigger" v-element-visibility="onLoadingTriggerVisibility"
@@ -90,7 +90,7 @@ ul {
   margin: 0 auto;
   width: 100%;
   /*max-width: 1400px;*/
-  padding: 0 16px;
+  padding: 14px 14px;
 }
 .checklist-preview:hover {
   transform: translateY(-2px);

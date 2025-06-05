@@ -8,7 +8,7 @@
     <div class="flex-none w-4">
       <UCheckbox v-model="checkListItem!.state.checked" @click.stop="toggleCheck()" size="xl"  />
     </div>
-    <div v-if="!parentEditMode" :class="['shrink-0 w-40 pl-2', { 'line-clamp-3': !parentEditMode, 'strikethrough': checkListItem?.state.checked }]" class="">
+    <div v-if="!parentEditMode" :class="['shrink-0 w-[100%] pl-2', { 'line-clamp-3': !parentEditMode, 'strikethrough': checkListItem?.state.checked }]" class="">
       {{ checkListItem!.text }}
     </div>
 

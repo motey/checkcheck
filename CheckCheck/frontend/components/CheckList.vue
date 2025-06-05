@@ -3,7 +3,7 @@
     v-if="checkListId"
     :style="{ color: textColor, backgroundColor: backgroundColor, borderColor: accentColor }"
     :class="backgroundColor"
-    class="checklist list-drag-handle shadow rounded gap-0 textareas-inherit-color min-h-48 max-h-[95vh] flex flex-col border-1 border-solid"
+    class="checklist list-drag-handle shadow rounded gap-0 textareas-inherit-color min-h-48  flex flex-col border-1 border-solid px-4 sm:p-4 lg:p-6"
   >
 
     <div v-if="!editModeActive" class="flex-none text-lg font-semibold min-h-8">

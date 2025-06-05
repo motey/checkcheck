@@ -102,7 +102,7 @@ async def list_checklists(
         include_sub_obj=True,
         label_id=label_id,
     )
-    log.debug(f"result_checklist_items {result_checklist_items}")
+    # log.debug(f"result_checklist_items {result_checklist_items}")
     return PaginatedResponse(
         total_count=await checklist_crud.count(
             user_id=current_user.id,

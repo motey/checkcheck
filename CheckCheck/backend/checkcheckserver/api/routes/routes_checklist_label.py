@@ -22,45 +22,16 @@ from fastapi import Depends, APIRouter
 from checkcheckserver.db.user import User
 
 from checkcheckserver.model.checklist import (
-    CheckListCreate,
-    ChecklistColorScheme,
     CheckList,
-    CheckListCreate,
-    CheckListUpdate,
-)
-from checkcheckserver.db.checklist import CheckListCRUD
-from checkcheckserver.db.checklist_position import (
-    CheckListPosition,
-    CheckListPositionCRUD,
-)
-from checkcheckserver.model.checklist_item_position import (
-    CheckListItemPosition,
-    CheckListItemPositionCreate,
-    CheckListItemPositionUpdate,
-    CheckListItemPositionApiCreate,
-    CheckListItemPositionApiUpdate,
-    CheckListItemPositionPublicWithoutChecklistID,
-)
-from checkcheckserver.model.checklist_item_state import (
-    CheckListItemState,
-    CheckListItemStateCreate,
-    CheckListItemStateUpdate,
-    CheckListItemStateWithoutChecklistID,
-)
-from checkcheckserver.db.checklist_collaborator import CheckListCollaboratorCRUD
-from checkcheckserver.model.checklist_collaborator import CheckListCollaborator
-from checkcheckserver.db.checklist_item_position import CheckListItemPositionCRUD
-from checkcheckserver.db.checklist_item_state import CheckListItemStateCRUD
-from checkcheckserver.db.checklist_item import CheckListItemCRUD
-from checkcheckserver.model.checklist_item import (
-    CheckListItem,
-    CheckListItemCreateAPI,
-    CheckListItemUpdate,
-    CheckListItemCreate,
-    CheckListItemRead,
 )
 
-from checkcheckserver.model.label import Label, LabelUpdate, LabelCreateAPI
+
+from checkcheckserver.model.label import (
+    Label,
+    LabelUpdate,
+    LabelCreate,
+    LabelReadAPI,
+)
 from checkcheckserver.model.checklist_label import CheckListLabel, CheckListLabelCreate
 from checkcheckserver.db.label import LabelCRUD
 from checkcheckserver.db.checklist_label import ChecklistLabelCRUD
@@ -101,29 +72,15 @@ CheckListItemQueryParams: Type[QueryParamsInterface] = create_query_params_class
 from pydantic import BaseModel, Field
 
 
-class CheckListsItemPreview(BaseModel):
-    items: List[CheckListItemRead]
-    item_count: int = Field(
-        default=0, description="Total count of checklist items in the backend."
-    )
-    item_checked_count: int = Field(
-        default=0, description="Total count of checked checklist items in the backend."
-    )
-    item_unchecked_count: int = Field(
-        default=0,
-        description="Total count of unchecked checklist items in the backend.",
-    )
-
-
 @fast_api_checklist_label_router.get(
     "/label",
-    response_model=List[Label],
+    response_model=List[LabelReadAPI],
     description=f"List all labels of the current user",
 )
 async def list_labels(
     label_crud: LabelCRUD = Depends(LabelCRUD.get_crud),
     current_user: User = Depends(get_current_user),
-) -> Dict[uuid.UUID, CheckListsItemPreview]:
+) -> List[LabelReadAPI]:
     return await label_crud.list(user_id=current_user.id)
 
 
@@ -133,20 +90,21 @@ async def list_labels(
     description=f"Create new label for current user.",
 )
 async def create_label(
-    label_create: LabelCreateAPI,
+    label_create: LabelCreate,
     label_crud: LabelCRUD = Depends(LabelCRUD.get_crud),
     current_user: User = Depends(get_current_user),
 ) -> Label:
-    return await label_crud.create(
-        Label.model_validate(
-            label_create.model_dump(exclude_unset=True) | {"owner_id": current_user.id}
-        )
+    log.debug(("label_create", label_create))
+    label = Label.model_validate(
+        label_create.model_dump(exclude_unset=True) | {"owner_id": current_user.id}
     )
+    log.debug(("label", label))
+    return await label_crud.create(label)
 
 
 @fast_api_checklist_label_router.patch(
     "/label/{label_id}",
-    response_model=LabelUpdate,
+    response_model=LabelReadAPI,
     description=f"Update existing label. Current user must be owner.",
 )
 async def update_label(
@@ -154,7 +112,7 @@ async def update_label(
     label_update: LabelUpdate,
     label_crud: LabelCRUD = Depends(LabelCRUD.get_crud),
     current_user: User = Depends(get_current_user),
-) -> Label:
+) -> LabelReadAPI:
     existing_label: Label = await label_crud.get(
         label_id,
         raise_exception_if_none=HTTPException(status_code=status.HTTP_404_NOT_FOUND),
@@ -172,7 +130,7 @@ async def delete_label(
     label_id: uuid.UUID,
     label_crud: LabelCRUD = Depends(LabelCRUD.get_crud),
     current_user: User = Depends(get_current_user),
-) -> Label:
+) -> LabelReadAPI:
     existing_label: Label = await label_crud.get(
         label_id,
         raise_exception_if_none=HTTPException(status_code=status.HTTP_404_NOT_FOUND),
@@ -184,18 +142,21 @@ async def delete_label(
 
 @fast_api_checklist_label_router.get(
     "/checklist/{checklist_id}/label",
-    response_model=Label,
+    response_model=List[LabelReadAPI],
     description=f"List all labels of an existing checklist.",
 )
 async def list_labels_of_checklist(
     checklist_access: UserChecklistAccess = Security(user_has_checklist_access),
-) -> Label:
-    return checklist_access.checklist.labels
+    label_crud: LabelCRUD = Depends(LabelCRUD.get_crud),
+) -> List[LabelReadAPI]:
+    return await label_crud.get_multiple(
+        ids=[l.id for l in checklist_access.checklist.labels]
+    )
 
 
-@fast_api_checklist_label_router.post(
+@fast_api_checklist_label_router.put(
     "/checklist/{checklist_id}/label/{label_id}",
-    response_model=Label,
+    response_model=LabelReadAPI,
     description=f"Add an existing label to an existign checklist.",
 )
 async def add_label_to_checklist(
@@ -204,7 +165,7 @@ async def add_label_to_checklist(
     label_crud: LabelCRUD = Depends(LabelCRUD.get_crud),
     checklist_label_crud: ChecklistLabelCRUD = Depends(ChecklistLabelCRUD.get_crud),
     current_user: User = Depends(get_current_user),
-) -> Label:
+) -> LabelReadAPI:
     label_not_exist_exception = HTTPException(
         status_code=status.HTTP_404_NOT_FOUND, detail="Label does not exist"
     )

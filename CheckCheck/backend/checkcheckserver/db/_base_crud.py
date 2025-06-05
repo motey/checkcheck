@@ -7,6 +7,8 @@ from typing import (
     Self,
     TypeVar,
     Generic,
+    ClassVar,
+    Any,
 )
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy import text
@@ -35,15 +37,20 @@ GenericCRUDCreateType = TypeVar("GenericCRUDCreateType", bound=BaseTable)
 
 
 class CRUDBaseMetaClass(type):
+    def __new__(mcs, name, bases, namespace, **kwargs):
+        cls = super().__new__(mcs, name, bases, namespace, **kwargs)
+
+        # Cache the generic type arguments for better type resolution
+        # We need to check this after CRUDBase is defined, so we'll do it in __init_subclass__
+        return cls
+
     @property
     def crud_context(cls):
+        """Async context manager for CRUD operations"""
         return contextlib.asynccontextmanager(cls.get_crud)
 
 
-class DatabaseInteractionBase(
-    metaclass=CRUDBaseMetaClass,
-):
-
+class DatabaseInteractionBase(metaclass=CRUDBaseMetaClass):
     def __init__(self, session: AsyncSession):
         self.session = session
 
@@ -64,43 +71,81 @@ class CRUDBase(
         GenericCRUDUpdateType,
     ],
 ):
+    # These will be set by __init_subclass__
+    _table_cls: ClassVar[Type[Any]]
+    _read_cls: ClassVar[Type[Any]]
+    _create_cls: ClassVar[Type[Any]]
+    _update_cls: ClassVar[Type[Any]]
 
     def __init_subclass__(cls, **kwargs):
         super().__init_subclass__(**kwargs)
 
+        # Cache the generic type arguments for better type resolution
+        if hasattr(cls, "__orig_bases__"):
+            for base in cls.__orig_bases__:
+                if (
+                    hasattr(base, "__origin__")
+                    and base.__origin__ is CRUDBase
+                    and len(base.__args__) == 4
+                ):
+                    cls._table_cls = base.__args__[0]
+                    cls._read_cls = base.__args__[1]
+                    cls._create_cls = base.__args__[2]
+                    cls._update_cls = base.__args__[3]
+                    break
+
     @classmethod
-    def _get_generics_def(cls):
-        for base in cls.__orig_bases__:
+    def get_table_cls(cls) -> Type[GenericCRUDTableType]:
+        if hasattr(cls, "_table_cls"):
+            return cls._table_cls
+        # Fallback to original method
+        for base in getattr(cls, "__orig_bases__", []):
             if (
                 hasattr(base, "__origin__")
                 and base.__origin__ is CRUDBase
                 and len(base.__args__) == 4
-                and issubclass(base.__args__[0], (TimestampedModel, BaseTable))
             ):
-                return base
-
-    @classmethod
-    def get_table_cls(cls) -> Type[GenericCRUDTableType]:
-        return cls._get_generics_def().__args__[0]
+                return base.__args__[0]
+        raise RuntimeError(f"Cannot determine table class for {cls}")
 
     @classmethod
     def get_read_cls(cls) -> Type[GenericCRUDReadType]:
-        return cls._get_generics_def().__args__[1]
+        if hasattr(cls, "_read_cls"):
+            return cls._read_cls
+        for base in getattr(cls, "__orig_bases__", []):
+            if (
+                hasattr(base, "__origin__")
+                and base.__origin__ is CRUDBase
+                and len(base.__args__) == 4
+            ):
+                return base.__args__[1]
+        raise RuntimeError(f"Cannot determine read class for {cls}")
 
     @classmethod
     def get_create_cls(cls) -> Type[GenericCRUDCreateType]:
-
-        return cls._get_generics_def().__args__[2]
+        if hasattr(cls, "_create_cls"):
+            return cls._create_cls
+        for base in getattr(cls, "__orig_bases__", []):
+            if (
+                hasattr(base, "__origin__")
+                and base.__origin__ is CRUDBase
+                and len(base.__args__) == 4
+            ):
+                return base.__args__[2]
+        raise RuntimeError(f"Cannot determine create class for {cls}")
 
     @classmethod
     def get_update_cls(cls) -> Type[GenericCRUDUpdateType]:
-        return cls._get_generics_def().__args__[3]
-
-    """Moved to metaclass CRUDBaseMetaClass to be an property `crud_context`. otherwise we had to call "cls.get_crud_context()(session)" which is ugly
-    @classmethod
-    def get_crud_context(cls):
-        return contextlib.asynccontextmanager(cls.get_crud)
-    """
+        if hasattr(cls, "_update_cls"):
+            return cls._update_cls
+        for base in getattr(cls, "__orig_bases__", []):
+            if (
+                hasattr(base, "__origin__")
+                and base.__origin__ is CRUDBase
+                and len(base.__args__) == 4
+            ):
+                return base.__args__[3]
+        raise RuntimeError(f"Cannot determine update class for {cls}")
 
     @classmethod
     def get_default_order_by(cls):
@@ -175,8 +220,11 @@ class CRUDBase(
             log.warning(
                 f"'exists_ok' and 'raise_custom_exception_if_exists' are set for creation of '{type(obj)}'. If object exists and 'exists_ok' = True,  it will never raise the Exception."
             )
-        new_table_obj: GenericCRUDTableType = self.get_table_cls().model_validate(obj)
-        self.session.add(new_table_obj)
+        new_obj: GenericCRUDTableType = self.get_table_cls().model_validate(
+            obj.model_dump()
+        )
+
+        self.session.add(new_obj)
         try:
             await self.session.commit()
         except IntegrityError as err:
@@ -196,11 +244,12 @@ class CRUDBase(
                 if raise_custom_exception_if_exists:
                     raise raise_custom_exception_if_exists
                 raise err
+
+        await self.session.refresh(new_obj)
         log.debug(
-            f"Created {self.get_table_cls().__name__} object of type '{type(obj)}'. Data: <{obj}>"
+            f"Created {self.get_table_cls().__name__} object of type '{type(obj)}'.\n\tData In: <{obj}>\n\tData Out: <{new_obj}>"
         )
-        await self.session.refresh(new_table_obj)
-        return new_table_obj
+        return new_obj
 
     async def find(
         self,
@@ -219,7 +268,7 @@ class CRUDBase(
 
         for attr, val in obj.model_dump().items():
             query = query.where(getattr(tbl, attr) == val)
-        log.debug(f"find {tbl.__class__} query: {query}")
+        # log.debug(f"find {tbl.__class__} query: {query}")
         res = await self.session.exec(query)
         result_objs = list(res.unique())
         # log.debug(("result_objs", list(result_objs)))

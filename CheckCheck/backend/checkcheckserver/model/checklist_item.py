@@ -48,7 +48,7 @@ class CheckListItemBase(BaseTable, table=False):
 
 class CheckListItemCreate(CheckListItemBase, table=False):
     id: Optional[uuid.UUID] = Field(default_factory=uuid.uuid4)
-    checklist_id: uuid.UUID = Field(exclude=True)
+    checklist_id: uuid.UUID = Field()
 
 
 class CheckListItemUpdate(CheckListItemBase, table=False):

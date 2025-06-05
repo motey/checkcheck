@@ -131,7 +131,7 @@ async def update_checklist_position(
     return result_item
 
 
-@fast_api_checklist_position_router.patch(
+@fast_api_checklist_position_router.put(
     "/checklist/{checklist_id}/move/under/{other_checklist_id}",
     response_model=CheckListPosition,
     description=f"Move a checklist under another checklist in the positon index (the new checklist-position-index-value will be lower to the other checklist-position-index-value)",
@@ -199,7 +199,7 @@ async def move_checklist_under_other_checklist(
     return target_pos
 
 
-@fast_api_checklist_position_router.patch(
+@fast_api_checklist_position_router.put(
     "/checklist/{checklist_id}/move/above/{other_checklist_id}",
     response_model=CheckListPosition,
     description=f"Move a checklist above another checklist in the positon index (the new checklist-position-index-value will be higher compared to the other checklist-position-index-value)",

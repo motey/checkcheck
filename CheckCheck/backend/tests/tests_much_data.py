@@ -7,7 +7,7 @@ import json
 import time
 import requests
 import random
-from utils import req, dict_must_contain, list_contains_dict_that_must_contain
+from utils import req, dict_must_contain, list_contains_dict_that_must_contain, dictyfy
 from statics import (
     ADMIN_USER_EMAIL,
     ADMIN_USER_NAME,
@@ -37,11 +37,31 @@ def test_much_data():
         ChecklistColorScheme,
     )
 
-    colors = [c["id"] for c in req(f"api/color", method="get")]
+    colors: List[Dict] = [c["id"] for c in req(f"api/color", method="get")]
     colors.append(None)
 
-    def get_random_color():
+    def get_random_color_id():
         return random.choice(colors)
+
+    from checkcheckserver.api.routes.routes_checklist_label import (
+        create_label,
+        list_labels,
+        LabelCreate,
+    )
+
+    for word in get_random_words(fixed_amount=8).split(" "):
+        label_create = LabelCreate(color_id=get_random_color_id(), display_name=word)
+        print(f"label_create: {label_create}")
+        cl = req(
+            f"api/label",
+            method="post",
+            b=dictyfy(label_create),
+        )
+    label_ids = [c["id"] for c in req(f"api/label", method="get")]
+
+    def get_random_label_ids():
+        no_of_labels = random.randint(0, int(len(label_ids) / 2))
+        return random.sample(label_ids, no_of_labels)
 
     checklists = []
     for i in range(0, 100):
@@ -61,9 +81,17 @@ def test_much_data():
                     if random.choice([True, False])
                     else None
                 ),
-                "color_id": get_random_color(),
+                "color_id": get_random_color_id(),
             },
         )
+        from checkcheckserver.api.routes.routes_checklist_label import (
+            add_label_to_checklist,
+        )
+
+        for label_id in get_random_label_ids():
+            # add label to checklist
+            print("label", label_id)
+            req(f"/api/checklist/{cl['id']}/label/{label_id}", method="put")
         checklists.append(cl)
         for j in range(0, random.randint(0, 70)):
             # from checkcheckserver.api.routes.routes_checklist_item import create_checklist_item

@@ -160,7 +160,7 @@ class CheckListPositionCRUD(
             .limit(1)
         )
         result = await self.session.exec(query)
-        return result.one_or_none()
+        return result.unique().one_or_none()
 
     async def update(
         self,

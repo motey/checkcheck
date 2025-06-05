@@ -1,4 +1,12 @@
-from typing import AsyncGenerator, List, Optional, Literal, Sequence, Annotated
+from typing import (
+    AsyncGenerator,
+    List,
+    Optional,
+    Literal,
+    Sequence,
+    Annotated,
+    TYPE_CHECKING,
+)
 from pydantic import (
     validate_email,
     validator,
@@ -9,13 +17,15 @@ from pydantic import (
 import datetime
 from fastapi import Depends
 from typing import Optional
-from sqlmodel import Field, UniqueConstraint
+from sqlmodel import Field, UniqueConstraint, Relationship
 
 import uuid
 from uuid import UUID
 
 from checkcheckserver.model._base_model import BaseTable, TimestampedModel
 
+if TYPE_CHECKING:
+    from checkcheckserver.model.label import Label
 from checkcheckserver.config import Config
 from checkcheckserver.log import get_logger
 
@@ -32,3 +42,4 @@ class CheckListLabelCreate(BaseTable, table=False):
 
 class CheckListLabel(CheckListLabelCreate, table=True):
     __tablename__ = "checklist_label"
+    label: "Label" = Relationship(sa_relationship_kwargs={"lazy": "joined"})

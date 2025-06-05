@@ -112,7 +112,7 @@ async def get_checklist_item_position(
     response_model=CheckListItemPosition,
     description=f"Get the position for a specific checklist item",
 )
-async def set_checklist_item_position(
+async def update_checklist_item_position(
     position: CheckListItemPositionApiUpdate,
     checklist_item_id: uuid.UUID,
     checklist_access: UserChecklistAccess = Security(user_has_checklist_access),
@@ -132,7 +132,7 @@ async def set_checklist_item_position(
     )
 
 
-@fast_api_checklist_item_pos_router.patch(
+@fast_api_checklist_item_pos_router.put(
     "/checklist/{checklist_id}/item/{checklist_item_id}/move/under/{other_checklist_item_id}",
     response_model=CheckListItemPosition,
     description=f"Move a checklist item under another checklist item in the positon index (the new checklist-position-index-value will be higher compared to the other checklist-position-index-value)",
@@ -186,7 +186,7 @@ async def move_item_under_other_item(
     return target_pos
 
 
-@fast_api_checklist_item_pos_router.patch(
+@fast_api_checklist_item_pos_router.put(
     "/checklist/{checklist_id}/item/{checklist_item_id}/move/above/{other_checklist_item_id}",
     response_model=CheckListItemPosition,
     description=f"Move a checklist item above another checklist item in the positon index (the new checklist-position-index-value will be lower compared to the other checklist-position-index-value)",
@@ -237,7 +237,7 @@ async def move_item_above_other_item(
     return target_pos
 
 
-@fast_api_checklist_item_pos_router.patch(
+@fast_api_checklist_item_pos_router.put(
     "/checklist/{checklist_id}/item/{checklist_item_id}/move/bottom",
     response_model=CheckListItemPosition,
     description=f"",
@@ -267,7 +267,7 @@ async def move_item_to_bottom_of_checklist(
     return target_pos
 
 
-@fast_api_checklist_item_pos_router.patch(
+@fast_api_checklist_item_pos_router.put(
     "/checklist/{checklist_id}/item/{checklist_item_id}/move/top",
     response_model=CheckListItemPosition,
     description=f"Get the position for a specific checklist item",

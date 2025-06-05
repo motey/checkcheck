@@ -181,7 +181,7 @@ export const useCheckListsStore = defineStore("checkList", {
       try {
         resPos = await $checkapi("/api/checklist/{checklist_id}/move/under/{other_checklist_id}", {
           path: { checklist_id: itemToMove.id, other_checklist_id: otherItem.id },
-          method: "patch",
+          method: "put",
         });
       } catch (error) {
         console.error(
@@ -210,7 +210,7 @@ export const useCheckListsStore = defineStore("checkList", {
       try {
         resPos = await $checkapi("/api/checklist/{checklist_id}/move/above/{other_checklist_id}", {
           path: { checklist_id: itemToMove.id, other_checklist_id: otherItem.id },
-          method: "patch",
+          method: "put",
         });
       } catch (error) {
         console.error(
@@ -254,7 +254,7 @@ export const useCheckListsStore = defineStore("checkList", {
       var index = this.checkLists.findIndex((checklist) => checklist.id == checkListId);
       var checkList: CheckListType;
       if (index !== -1) {
-        checkList = this.checkLists[index];
+        checkList = this.checkLists[index]!;
       } else {
         checkList = await this.refresh(checkListId);
       }

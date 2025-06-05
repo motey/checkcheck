@@ -40,7 +40,7 @@ log = get_logger()
 config = Config()
 
 
-class LabelCreateAPI(BaseTable, table=False):
+class LabelCreate(BaseTable, table=False):
     color_id: Optional[str] = Field(
         foreign_key="checklist_color_scheme.id",
         default=None,
@@ -52,7 +52,7 @@ class LabelCreateAPI(BaseTable, table=False):
     )
 
 
-class LabelUpdate(LabelCreateAPI, table=False):
+class LabelUpdate(LabelCreate, table=False):
     color_id: Optional[str] = Field(
         foreign_key="checklist_color_scheme.id",
         default=None,
@@ -64,6 +64,12 @@ class LabelUpdate(LabelCreateAPI, table=False):
         description="Label order per user",
         default=None,
     )
+
+
+class LabelReadAPI(LabelUpdate, table=False):
+    id: uuid.UUID
+    owner_id: uuid.UUID
+    color: Optional[ChecklistColorScheme]
 
 
 class Label(LabelUpdate, table=True):

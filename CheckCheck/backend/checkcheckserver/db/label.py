@@ -27,7 +27,7 @@ from checkcheckserver.model.checklist_color_scheme import (
     ChecklistColorScheme,
 )
 
-from checkcheckserver.model.label import Label, LabelUpdate
+from checkcheckserver.model.label import Label, LabelUpdate, LabelCreate
 
 from checkcheckserver.db._base_crud import create_crud_base
 from checkcheckserver.api.paginator import QueryParamsInterface
@@ -41,7 +41,7 @@ class LabelCRUD(
     create_crud_base(
         table_model=Label,
         read_model=Label,
-        create_model=Label,
+        create_model=LabelCreate,
         update_model=LabelUpdate,
     )
 ):

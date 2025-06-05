@@ -45,7 +45,7 @@
           >
             <UButton
               @click.stop="setCheckListColor(color.id)"
-              :key="color.backgroundcolor_light_hex"
+              :key="color.id"
               size="xl"
               variant="solid"
               class="rounded-full border-1"

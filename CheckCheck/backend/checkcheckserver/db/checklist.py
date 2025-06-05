@@ -136,6 +136,7 @@ class CheckListCRUD(
                 selectinload(CheckList.labels),
                 with_loader_criteria(CheckListLabel, CheckListLabel.user_id == user_id),
             )
+
             """
             query = query.join(
                 CheckListLabel,

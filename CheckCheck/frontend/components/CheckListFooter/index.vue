@@ -5,6 +5,7 @@
     <CheckListFooterButtonShare :checkListId="checkListId" />
     <CheckListFooterMoreOptionsMenu :checkListId="checkListId" />
   </UButtonGroup>
+  <CheckListFooterLabelsPreviewButton :checkListId="checkListId"></CheckListFooterLabelsPreviewButton>
 </template>
 
 <script setup lang="ts">

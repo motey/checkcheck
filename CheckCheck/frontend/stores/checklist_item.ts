@@ -509,7 +509,7 @@ export const useCheckListsItemStore = defineStore("checkListitem", {
               checklist_item_id: itemToMove.id,
               other_checklist_item_id: otherItem.id,
             },
-            method: "patch",
+            method: "put",
           }
         );
       } catch (error) {
@@ -546,7 +546,7 @@ export const useCheckListsItemStore = defineStore("checkListitem", {
               checklist_item_id: itemToMove.id,
               other_checklist_item_id: otherItem.id,
             },
-            method: "patch",
+            method: "put",
           }
         );
       } catch (error) {
@@ -576,7 +576,7 @@ export const useCheckListsItemStore = defineStore("checkListitem", {
       try {
         resPos = await $checkapi("/api/checklist/{checklist_id}/item/{checklist_item_id}/move/bottom", {
           path: { checklist_id: checkListId, checklist_item_id: itemToMove.id },
-          method: "patch",
+          method: "put",
         });
       } catch (error) {
         console.error(
@@ -603,7 +603,7 @@ export const useCheckListsItemStore = defineStore("checkListitem", {
       try {
         resPos = await $checkapi("/api/checklist/{checklist_id}/item/{checklist_item_id}/move/top", {
           path: { checklist_id: checkListId, checklist_item_id: itemToMove.id },
-          method: "patch",
+          method: "put",
         });
       } catch (error) {
         console.error(
