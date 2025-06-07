@@ -36,20 +36,24 @@ export const useCheckListsStore = defineStore("checkList", {
     },
     getCheckLists: (state) => {
       return (archived: boolean | null = null, limit: number | null = null) => {
-        const checklists = state.checkLists;
-        let filtered = checklists;
-
-        if (archived !== null) {
-          filtered = filtered.filter((item) => item.position.archived === archived);
+        const filterLabelId = state.filterLabelId;
+        if (archived === null && limit === null && state.filterLabelId === null) {
+          return [...state.checkLists];
         }
-
-        if (limit !== null && limit > 0) {
-          filtered = filtered.slice(0, limit);
-        }
-        if (state.filterLabelId !== null) {
-          filtered = filtered.filter((item) =>  item.labels.filter((label) => label.id === state.filterLabelId).length > 0 );
-        }
-        return filtered;
+    
+        const filtered = state.checkLists.filter((item) => {
+          if (archived !== null && item.position.archived !== archived) {
+            return false;
+          }
+    
+          if (filterLabelId !== null && !item.labels.some(label => label.id === filterLabelId)) {
+            return false;
+          }
+    
+          return true;
+        });
+    
+        return (limit !== null && limit > 0) ? filtered.slice(0, limit) : filtered;
       };
     },
     get: (state) => {

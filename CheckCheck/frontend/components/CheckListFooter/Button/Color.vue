@@ -1,6 +1,8 @@
 <template>
-  <UTooltip @click.stop text="Change Color" :popper="{ arrow: true }">
-    <UPopover arrow class="border-0">
+  <UTooltip @click.stop text="Change Color" :popper="{ arrow: true }" >
+    <UPopover arrow class="border-0":ui="{
+    content: 'p-0 m-0 lg:p-0 bg-transparent border-0',       // Remove padding from content
+  }">
       <CheckListColoredButton
         variant="ghost"
         icon="i-lucide-palette"
@@ -8,16 +10,16 @@
         @click.stop
       />
       <template #content>
-        <UContainer class="flex flex-wrap gap-0 border-0">
+        <UContainer class="flex flex-wrap gap-0 border-0 bg-transparent p-0 lg:p-0 sm:p-0">
           <UTooltip text="No Color" :popper="{ arrow: true }">
             <UButton
               @click.stop="setCheckListColor(null)"
               key="no_color"
               size="xl"
               variant="solid"
-              class="rounded-full border-1"
+              class=" border-1 bg-neutral-100 border-transparent lg:p-2 sm:p-2"
               :style="{
-                backgroundColor: 'transparent',
+                
                 borderColor: 'transparent',
                 transition: 'border-color 0.3s',
                 color: 'red',
@@ -48,7 +50,7 @@
               :key="color.id"
               size="xl"
               variant="solid"
-              class="rounded-full border-1"
+              class=" border-1 border-transparent"
               :style="{
                 backgroundColor:
                   colorMode.value === 'dark' ? color.backgroundcolor_dark_hex : color.backgroundcolor_light_hex,
