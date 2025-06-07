@@ -1,11 +1,14 @@
 <template>
+  <CheckListFooterLabelsPreviewButton :checkListId="checkListId"></CheckListFooterLabelsPreviewButton>
+  <div class="flex justify-center">
   <UButtonGroup>
     <CheckListFooterButtonArchive :checkListId="checkListId" />
     <CheckListFooterButtonColor :checkListId="checkListId" />
     <CheckListFooterButtonShare :checkListId="checkListId" />
-    <CheckListFooterMoreOptionsMenu :checkListId="checkListId" />
+    <CheckListFooterButtonMoreOptionsMenu :checkListId="checkListId" />
   </UButtonGroup>
-  <CheckListFooterLabelsPreviewButton :checkListId="checkListId"></CheckListFooterLabelsPreviewButton>
+</div>
+  
 </template>
 
 <script setup lang="ts">

@@ -1,9 +1,10 @@
 <template>
+  checkListStore.filterLabelId {{ checkListStore.filterLabelId }}
   <ul v-if="dragCheckLists" ref="checkListBoard" class="grid gap-4 grid-cols-[repeat(auto-fill,minmax(16rem,1fr))]">
     <li v-for="checkList in dragCheckLists" :key="checkList.id" class="w-full  sm:w-auto checklist-preview">
       <CheckList :checkListId="checkList.id" @click="openCheckListEditor(checkList.id)" :previewModeActive="true" />
     </li>
-    <li class="no-drag col-span-full text-center py-4" ref="loadMoreTrigger" v-element-visibility="onLoadingTriggerVisibility"
+    <li class="no-drag  text-center py-4" ref="loadMoreTrigger" v-element-visibility="onLoadingTriggerVisibility"
       v-if="checkLists.length < total_backend_count">
       <UButton icon="i-heroicons-arrow-path" :loading="loadingInProcess" variant="ghost">
         Load more...
@@ -17,9 +18,11 @@ const runtimeConfig = useRuntimeConfig();
 import { useCheckListsStore } from "@/stores/checklist";
 import { useCheckListsItemStore } from "@/stores/checklist_item";
 import { useCheckListsColorSchemeStore } from "@/stores/color";
+import { useCheckListsLabelStore } from "@/stores/label";
 const checkListStore = useCheckListsStore();
 const checkListItemStore = useCheckListsItemStore();
 const checkListsColorSchemeStore = useCheckListsColorSchemeStore()
+const checkListsLabelStore = useCheckListsLabelStore()
 const { checkLists, total_backend_count } = storeToRefs(checkListStore);
 
 import { useDragAndDrop } from "@formkit/drag-and-drop/vue";
@@ -36,6 +39,7 @@ const modalCheckListEditor = overlayCheckListEditor.create(CheckListEditModal)
 onMounted(async () => {
     await checkListStore.fetchNextPage()
   await checkListsColorSchemeStore.fetchColors()
+  await checkListsLabelStore.fetchLabels()
 })
 
 // Main reactive source for lists

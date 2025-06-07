@@ -6,6 +6,7 @@ export type CheckListState = {
   checkLists: CheckListType[];
   total_backend_count: number;
   pending_checklist: CheckListCreateType | null;
+  filterLabelId: String | null;
 };
 /*
 checkList: {
@@ -24,6 +25,7 @@ export const useCheckListsStore = defineStore("checkList", {
       checkLists: [],
       total_backend_count: -1,
       pending_checklist: null,
+      filterLabelId: null,
     } as CheckListState),
   getters: {
     checklist_ids(state) {
@@ -44,7 +46,9 @@ export const useCheckListsStore = defineStore("checkList", {
         if (limit !== null && limit > 0) {
           filtered = filtered.slice(0, limit);
         }
-
+        if (state.filterLabelId !== null) {
+          filtered = filtered.filter((item) =>  item.labels.filter((label) => label.id === state.filterLabelId).length > 0 );
+        }
         return filtered;
       };
     },
@@ -55,6 +59,9 @@ export const useCheckListsStore = defineStore("checkList", {
     },
   },
   actions: {
+    setFilterLabel(labelId: String | null) {
+      this.filterLabelId = labelId
+    },
     async reorderCheckLists(newOrder: CheckListType[], movedItem: CheckListType) {
       const { $sortBySubset, $findNewPlacementForItem } = useNuxtApp(); // external helper, e.g., sorts items by subset order
 
