@@ -59,6 +59,8 @@ const [checkListBoard, dragCheckLists] = useDragAndDrop(checklists, {
   plugins: [animations()],
 });
 
+
+
 // Sync from store if changes are detected
 watchEffect(() => {
   const latestFromStore = checkListStore.getCheckLists(false);
