@@ -93,6 +93,8 @@ watch(
   (label) => {
     if (typeof label === "string") {
       checkListStore.setFilterLabel(label);
+    } else {
+      checkListStore.setFilterLabel(null)
     }
   },
   { immediate: true }
