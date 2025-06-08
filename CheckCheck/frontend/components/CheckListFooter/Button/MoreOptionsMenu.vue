@@ -43,10 +43,10 @@ const items = computed(
         label: "Seperate Checked Items",
         icon: "i-lucide-list-todo",
         type: "checkbox" as const,
-        checked: checkList.value!.position.checked_items_seperated!,
+        checked: checkList.value!.checked_items_seperated!,
         onUpdateChecked(checked: boolean) {
           (async () => {
-            await checkListsStore.updatePosition(props.checkListId, { checked_items_seperated: checked });
+            await checkListsStore.update(props.checkListId, { checked_items_seperated: checked } as CheckListUpdateType);
           })();
 
           console.log(checked);

@@ -5,11 +5,10 @@
       :key="mode.value"
       :label="`${mode.emoji} ${mode.label}`"
       size="sm"
-      :color="colorMode.preference === mode.value ? 'primary' : 'gray'"
-      variant="solid"
+      :color="colorMode.preference === mode.value ? 'primary' : 'neutral'"
+      :variant="colorMode.preference === mode.value ? 'solid' : 'outline'"
       @click="setTheme(mode.value)"
     />
-    VAL 'colorMode.value': {{ colorMode.value }}
   </div>
 </template>
 

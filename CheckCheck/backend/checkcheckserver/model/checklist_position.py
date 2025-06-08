@@ -54,15 +54,9 @@ class CheckListPositionApiCreate(BaseTable, table=False):
         description="Archived items are filtered out by default. They are considered obsolete.",
     )
 
-    checked_items_seperated: Optional[bool] = Field(default=True)
-    checked_items_collapsed: Optional[bool] = Field(
-        default=True,
-        description="If checked_items_seperated is enabled and this is set to true the client should hide any checked items. ",
-    )
-
 
 class CheckListPositionUpdate(CheckListPositionApiCreate, table=False):
-    checked_items_seperated: Optional[bool] = Field(default=None)
+    pass
 
 
 class CheckListPositionCreate(CheckListPositionUpdate, table=False):

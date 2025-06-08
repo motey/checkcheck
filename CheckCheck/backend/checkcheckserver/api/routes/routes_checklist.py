@@ -91,7 +91,6 @@ async def list_checklists(
     archived: Optional[bool] = Query(False),
     label_id: Optional[uuid.UUID] = None,
     checklist_crud: CheckListCRUD = Depends(CheckListCRUD.get_crud),
-    checklist_pos_crud: CheckListPositionCRUD = Depends(CheckListPositionCRUD.get_crud),
     pagination: QueryParamsInterface = Depends(CheckListQueryParams),
     current_user: User = Depends(get_current_user),
 ) -> PaginatedResponse[CheckListApiWithSubObj]:

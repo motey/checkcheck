@@ -64,25 +64,33 @@ def test_much_data():
         return random.sample(label_ids, no_of_labels)
 
     checklists = []
+    from checkcheckserver.api.routes.routes_checklist import (
+        create_checklist,
+        CheckListApiCreate,
+    )
+
     for i in range(0, 100):
-        from checkcheckserver.api.routes.routes_checklist import create_checklist
 
         cl = req(
             f"api/checklist",
             method="post",
-            b={
-                "name": (
-                    f"{i}" + get_random_words(max_amount=10)
-                    if random.choice([True, False])
-                    else None
-                ),
-                "text": (
-                    f"{i}" + get_random_words()
-                    if random.choice([True, False])
-                    else None
-                ),
-                "color_id": get_random_color_id(),
-            },
+            b=dictyfy(
+                CheckListApiCreate(
+                    name=(
+                        f"{i}" + get_random_words(max_amount=10)
+                        if random.choice([True, False])
+                        else None
+                    ),
+                    text=(
+                        f"{i}" + get_random_words()
+                        if random.choice([True, False])
+                        else None
+                    ),
+                    color_id=get_random_color_id(),
+                    checked_items_collapsed=random.choice([True, False]),
+                    checked_items_seperated=random.choice([True, False]),
+                )
+            ),
         )
         from checkcheckserver.api.routes.routes_checklist_label import (
             add_label_to_checklist,
@@ -158,7 +166,7 @@ def test_much_data():
         method="get",
     )["items"]
     assert before_count - 1 == len(checklistitems)
-    print("checklistitems", checklistitems)
+    # print("checklistitems", checklistitems)
     res = req(
         f"api/checklist/{first_checklist_id}/item",
         method="post",
@@ -168,7 +176,7 @@ def test_much_data():
         f"api/checklist/{first_checklist_id}/item",
         method="get",
     )["items"]
-    print("checklistitems", checklistitems)
+    # print("checklistitems", checklistitems)
     new_first_item = checklistitems[0]
     print("new_last_item", new_first_item)
     # dict_must_contain(new_first_item, required_keys_and_val={"text": "item 2 new"})

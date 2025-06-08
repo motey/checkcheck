@@ -13,19 +13,19 @@
   />
   <USeparator v-if="editModeActive" color="neutral" type="dashed" />
   <div v-if="editModeActive" class="flex items-center" @click="switchCollapseCheckedItems()">
-    <UIcon v-if="!checkList?.position.checked_items_collapsed" name="i-heroicons-chevron-double-down" class="w-5 h-8" />
-    <UIcon v-if="checkList?.position.checked_items_collapsed" name="i-heroicons-chevron-double-right" class="w-5 h-8" />
+    <UIcon v-if="!checkList?.checked_items_collapsed" name="i-heroicons-chevron-double-down" class="w-5 h-8" />
+    <UIcon v-if="checkList?.checked_items_collapsed" name="i-heroicons-chevron-double-right" class="w-5 h-8" />
     <span class="ml-2 text-base">{{ String(checkedItemCount) }} checked items</span>
   </div>
   <USeparator color="neutral" type="dashed"
-    v-if="!editModeActive && checkList?.position.checked_items_seperated && checkedItemCount! > 0"
+    v-if="!editModeActive && checkList?.checked_items_seperated && checkedItemCount! > 0"
     :label="`+ ${String(checkedItemCount)} checked items`"
     class="opacity-90"  :ui="{
       label: 'text-primary-500 dark:text-primary-400',
       container: { base: 'flex' },
     }"
   />
-  <Collapse :when="!checkList.position.checked_items_collapsed || false">
+  <Collapse :when="!checkList.checked_items_collapsed || false">
     <CheckListItemCollection
       v-if="editModeActive"
       :parentCheckList="checkList"
@@ -63,7 +63,7 @@ const unCheckedItemCount = checkListItemStore.getItemCount(checkList.value.id, f
 
 const showCheckedItemCount: ComputedRef<number | undefined> = computed(() => {
   if (props.showMaxItems) {
-    if (props.showMaxItems - unCheckedItemCount > 0 && !checkList.value.position.checked_items_collapsed) {
+    if (props.showMaxItems - unCheckedItemCount > 0 && !checkList.value.checked_items_collapsed) {
       return props.showMaxItems - unCheckedItemCount;
     } else {
       return 0;
@@ -73,9 +73,9 @@ const showCheckedItemCount: ComputedRef<number | undefined> = computed(() => {
 });
 
 const switchCollapseCheckedItems = () => {
-  checkList.value.position.checked_items_collapsed = !checkList.value.position.checked_items_collapsed;
+  checkList.value.checked_items_collapsed = !checkList.value.checked_items_collapsed;
   (async () => {
-    await checkListStore.updatePosition(checkList.value.id, checkList.value.position);
+    await checkListStore.update(checkList.value.id, {checked_items_collapsed:checkList.value.checked_items_collapsed} as CheckListUpdateType);
   })();
 
   console.log("SWITCH COLLAPSE");

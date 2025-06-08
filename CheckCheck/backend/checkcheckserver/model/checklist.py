@@ -41,6 +41,11 @@ class CheckListBase(BaseTable):
     color_id: Optional[str] = Field(
         default=None, foreign_key="checklist_color_scheme.id"
     )
+    checked_items_seperated: Optional[bool] = Field(default=True)
+    checked_items_collapsed: Optional[bool] = Field(
+        default=True,
+        description="If checked_items_seperated is enabled and this is set to true the client should hide any checked items. ",
+    )
 
 
 class CheckList(CheckListBase, TimestampedModel, table=True):

@@ -34,7 +34,7 @@
     />
     <div class="checklist-items-collection max-h-[90vm] overflow-y-scroll">
       <CheckListItemCollectionSeperated
-        v-if="checkList?.position?.checked_items_seperated"
+        v-if="checkList?.checked_items_seperated"
         :parentCheckList="checkList"
         :showMaxItems="showMaxItems"
         :editModeActive="editModeActive"

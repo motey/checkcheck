@@ -65,7 +65,7 @@ def test_checklist_item_endpoints():
         method="get",
     )["items"]
     assert before_count - 1 == len(checklistitems)
-    print("checklistitems", checklistitems)
+    # print("checklistitems", checklistitems)
     res = req(
         f"/checklist/{first_checklist_id}/item", method="post", b={"text": "item 2 new"}
     )
@@ -73,7 +73,7 @@ def test_checklist_item_endpoints():
         f"/checklist/{first_checklist_id}/item",
         method="get",
     )["items"]
-    print("checklistitems", checklistitems)
+    # print("checklistitems", checklistitems)
     new_first_item = checklistitems[0]
     print("new_first_item", new_first_item)
     dict_must_contain(new_first_item, required_keys_and_val={"text": "item 2 new"})
