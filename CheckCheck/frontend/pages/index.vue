@@ -12,7 +12,7 @@
           <CheckListBoard />
         </div>
       </div>
-      <div>
+      <div class="hidden">
         <USwitch v-model="isSideBarMinimized">Menu</USwitch>
       </div>
     </div>

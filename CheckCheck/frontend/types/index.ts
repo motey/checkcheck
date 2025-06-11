@@ -41,4 +41,5 @@ declare global {
     // Labels
     type Label = components["schemas"]["LabelReadAPI"]
     type LabelCreate = components["schemas"]["LabelCreate"]
+    type LabelUpdate = components["schemas"]["LabelUpdate"]
 }

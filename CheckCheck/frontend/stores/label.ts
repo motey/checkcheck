@@ -68,10 +68,23 @@ export const useCheckListsLabelStore = defineStore("checkListLabelStore", {
           checklist.labels.splice(old_label_index,1);
         }
     },
+    async createLabel(label: LabelCreate) {
+      const { $checkapi } = useNuxtApp();
+      const fresh_label = await $checkapi("/api/label", { method: "post", body: label })
+      this.labels.push(fresh_label);
+      this._sort()
+    },
+    async updateLabel(labelId:string, label: LabelUpdate) {
+      const { $checkapi,$transferAttrs } = useNuxtApp();
+      const fresh_label = await $checkapi("/api/label/{label_id}", { method: "patch", path: { label_id: labelId }, body: label })
+      const old_label_index = this.labels.findIndex((label) => label.id == labelId);
+      $transferAttrs(fresh_label, this.labels[old_label_index]!)
+      this._sort()
+    },
     async _sort() {
       // this is just a placeholder for now
         //this.labels.sort((a, b) => a.sort_order - b.sort_order);
-        this.labels.sort((a, b) => a.display_name.localeCompare(b.display_name));
+        this.labels.sort((a, b) => b.sort_order! - a.sort_order!);
     },
   },
 });

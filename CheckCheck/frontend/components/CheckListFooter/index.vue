@@ -5,6 +5,7 @@
     <CheckListFooterButtonArchive :checkListId="checkListId" />
     <CheckListFooterButtonColor :checkListId="checkListId" />
     <CheckListFooterButtonShare :checkListId="checkListId" />
+    <CheckListFooterLabelsSelect :checkListId="checkListId"/>
     <CheckListFooterButtonMoreOptionsMenu :checkListId="checkListId" />
   </UButtonGroup>
 </div>

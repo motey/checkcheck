@@ -9,7 +9,7 @@
     :dark="colorMode.value == 'dark'"
   />
   <UIcon name="lucide:tag" class="hidden" />
-  <UIcon name="lucide:house" />
+  <UIcon name="lucide:house" class="hidden" />
 </template>
 
 <script setup lang="ts">
@@ -68,7 +68,7 @@ function injectLabelStyles() {
     document.head.appendChild(styleTag);
   }
 
-  let styles = "";
+  let styles = ".vas-menu {height: 100% !important;}\n";
   labelStore.labels.forEach((label) => {
     if (label.color) {
       const bg =

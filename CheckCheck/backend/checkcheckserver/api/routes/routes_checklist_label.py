@@ -35,7 +35,10 @@ from checkcheckserver.model.label import (
 from checkcheckserver.model.checklist_label import CheckListLabel, CheckListLabelCreate
 from checkcheckserver.db.label import LabelCRUD
 from checkcheckserver.db.checklist_label import ChecklistLabelCRUD
-
+from checkcheckserver.db.checklist_color_scheme import (
+    ChecklistColorSchemeCRUD,
+    ChecklistColorScheme,
+)
 from checkcheckserver.config import Config
 from checkcheckserver.api.auth.security import (
     user_is_admin,
@@ -86,19 +89,26 @@ async def list_labels(
 
 @fast_api_checklist_label_router.post(
     "/label",
-    response_model=Label,
+    response_model=LabelReadAPI,
     description=f"Create new label for current user.",
 )
 async def create_label(
     label_create: LabelCreate,
     label_crud: LabelCRUD = Depends(LabelCRUD.get_crud),
+    color_crud: ChecklistColorSchemeCRUD = Depends(ChecklistColorSchemeCRUD.get_crud),
     current_user: User = Depends(get_current_user),
-) -> Label:
+) -> LabelReadAPI:
     log.debug(("label_create", label_create))
+    if label_create.sort_order is None:
+        max_label_order = await label_crud.get_max_sort_order(user_id=current_user.id)
+        label_create.sort_order = max_label_order + 10
+
     label = Label.model_validate(
         label_create.model_dump(exclude_unset=True) | {"owner_id": current_user.id}
     )
     log.debug(("label", label))
+    if label.color_id:
+        label.color = await color_crud.get(label.color_id)
     return await label_crud.create(label)
 
 
@@ -138,6 +148,19 @@ async def delete_label(
     if existing_label.owner_id != current_user.id:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED)
     return await label_crud.delete(id_=label_id)
+
+
+@fast_api_checklist_label_router.delete(
+    "/label/sort",
+    description=f"Delete existing label. Current user must be owner.",
+    response_model=List[LabelReadAPI],
+)
+async def sort_labels(
+    label_order: List[uuid.UUID],
+    label_crud: LabelCRUD = Depends(LabelCRUD.get_crud),
+    current_user: User = Depends(get_current_user),
+) -> List[LabelReadAPI]:
+    return await label_crud.sort(user_id=current_user.id, label_order=label_order)
 
 
 @fast_api_checklist_label_router.get(
