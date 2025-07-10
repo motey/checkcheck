@@ -8,6 +8,9 @@ import getversion.plugin_setuptools_scm
 from starlette.middleware.sessions import SessionMiddleware
 from fastapi.middleware.cors import CORSMiddleware
 from checkcheckserver.api.routers_map import mount_fast_api_routers
+from pathlib import Path
+import json
+from fastapi.openapi.utils import get_openapi
 
 # from fastapi.security import
 
@@ -50,6 +53,25 @@ class FastApiAppContainer:
 
     def add_shutdown_callback(self, func: Callable, params: Dict | None = None):
         self.shutdown_callbacks.append(AppLifespanCallback(func=func, params=params))
+
+    def dump_open_api_specification(self, json_file_path: Path):
+
+        if json_file_path.suffix.upper() not in [".JSON"]:
+            json_file_path = Path(json_file_path, "openapi.json")
+        json_parent_dir_path = json_file_path.parent
+        json_parent_dir_path.mkdir(exist_ok=True, parents=True)
+        # f"{Path(__file__).parent}/../../openapi.json"
+        with open(json_file_path, "w") as f:
+            json.dump(
+                get_openapi(
+                    title=self.app.title,
+                    version=self.app.version,
+                    openapi_version=self.app.openapi_version,
+                    description=self.app.description,
+                    routes=self.app.routes,
+                ),
+                f,
+            )
 
     @asynccontextmanager
     async def _app_lifespan(self, app: FastAPI):

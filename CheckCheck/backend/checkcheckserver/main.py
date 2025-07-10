@@ -75,17 +75,9 @@ def start():
         "handlers": ["default"],
         "level": get_loglevel(),
     }
-    with open(f"{Path(__file__).parent}/../../openapi.json", "w") as f:
-        json.dump(
-            get_openapi(
-                title=app_container.app.title,
-                version=app_container.app.version,
-                openapi_version=app_container.app.openapi_version,
-                description=app_container.app.description,
-                routes=app_container.app.routes,
-            ),
-            f,
-        )
+    app_container.dump_open_api_specification(
+        Path(Path(__file__).parent, "../../openapi.json")
+    )
     event_loop = asyncio.get_event_loop()
     uvicorn_config = uvicorn.Config(
         app=app_container.app,

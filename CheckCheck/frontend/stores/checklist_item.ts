@@ -196,7 +196,7 @@ export const useCheckListsItemStore = defineStore("checkListitem", {
       const { $checkapi } = useNuxtApp();
       var resChecklistItem: CheckListItemType;
       try {
-        console.log(checklistitem);
+        console.log(checklistitem);        
         resChecklistItem = await $checkapi("/api/checklist/{checklist_id}/item", {
           method: "post",
           path: { checklist_id: checkListId },

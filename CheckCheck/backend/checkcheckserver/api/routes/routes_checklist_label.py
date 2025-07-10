@@ -150,9 +150,9 @@ async def delete_label(
     return await label_crud.delete(id_=label_id)
 
 
-@fast_api_checklist_label_router.delete(
+@fast_api_checklist_label_router.put(
     "/label/sort",
-    description=f"Delete existing label. Current user must be owner.",
+    description=f"Provide list of label ids to set new sort order of these labels.",
     response_model=List[LabelReadAPI],
 )
 async def sort_labels(
@@ -204,7 +204,8 @@ async def add_label_to_checklist(
             checklist_id=checklist_access.checklist.id,
             label_id=label_id,
             user_id=current_user.id,
-        )
+        ),
+        exists_ok=True,
     )
     return existing_label
 

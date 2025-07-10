@@ -231,7 +231,7 @@ class CRUDBase(
             # log.debug("IntegrityError", err)
             if "UNIQUE constraint failed" in str(err) and exists_ok:
                 log.debug(
-                    f"Object of object of type '{type(obj)}' already exists. Skipping creation. <{obj}>"
+                    f"Object of object of type '{type(obj)}' already exists. Skipping creation. <{obj}>. If this is called very often consider creating a custom create function for '{type(self)}'"
                 )
                 await self.session.rollback()
                 return await self.find(
