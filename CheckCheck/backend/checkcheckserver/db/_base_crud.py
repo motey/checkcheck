@@ -16,7 +16,7 @@ from fastapi import Depends
 import contextlib
 from sqlmodel.ext.asyncio.session import AsyncSession
 from checkcheckserver.api.paginator import QueryParamsInterface
-from sqlmodel import func, select, delete
+from sqlmodel import func, select, delete, col
 from uuid import UUID
 
 from checkcheckserver.db._session import get_async_session
@@ -202,12 +202,18 @@ class CRUDBase(
         ids: List[UUID],
         raise_exception_if_objects_missing: Exception = None,
     ) -> List[GenericCRUDReadType]:
-        query = select(self.get_table_cls()).where(self.get_table_cls().id._in(ids))
-        results = await self.session.exec(statement=query)
-        res = results.all()
-        if len(res) != len(ids) and raise_exception_if_objects_missing:
-            raise raise_exception_if_objects_missing
-        return res
+        log.debug(f"get multiple ids: {ids}")
+        log.debug(f"self.get_table_cls().id: {self.get_table_cls().id}")
+        if ids:
+            query = select(self.get_table_cls()).where(
+                col(self.get_table_cls().id).in_(ids)
+            )
+            results = await self.session.exec(statement=query)
+            res = results.all()
+            if len(res) != len(ids) and raise_exception_if_objects_missing:
+                raise raise_exception_if_objects_missing
+            return res
+        return []
 
     async def create(
         self,

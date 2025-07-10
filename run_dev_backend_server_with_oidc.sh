@@ -63,7 +63,7 @@ EOF
 )
 echo "Kill zombie processes..."
 kill_processes_by_path oidc_provider_mock_server.py
-kill_processes_by_path medlogserver/main.py
+kill_processes_by_path checkcheckserver/main.py
 
 echo "Start dummy OIDC Provider"
 # boot OIDC mockup authenticaion server
@@ -81,7 +81,7 @@ for i in {1..3}; do
 done
 echo "OIDC mockup server seemed to have booted."
 PIDS+=($mock_server_PID)  # Store PID
-# Boot MedLog Backend
+# Boot CheckCheck Backend
 
 "$PYTHON_BIN" ./CheckCheck/backend/checkcheckserver/main.py $1 & 
 PIDS+=($!)  # Store PID of last background process

@@ -33,10 +33,20 @@ export const useCheckListsLabelStore = defineStore("checkListLabelStore", {
       return;
     },
 
-    async getChecklistLabels(checkListId: string) {
+    async getChecklistLabels(checkListId: string, refresh: boolean = true) {
       const checkListStore = useCheckListsStore();
-      const checklist = await checkListStore.fetch(checkListId);
-      return checklist.labels;
+        const checklist = await checkListStore.fetch(checkListId);
+      if (refresh) {
+        const { $checkapi, $transferAttrs } = useNuxtApp();
+        // refresh global label list
+        await this.fetchLabels()
+        // get labels attached to checklists
+        const labels = await $checkapi("/api/checklist/{checklist_id}/label", { method: "get", path: { checklist_id: checkListId } })
+        $transferAttrs(labels, checklist.labels)
+      }
+      return checklist.labels
+      
+      
     },
     async addCheckListLabel(checkListId: string, labelId: string) {
       const { $checkapi, $transferAttrs } = useNuxtApp();
@@ -73,6 +83,7 @@ export const useCheckListsLabelStore = defineStore("checkListLabelStore", {
       const fresh_label = await $checkapi("/api/label", { method: "post", body: label })
       this.labels.push(fresh_label);
       this._sort()
+      return fresh_label
     },
     async updateLabel(labelId:string, label: LabelUpdate) {
       const { $checkapi,$transferAttrs } = useNuxtApp();

@@ -70,7 +70,6 @@ class LabelCRUD(
             .order_by(desc(Label.sort_order))
         ).limit(1)
 
-        query = query.options(selectinload(Label.color))
         # log.debug(f"list.checklist.query: {query}")
         results = await self.session.exec(statement=query)
         return results.first()

@@ -172,6 +172,7 @@ async def list_labels_of_checklist(
     checklist_access: UserChecklistAccess = Security(user_has_checklist_access),
     label_crud: LabelCRUD = Depends(LabelCRUD.get_crud),
 ) -> List[LabelReadAPI]:
+    log.debug(f"checklist_access.checklist.labels: {checklist_access.checklist.labels}")
     return await label_crud.get_multiple(
         ids=[l.id for l in checklist_access.checklist.labels]
     )

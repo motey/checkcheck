@@ -34,7 +34,7 @@
   });
   
   // Wait for labels to load immediately
-  const labels = ref(await labelStore.getChecklistLabels(props.checkListId));
+  const labels = ref(await labelStore.getChecklistLabels(props.checkListId,false));
   
   // Check if colors are loaded
   const colorsReady = computed(() => checkListColorSchemeStore.colors.length > 0);

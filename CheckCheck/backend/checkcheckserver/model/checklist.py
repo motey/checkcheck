@@ -20,7 +20,7 @@ from checkcheckserver.model.checklist_position import (
     CheckListPositionApiCreate,
     CheckListPositionPublicWithoutChecklistID,
 )
-from checkcheckserver.model.label import Label
+from checkcheckserver.model.label import Label, LabelReadAPI
 from checkcheckserver.model.checklist_label import CheckListLabel
 from checkcheckserver.model.user import User
 from checkcheckserver.config import Config
@@ -113,4 +113,4 @@ class CheckListApiCreate(CheckListBase):
 class CheckListApiWithSubObj(CheckListApi):
     color: Optional[ChecklistColorScheme]
     position: CheckListPositionPublicWithoutChecklistID
-    labels: list[Label]
+    labels: list[LabelReadAPI]
