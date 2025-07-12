@@ -1,8 +1,8 @@
 # CheckCheck
 
-A collaborative selfhostable  checklist application.
+A collaborative selfhostable checklist application in the making.
 
-Status: Alpha
+Status: Pre-Alpha
 
 
 ![Screenshot.png](Screenshot.png)
