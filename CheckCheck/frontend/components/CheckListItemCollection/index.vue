@@ -16,9 +16,9 @@
 <script setup lang="ts">
 const runtimeConfig = useRuntimeConfig();
 import { useDragAndDrop, dragAndDrop } from "@formkit/drag-and-drop/vue";
+import { animations } from "@formkit/drag-and-drop";
 import { state } from "@formkit/drag-and-drop";
 import { ref } from 'vue';
-import { animations } from "@formkit/drag-and-drop";
 import { useCheckListsItemStore } from "@/stores/checklist_item";
 import { useCheckListsStore } from "@/stores/checklist";
 import type { PropType } from "vue";

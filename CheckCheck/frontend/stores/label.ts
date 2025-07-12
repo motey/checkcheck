@@ -3,7 +3,7 @@ import type { components, operations } from "#open-fetch-schemas/checkapi";
 import { useCheckListsItemStore } from "@/stores/checklist_item";
 
 export type CheckListLabelState = {
-  labels: Label[];
+  labels: LabelType[];
 };
 
 export const useCheckListsLabelStore = defineStore("checkListLabelStore", {
@@ -78,14 +78,14 @@ export const useCheckListsLabelStore = defineStore("checkListLabelStore", {
           checklist.labels.splice(old_label_index,1);
         }
     },
-    async createLabel(label: LabelCreate) {
+    async createLabel(label: LabelCreateType) {
       const { $checkapi } = useNuxtApp();
       const fresh_label = await $checkapi("/api/label", { method: "post", body: label })
       this.labels.push(fresh_label);
       this._sort()
       return fresh_label
     },
-    async updateLabel(labelId:string, label: LabelUpdate) {
+    async updateLabel(labelId:string, label: LabelUpdateType) {
       const { $checkapi,$transferAttrs } = useNuxtApp();
       const fresh_label = await $checkapi("/api/label/{label_id}", { method: "patch", path: { label_id: labelId }, body: label })
       const old_label_index = this.labels.findIndex((label) => label.id == labelId);

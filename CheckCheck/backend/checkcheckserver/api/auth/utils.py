@@ -99,9 +99,11 @@ async def oidc_refresh_access_token(
     try:
         oidc_server_metadata = await oauth_client.client.load_server_metadata()
         token_endpoint = oidc_server_metadata.get("token_endpoint", None)
+        refresh_token = old_token.get("refresh_token")
+        log.debug(f"refresh_token: {refresh_token}")
         new_access_token = await oauth_client.client.fetch_access_token(
             token_endpoint,
-            refresh_token=old_token.get("refresh_token"),
+            refresh_token=refresh_token,
             grant_type="refresh_token",
         )
         user_auth.update_oidc_access_token(new_access_token)

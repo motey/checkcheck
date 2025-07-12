@@ -1,5 +1,6 @@
 <template>
   <NuxtLayout>
+    <LabelManager></LabelManager>
     <div class="flex flex-col h-screen">
       <Navbar />
       

@@ -39,7 +39,7 @@ declare global {
     type ChecklistColorSchemeType = components["schemas"]["ChecklistColorScheme"]
     
     // Labels
-    type Label = components["schemas"]["LabelReadAPI"]
-    type LabelCreate = components["schemas"]["LabelCreate"]
-    type LabelUpdate = components["schemas"]["LabelUpdate"]
+    type LabelType = components["schemas"]["LabelReadAPI"]
+    type LabelCreateType = components["schemas"]["LabelCreate"]
+    type LabelUpdateType = components["schemas"]["LabelUpdate"]
 }

@@ -115,7 +115,7 @@ watch(
 );
 
 async function createLabel() {
-  const newLabelCreate: LabelCreate = {display_name:query.value}
+  const newLabelCreate: LabelCreateType = {display_name:query.value}
   const newLabel = await labelStore.createLabel(newLabelCreate)
   await labelStore.addCheckListLabel(props.checkListId, newLabel.id)
   await loadSelectedItems();

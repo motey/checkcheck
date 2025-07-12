@@ -10,6 +10,7 @@
   />
   <UIcon name="lucide:tag" class="hidden" />
   <UIcon name="lucide:house" class="hidden" />
+  <UIcon name="lucide:pencil" class="hidden" />
 </template>
 
 <script setup lang="ts">
@@ -38,6 +39,11 @@ const baseMenu: (MenuItem | { header: string })[] = [
     icon: { class: "iconify i-lucide:house shrink-0 size-5", element: "span" },
     href: router.resolve({ query: { label: null } }).href,
   },
+  {
+    name: "Edit Labels",
+    icon: { class: "iconify i-lucide:pencil shrink-0 size-5", element: "span" },
+    href: router.resolve({ query: { label: null } }).href,
+  },
   { header: "Labels" },
 ];
 
@@ -46,7 +52,7 @@ const myMenu = ref<(MenuItem | { header: string })[]>(baseMenu);
 function updateMenu() {
   const labelMenuItems: MenuItem[] = labelStore.labels.map((label) => ({
     name: label.display_name!,
-    
+
     href: router.resolve({
       query: { label: label.id },
     }).href,
@@ -94,7 +100,7 @@ watch(
     if (typeof label === "string") {
       checkListStore.setFilterLabel(label);
     } else {
-      checkListStore.setFilterLabel(null)
+      checkListStore.setFilterLabel(null);
     }
   },
   { immediate: true }
