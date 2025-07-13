@@ -45,7 +45,7 @@ class LabelCreate(BaseTable, table=False):
         foreign_key="checklist_color_scheme.id",
         default=None,
     )
-    display_name: str = Field(description="Name of the label.", max_length="32")
+    display_name: str = Field(description="Name of the label.", max_length=32)
     sort_order: Optional[int] = Field(
         description="Label order per user",
         default=None,
@@ -58,7 +58,7 @@ class LabelUpdate(LabelCreate, table=False):
         default=None,
     )
     display_name: Optional[str] = Field(
-        description="Name of the label.", max_length="32", default=None
+        description="Name of the label.", max_length=32, default=None
     )
     sort_order: Optional[int] = Field(
         description="Label order per user",
@@ -87,7 +87,7 @@ class Label(LabelUpdate, table=True):
         foreign_key="checklist_color_scheme.id",
         default=None,
     )
-    display_name: str = Field(description="Name of the label.", max_length="32")
+    display_name: str = Field(description="Name of the label.", max_length=32)
     sort_order: Optional[int] = Field(
         description="Label order per user",
         default=None,

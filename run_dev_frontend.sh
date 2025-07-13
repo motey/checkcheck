@@ -1,0 +1,1 @@
+(cd CheckCheck/frontend && deno run dev)

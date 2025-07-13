@@ -7,8 +7,9 @@ set -e
 # Store process IDs
 PIDS=()
 
-PYTHON_BIN=$(which python)
-echo "Python: $PYTHON_BIN"
+#PYTHON_BIN=$(which python)
+#echo "Python: $PYTHON_BIN"
+PYTHON_BIN="pdm run"
 
 # Function to handle script termination
 cleanup() {
@@ -45,6 +46,10 @@ kill_processes_by_path() {
 # Trap SIGINT (Ctrl+C) and SIGTERM
 trap cleanup SIGINT SIGTERM
 
+# config
+export SQL_DATABASE_URL="sqlite+aiosqlite:///../../muchdata.sqlite"
+
+## config - oidc
 export AUTH_OIDC_TOKEN_STORAGE_SECRET=qi3we7gaukb
 PROVIDER_DISPLAY_NAME="LocalDevLogin"
 CONFIGURATION_ENDPOINT=http://localhost:8884/.well-known/openid-configuration
@@ -67,7 +72,7 @@ kill_processes_by_path checkcheckserver/main.py
 
 echo "Start dummy OIDC Provider"
 # boot OIDC mockup authenticaion server
-(cd ./CheckCheck/backend/dev_oidc_server && "$PYTHON_BIN" oidc_provider_mock_server.py) &
+(cd ./CheckCheck/backend/dev_oidc_server && pdm run oidc_provider_mock_server.py) &
 mock_server_PID=$!
 
 # Wait up to 3 seconds for oidc mockup server to boot successfull
@@ -83,6 +88,6 @@ echo "OIDC mockup server seemed to have booted."
 PIDS+=($mock_server_PID)  # Store PID
 # Boot CheckCheck Backend
 
-"$PYTHON_BIN" ./CheckCheck/backend/checkcheckserver/main.py $1 & 
+(cd CheckCheck/backend && pdm run ./checkcheckserver/main.py $1) & 
 PIDS+=($!)  # Store PID of last background process
 wait

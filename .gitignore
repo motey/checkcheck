@@ -347,6 +347,23 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 
+# PDM virtual environment (if using PDM's built-in venv)
+__pypackages__/
+
+# Python cache
+*.pyc
+__pycache__/
+
+# OS & Editor junk
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# PDM build output (if you build packages)
+dist/
+build/
+
 # Editor directories and files
 .idea
 .vscode

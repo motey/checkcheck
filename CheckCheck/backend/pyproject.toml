@@ -1,14 +1,10 @@
-[build-system]
-requires = ["setuptools", "setuptools-scm"]
-build-backend = "setuptools.build_meta"
-
 [project]
 name = "checkcheckserver"
-authors = [{ name = "Tim Bleimehl", email = "bleimehl@helmholtz-munich.de" }]
-description = "A Rest API Server on a Postgres DB to store the medical history of study participants."
+authors = [{ name = "Tim Bleimehl" }]
+description = "Default template for PDM package"
 readme = "README.md"
-requires-python = ">=3.11"
-keywords = ["DZD", "CheckCheck"]
+requires-python = "==3.11.*"
+keywords = ["CheckCheck"]
 license = { text = "MIT" }
 classifiers = [
     "Framework :: FastAPI",
@@ -32,19 +28,30 @@ dependencies = [
     "pydantic",
     "pydantic[email]",
     "pydantic_settings",
-    "getversion",
+    "getversion>=1.0.2",
     "pip-tools",
     "python-multipart",
     "alembic",
     "email-validator",
 ]
 dynamic = ["version"]
+version = "0.1.0"
 
 [tool.setuptools.packages.find]
 include = ['checkcheckserver', 'provisioning_data']
 
-[project.optional-dependencies]
-test = ["pytest", "requests", "oidc_provider_mock"]
-docs = ["mkdocs", "mkdocstrings[python]", "mkdocs-autorefs", "mkdocs-material"]
+
+[tool.pdm]
+distribution = false
+
 [project.scripts]
 checkcheckserver = "checkcheckserver.main:start"
+
+[dependency-groups]
+dev = [
+    "oidc-provider-mock>=0.2.5",
+    "pyyaml>=6.0.2",
+]
+test = [
+    "requests>=2.32.4",
+]

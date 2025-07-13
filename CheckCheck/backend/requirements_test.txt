@@ -10,6 +10,7 @@ bcrypt==4.3.0
 build==1.2.2.post1
 certifi==2025.7.9
 cffi==1.17.1; platform_python_implementation != "PyPy"
+charset-normalizer==3.4.2
 click==8.2.1
 colorama==0.4.6; platform_system == "Windows" or os_name == "nt"
 cryptography==45.0.5
@@ -41,6 +42,7 @@ python-dotenv==1.1.1
 python-jose[cryptography]==3.5.0
 python-multipart==0.0.20
 pyyaml==6.0.2
+requests==2.32.4
 rsa==4.9.1
 setuptools==80.9.0
 setuptools-scm==8.3.1
@@ -52,5 +54,6 @@ starlette==0.47.1
 stdlib-list==0.11.1
 typing-extensions==4.14.1
 typing-inspection==0.4.1
+urllib3==2.5.0
 uvicorn==0.35.0
 wheel==0.45.1

@@ -40,7 +40,7 @@ class DataProvisioner:
         data_file: Path = to_path(data_file)
         if not data_file.is_file():
             raise ValueError(
-                f"Can not provision data from '{data_file}'. Error: Not a file path."
+                f"Can not provision data from '{data_file}'. Error: Not a file path. Maybe you need to check config variable APP_PROVISIONING_DATA_YAML_FILES"
             )
         self.data_file = to_path(data_file)
 
