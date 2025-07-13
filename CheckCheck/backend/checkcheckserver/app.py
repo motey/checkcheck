@@ -71,6 +71,8 @@ class FastApiAppContainer:
                     routes=self.app.routes,
                 ),
                 f,
+                sort_keys=False,
+                indent=2,
             )
 
     @asynccontextmanager

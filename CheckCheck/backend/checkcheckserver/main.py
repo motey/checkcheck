@@ -65,8 +65,6 @@ def start():
     import uvicorn
     from uvicorn.config import LOGGING_CONFIG
     from checkcheckserver.app import FastApiAppContainer
-    from checkcheckserver.api.routers_map import mount_fast_api_routers
-    from checkcheckserver.api.routes.routes_sync_notification import notify_clients
 
     app_container = FastApiAppContainer()
 
