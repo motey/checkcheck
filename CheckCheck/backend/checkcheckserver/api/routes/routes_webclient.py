@@ -32,7 +32,7 @@ async def serve_client_root(req: Request, path_name: Optional[str] = None):
     headers = {}
     headers["content-type"] = "text/html; charset=UTF-8"
     log.debug(
-        f"Server Application '{config.FRONTEND_FILES_DIR}/index.html' (RespHeaders: {headers} ReqHeaders: {req.headers})"
+        f"Server Application '{Path(config.FRONTEND_FILES_DIR).absolute()}/index.html' (RespHeaders: {headers} ReqHeaders: {req.headers})"
     )
     return FileResponse(f"{config.FRONTEND_FILES_DIR}/index.html", headers=headers)
 
@@ -44,7 +44,7 @@ async def serve_frontend_files(req: Request, path_name: Optional[str] = None):
 
     full_path = Path(config.FRONTEND_FILES_DIR, path_name)
     log.debug(
-        f"request frontend path '{path_name}' (is existing file: {full_path.is_file()})"
+        f"request frontend path '{path_name}'. full_path '{full_path.absolute()}'  (is existing file: {full_path.is_file()})"
     )
     file: str = None
     if not path_name:

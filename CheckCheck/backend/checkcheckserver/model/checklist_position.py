@@ -45,7 +45,7 @@ class CheckListPositionApiCreate(BaseTable, table=False):
         default=None,
         description="The position of a checklist relative to other checklist 'index' value. The lowest value should be the first checklist in a client representation.",
     )
-    pinned: Optional[int] = Field(
+    pinned: Optional[bool] = Field(
         default=False,
         description="Pinned items should get a more prominent placement in the client.",
     )

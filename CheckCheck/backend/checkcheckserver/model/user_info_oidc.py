@@ -11,7 +11,7 @@ from typing import (
 
 from pydantic import BaseModel, Field
 
-from checkcheckserver.utils import find_first_value_by_key
+from checkcheckserver.utils import get_value_from_first_dict_with_key
 from checkcheckserver.config import Config
 from checkcheckserver.log import get_logger
 
@@ -46,20 +46,20 @@ class UserInfoOidc(BaseModel):
             raw_userinfo = [raw_userinfo, secondary_raw_userinfo]
         else:
             raw_userinfo = [raw_userinfo]
-        sub = find_first_value_by_key(raw_userinfo, "sub", None)
-        email = find_first_value_by_key(
+        sub = get_value_from_first_dict_with_key(raw_userinfo, "sub", None)
+        email = get_value_from_first_dict_with_key(
             raw_userinfo, oidc_config.USER_MAIL_ATTRIBUTE, None
         )
         userinfo = UserInfoOidc(
             provider_slug=oidc_config.get_provider_name_slug(), sub=sub, email=email
         )
-        userinfo._preferred_username = find_first_value_by_key(
+        userinfo._preferred_username = get_value_from_first_dict_with_key(
             raw_userinfo, oidc_config.USER_NAME_ATTRIBUTE, None
         )
-        userinfo._name = find_first_value_by_key(
+        userinfo._name = get_value_from_first_dict_with_key(
             raw_userinfo, oidc_config.USER_DISPLAY_NAME_ATTRIBUTE, None
         )
-        userinfo.roles = find_first_value_by_key(
+        userinfo.roles = get_value_from_first_dict_with_key(
             raw_userinfo, oidc_config.USER_GROUPS_ATTRIBUTE, list()
         )
         return userinfo

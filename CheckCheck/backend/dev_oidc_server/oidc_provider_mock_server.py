@@ -37,7 +37,6 @@ def start_oidc_server_thread(port: int = 8884):
 
             while True:
                 time.sleep(0.5)
-                pass
         except KeyboardInterrupt:
             print("\nKeyboardInterrupt detected. Exiting the loop safely.")
 

@@ -37,12 +37,12 @@ const baseMenu: (MenuItem | { header: string })[] = [
   {
     name: "Home",
     icon: { class: "iconify i-lucide:house shrink-0 size-5", element: "span" },
-    href: router.resolve({ query: { label: null } }).href,
+    href: router.resolve({ query: { } }).href,
   },
   {
     name: "Edit Labels",
     icon: { class: "iconify i-lucide:pencil shrink-0 size-5", element: "span" },
-    href: router.resolve({ query: { label: null } }).href,
+    href: router.resolve({ query: { ...route.query, editlabels: true } }).href,
   },
   { header: "Labels" },
 ];
@@ -93,18 +93,7 @@ onMounted(updateMenu);
 // Update on label changes
 watch(() => labelStore.labels, updateMenu, { deep: true });
 
-// Sync label filter with route
-watch(
-  () => route.query.label,
-  (label) => {
-    if (typeof label === "string") {
-      checkListStore.setFilterLabel(label);
-    } else {
-      checkListStore.setFilterLabel(null);
-    }
-  },
-  { immediate: true }
-);
+
 // Update label styles on colorMode change
 watch(
   () => colorMode.value,

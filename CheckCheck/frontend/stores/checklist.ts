@@ -6,7 +6,6 @@ export type CheckListState = {
   checkLists: CheckListType[];
   total_backend_count: number;
   pending_checklist: CheckListCreateType | null;
-  filterLabelId: String | null;
 };
 /*
 checkList: {
@@ -25,7 +24,6 @@ export const useCheckListsStore = defineStore("checkList", {
       checkLists: [],
       total_backend_count: -1,
       pending_checklist: null,
-      filterLabelId: null,
     } as CheckListState),
   getters: {
     checklist_ids(state) {
@@ -35,25 +33,51 @@ export const useCheckListsStore = defineStore("checkList", {
       return [];
     },
     getCheckLists: (state) => {
-      return (archived: boolean | null = null, limit: number | null = null) => {
-        const filterLabelId = state.filterLabelId;
-        if (archived === null && limit === null && state.filterLabelId === null) {
+      return ({
+        archived = null,
+        pinned = null,
+        label_id = null,
+        limit = null,
+      }: {
+        archived?: boolean | null;
+        pinned?: boolean | null;
+        label_id?: string | null;
+        limit?: number | null;
+      }) => {
+        if (archived === undefined) {
+          archived = null;
+        }
+        if (pinned === undefined) {
+          pinned = null;
+        }
+        if (label_id === undefined) {
+          label_id = null;
+        }
+        if (limit === undefined) {
+          limit = null;
+        }
+        //return (archived: boolean | null = null, limit: number | null = null) => {
+        if (archived === null && pinned===null  && label_id===null && limit === null) {
           return [...state.checkLists];
         }
-    
+
         const filtered = state.checkLists.filter((item) => {
           if (archived !== null && item.position.archived !== archived) {
             return false;
           }
-    
-          if (filterLabelId !== null && !item.labels.some(label => label.id === filterLabelId)) {
+
+          if (pinned !== null && item.position.pinned !== pinned) {
             return false;
           }
-    
+
+          if (label_id !== null && !item.labels.some((label) => label.id === label_id)) {
+            return false;
+          }
+
           return true;
         });
-    
-        return (limit !== null && limit > 0) ? filtered.slice(0, limit) : filtered;
+
+        return limit !== null && limit > 0 ? filtered.slice(0, limit) : filtered;
       };
     },
     get: (state) => {
@@ -63,9 +87,6 @@ export const useCheckListsStore = defineStore("checkList", {
     },
   },
   actions: {
-    setFilterLabel(labelId: String | null) {
-      this.filterLabelId = labelId
-    },
     async reorderCheckLists(newOrder: CheckListType[], movedItem: CheckListType) {
       const { $sortBySubset, $findNewPlacementForItem } = useNuxtApp(); // external helper, e.g., sorts items by subset order
 

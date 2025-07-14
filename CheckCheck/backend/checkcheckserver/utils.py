@@ -149,7 +149,7 @@ class Unset:
     pass
 
 
-def find_first_value_by_key(dict_list: List[Dict], key_name: str, default=Unset):
+def get_value_from_first_dict_with_key(dict_list: List[Dict], key_name: str, default=Unset):
     """Returns the value associated with the given key from the first dictionary in the list
     that contains the key.
 

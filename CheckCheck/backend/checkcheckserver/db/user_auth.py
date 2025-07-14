@@ -121,7 +121,7 @@ class UserAuthCRUD(
             raise raise_exception_if_none
         return user_auth
 
-    async def get_local_auth_source_by_user_name(
+    async def get_basic_auth_source_by_user_name(
         self, user_name: str, raise_exception_if_none: Exception = None
     ) -> UserAuth | None:
         query = select(User).where(User.user_name == user_name)

@@ -165,7 +165,7 @@ async def auth_basic_login_session_based(
     if not config.AUTH_BASIC_LOGIN_IS_ENABLED:
         raise login_wrong_exception
 
-    user_auth: UserAuth = await user_auth_crud.get_local_auth_source_by_user_name(
+    user_auth: UserAuth = await user_auth_crud.get_basic_auth_source_by_user_name(
         user_name=login.username, raise_exception_if_none=login_wrong_exception
     )
     user_auth.verify_password(

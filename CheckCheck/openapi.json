@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "CheckCheck REST API",
-    "version": "0.1.dev25+g23e6738.d20250713"
+    "version": "0.1.dev26+g28c6082.d20250714"
   },
   "paths": {
     "/api/health": {
@@ -731,7 +731,7 @@
           "User Admin"
         ],
         "summary": "Set User Password",
-        "description": "Set a local users password. If the user is provisioned via an external OpenID Connect provider this does nothing except the return value will be `false`.  Need usermanager role",
+        "description": "Set a local users password. If the user is provisioned via an external OpenID Connect provider the user will now be able to also login with basic login with this password.  Need usermanager role",
         "operationId": "set_user_password_api_user__user_id__password_put",
         "security": [
           {
@@ -751,6 +751,7 @@
           }
         ],
         "requestBody": {
+          "required": true,
           "content": {
             "application/x-www-form-urlencoded": {
               "schema": {
@@ -3241,6 +3242,10 @@
           }
         },
         "type": "object",
+        "required": [
+          "new_password",
+          "new_password_repeated"
+        ],
         "title": "Body_set_user_password_api_user__user_id__password_put"
       },
       "CheckListApiCreate": {
@@ -3668,7 +3673,7 @@
           "pinned": {
             "anyOf": [
               {
-                "type": "integer"
+                "type": "boolean"
               },
               {
                 "type": "null"
@@ -3721,7 +3726,7 @@
           "pinned": {
             "anyOf": [
               {
-                "type": "integer"
+                "type": "boolean"
               },
               {
                 "type": "null"
@@ -3758,7 +3763,7 @@
           "pinned": {
             "anyOf": [
               {
-                "type": "integer"
+                "type": "boolean"
               },
               {
                 "type": "null"
@@ -3805,7 +3810,7 @@
           "pinned": {
             "anyOf": [
               {
-                "type": "integer"
+                "type": "boolean"
               },
               {
                 "type": "null"

@@ -163,28 +163,44 @@ async def update_user(
 @fast_api_user_manage_router.put(
     "/user/{user_id}/password",
     response_model=User,
-    description=f"Set a local users password. If the user is provisioned via an external OpenID Connect provider this does nothing except the return value will be `false`.  {NEEDS_USERMAN_API_INFO}",
+    description=f"Set a local users password. If the user is provisioned via an external OpenID Connect provider the user will now be able to also login with basic login with this password.  {NEEDS_USERMAN_API_INFO}",
 )
 async def set_user_password(
     user_id: uuid.UUID,
-    new_password: str = Form(default=None),
+    new_password: str = Form(),
     new_password_repeated: str = Form(
-        default=None,
         description="For good measure we require the password twice to mitiage typos.",
     ),
     current_user_is_user_manager: bool = Security(user_is_usermanager),
     user_auth_crud: UserAuthCRUD = Depends(UserAuthCRUD.get_crud),
+    user_crud: UserCRUD = Depends(UserCRUD.get_crud),
 ) -> bool:
     if new_password != new_password_repeated:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="new password and repeated new password do not match",
         )
-    old_user_auth = user_auth_crud.get_basic_auth_source_by_user_id(user_id)
-    if old_user_auth is None:
-        return False
-    updated_user_auth = UserAuthUpdate(basic_password=new_password)
-    await user_auth_crud.update(
-        user_auth_update=updated_user_auth, id_=old_user_auth.id
+    user = await user_crud.get(
+        user_id=user_id,
+        raise_exception_if_none=HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found",
+        ),
     )
-    return True
+    user_auth_pw = await user_auth_crud.get_basic_auth_source_by_user_id(user_id)
+
+    if user_auth_pw is None:
+        log.debug(f"First time set pw for user '{user.user_name}' {new_password}")
+        # lets create a userAuth with the new password
+        user_auth_create = UserAuthCreate(
+            user_id=user_id,
+            auth_source_type=AllowedAuthSchemeType.basic,
+            basic_password=new_password,
+        )
+        user_auth_pw: UserAuth = await user_auth_crud.create(user_auth_create)
+    else:
+        user_auth_update = UserAuthUpdate(basic_password=new_password)
+        user_auth_pw = await user_auth_crud.update(
+            user_auth_update=user_auth_update, id_=user_auth_pw.id
+        )
+    return user

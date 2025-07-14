@@ -48,7 +48,7 @@ trap cleanup SIGINT SIGTERM
 
 # config
 export SQL_DATABASE_URL="sqlite+aiosqlite:///../../muchdata.sqlite"
-
+export FRONTEND_FILES_DIR="../frontend/.output/public"
 ## config - oidc
 export AUTH_OIDC_TOKEN_STORAGE_SECRET=qi3we7gaukb
 PROVIDER_DISPLAY_NAME="LocalDevLogin"
