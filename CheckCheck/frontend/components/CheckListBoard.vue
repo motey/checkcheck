@@ -1,6 +1,6 @@
 <template>
   <ul v-if="dragCheckLists" ref="checkListBoard" class="grid gap-4 grid-cols-[repeat(auto-fill,minmax(16rem,1fr))]">
-    <li v-for="checkList in dragCheckLists" :key="checkList.id" class="w-full sm:w-auto checklist-preview">
+    <li v-for="checkList in dragCheckLists" :key="checkList.id" class="w-full sm:w-auto checklist-preview" :class="!checkList.display ? ['hidden'] : []">
       <CheckList :checkListId="checkList.id" @click="openCheckListEditor(checkList.id)" :previewModeActive="true" />
     </li>
     <li
@@ -46,13 +46,13 @@ onMounted(async () => {
 });
 
 // Main reactive source for lists
-const checklists = ref<CheckListType[]>([]);
+const checklists = ref<CheckListUiType[]>([]);
 //const [checkListBoard, dragCheckLists] = useDragAndDrop(checklists, { plugins: [animations()] })
 const [checkListBoard, dragCheckLists] = useDragAndDrop(checklists, {
   onDragend: (event) => {
     (async () => {
-      const draggedItem = event.draggedNode.data.value as CheckListType;
-      const allItems = event.values as CheckListType[];
+      const draggedItem = event.draggedNode.data.value as CheckListUiType;
+      const allItems = event.values as CheckListUiType[];
       console.log("WE MOVE");
       checkListStore.reorderCheckLists(allItems, draggedItem);
     })();
@@ -65,7 +65,7 @@ const [checkListBoard, dragCheckLists] = useDragAndDrop(checklists, {
 
 // Sync from store if changes are detected
 watchEffect(() => {
-  const latestFromStore = checkListStore.getCheckLists({archived:false,label_id:route.query.label as string});
+  const latestFromStore = checkListStore.getAllCheckListsWithDisplayFlag({archived:false,label_id:route.query.label as string});
   // Only copy if it's different to avoid resetting drag
   checklists.value = latestFromStore.map((item) => ({ ...item }));
 });

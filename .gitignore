@@ -380,9 +380,9 @@ build/
 .nitro
 .cache
 dist
-local.sqlite-journal
+*.sqlite-journal
 export.csv
 export_cache/
 CheckCheck/backend/tests/testdb.sqlite
-**/*.env
-muchdata.sqlite
+*.env
+*.sqlite

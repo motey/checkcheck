@@ -32,6 +32,11 @@ export const useCheckListsStore = defineStore("checkList", {
       }
       return [];
     },
+    get: (state) => {
+      return (checkListId: string) => {
+        return state.checkLists[state.checkLists.findIndex((checklist) => checklist.id == checkListId)];
+      };
+    },
     getCheckLists: (state) => {
       return ({
         archived = null,
@@ -43,7 +48,7 @@ export const useCheckListsStore = defineStore("checkList", {
         pinned?: boolean | null;
         label_id?: string | null;
         limit?: number | null;
-      }) => {
+      }): CheckListType[] => {
         if (archived === undefined) {
           archived = null;
         }
@@ -80,9 +85,54 @@ export const useCheckListsStore = defineStore("checkList", {
         return limit !== null && limit > 0 ? filtered.slice(0, limit) : filtered;
       };
     },
-    get: (state) => {
-      return (checkListId: string) => {
-        return state.checkLists[state.checkLists.findIndex((checklist) => checklist.id == checkListId)];
+    getAllCheckListsWithDisplayFlag: (state) => {
+      return ({
+        archived = null,
+        pinned = null,
+        label_id = null,
+        limit = null,
+      }: {
+        archived?: boolean | null;
+        pinned?: boolean | null;
+        label_id?: string | null;
+        limit?: number | null;
+      }): CheckListUiType[] => {
+        if (archived === undefined) {
+          archived = null;
+        }
+        if (pinned === undefined) {
+          pinned = null;
+        }
+        if (label_id === undefined) {
+          label_id = null;
+        }
+        if (limit === undefined) {
+          limit = null;
+        }
+        const { $extendCheckListTypeWithDisplayedAttr } = useNuxtApp();
+        const checkListsWithDisplayAttr: CheckListUiType[] = state.checkLists.map($extendCheckListTypeWithDisplayedAttr);
+        //return (archived: boolean | null = null, limit: number | null = null) => {
+        if (archived === null && pinned===null  && label_id===null) {
+          return checkListsWithDisplayAttr;
+        }
+
+        const annotatedCheckListsWithDisplayAttr = checkListsWithDisplayAttr.map((item) => {
+          if (archived !== null && item.position.archived !== archived) {
+            item.display = false;
+          }
+
+          if (pinned !== null && item.position.pinned !== pinned) {
+            item.display = false;
+          }
+
+          if (label_id !== null && !item.labels.some((label) => label.id === label_id)) {
+            item.display = false;
+          }
+
+          return item;
+        });
+
+        return annotatedCheckListsWithDisplayAttr;
       };
     },
   },
@@ -191,7 +241,7 @@ export const useCheckListsStore = defineStore("checkList", {
       try {
         resChecklistPage = await $checkapi("/api/checklist", {
           method: "get",
-          query: { offset: fetched_count, limit: 10 },
+          query: { offset: fetched_count, limit: 60 },
         });
       } catch (error) {
         console.error("Could not fetch next checklist page from backend 'GET /api/checklist'", error);

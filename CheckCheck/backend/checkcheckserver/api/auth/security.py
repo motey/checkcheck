@@ -2,7 +2,7 @@ from typing import Optional
 
 
 from typing import List, Literal, Annotated, NoReturn
-
+import uuid
 
 from fastapi import (
     HTTPException,
@@ -88,7 +88,7 @@ async def get_current_user_auth(
         session_id = request.cookies.get(SESSION_COOKIE_NAME, None)
         if not session_id:
             raise not_authenticated_exception
-
+        session_id = uuid.UUID(session_id)
         user_session: UserSession = await user_session_crud.get(session_id)
         if not user_session:
             raise not_authenticated_exception

@@ -10,6 +10,9 @@ declare global {
 
     // CheckList Types
     type CheckListType = components["schemas"]["CheckListApiWithSubObj"]
+    interface CheckListUiType extends CheckListType {
+        display: boolean;
+    }
     type CheckListCreateType = components["schemas"]["CheckListApiCreate"]
     type CheckListUpdateType = components["schemas"]["CheckListUpdate"]
     type CheckListsPageType = CheckapiResponse<"list_checklists_api_checklist_get">
@@ -42,4 +45,5 @@ declare global {
     type LabelType = components["schemas"]["LabelReadAPI"]
     type LabelCreateType = components["schemas"]["LabelCreate"]
     type LabelUpdateType = components["schemas"]["LabelUpdate"]
+
 }

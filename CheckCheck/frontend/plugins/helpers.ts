@@ -168,7 +168,12 @@ export default defineNuxtPlugin(() => {
       return { item, target_neighbor_item: neighborItem, placement: "below" };
     }
   };
-  
+  function extendCheckListTypeWithDisplayedAttr(checkList: CheckListType): CheckListUiType {
+  return {
+    ...checkList,
+    display: true, 
+  };
+}
   return {
     provide: {
       hello: (msg: string) => `Hello ${msg}!`,
@@ -176,6 +181,7 @@ export default defineNuxtPlugin(() => {
       findOutOfOrder,
       findNewPlacementForItem,
       sortBySubset,
+      extendCheckListTypeWithDisplayedAttr
     },
   };
 });
