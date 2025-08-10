@@ -190,6 +190,10 @@ class Config(BaseSettings):
             default=False,
             description="To prevent username colliction between different OIDC providers, we can prefix the usernames from the OIDC provider with it slug.",
         )
+        ROLE_MAPPING: Dict[str, List[str]] = Field(
+            default_factory=dict,
+            description="""A JSON to map OIDC groups to DZDMedLog Roles. e.g. `{"oidc_appadmins":["medlog-user-manager"],"admins":["medlog-admins"]}`""",
+        )
 
     AUTH_OIDC_TOKEN_STORAGE_SECRET: Optional[str] = Field(
         description="Random string to encrypt the oidc access and refresh token for storing it in the database.",

@@ -26,7 +26,7 @@ class UserInfoOidc(BaseModel):
     email: str
     _preferred_username: Optional[str] = None
     _name: Optional[str] = None
-    roles: Optional[List[str]] = Field(default_factory=list)
+    groups: Optional[List[str]] = Field(default_factory=list)
 
     @property
     def preferred_username(self):
@@ -59,7 +59,7 @@ class UserInfoOidc(BaseModel):
         userinfo._name = get_value_from_first_dict_with_key(
             raw_userinfo, oidc_config.USER_DISPLAY_NAME_ATTRIBUTE, None
         )
-        userinfo.roles = get_value_from_first_dict_with_key(
+        userinfo.groups = get_value_from_first_dict_with_key(
             raw_userinfo, oidc_config.USER_GROUPS_ATTRIBUTE, list()
         )
         return userinfo

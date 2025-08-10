@@ -241,7 +241,7 @@ export const useCheckListsStore = defineStore("checkList", {
       try {
         resChecklistPage = await $checkapi("/api/checklist", {
           method: "get",
-          query: { offset: fetched_count, limit: 60 },
+          query: { offset: fetched_count, limit: 5 },
         });
       } catch (error) {
         console.error("Could not fetch next checklist page from backend 'GET /api/checklist'", error);

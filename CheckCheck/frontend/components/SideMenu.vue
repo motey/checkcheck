@@ -19,7 +19,7 @@ import { useRoute, useRouter } from "vue-router";
 import type { MenuItem } from "vue-awesome-sidebar";
 import { useCheckListsLabelStore } from "@/stores/label";
 import { useCheckListsStore } from "@/stores/checklist";
-
+import { LabelManager } from '#components'
 const colorMode = useColorMode();
 const collapsed = defineModel<boolean>("collapsed");
 const miniMenu = defineModel<boolean>("miniMenu");
@@ -42,7 +42,7 @@ const baseMenu: (MenuItem | { header: string })[] = [
   {
     name: "Edit Labels",
     icon: { class: "iconify i-lucide:pencil shrink-0 size-5", element: "span" },
-    href: router.resolve({ query: { ...route.query, editlabels: true } }).href,
+    href: router.resolve({ query: { ...route.query, editlabels: "true" } }).href,
   },
   { header: "Labels" },
 ];
@@ -92,6 +92,25 @@ onMounted(updateMenu);
 
 // Update on label changes
 watch(() => labelStore.labels, updateMenu, { deep: true });
+
+
+
+import { LabelManagerModal } from "#components";
+
+const labelEditorModalOverlay = useOverlay()
+
+const labelEditorModal = labelEditorModalOverlay.create(LabelManagerModal)
+
+// Open Label Editor
+// Show modal if ?modal=login
+const checkForModal = () => {
+  if (route.query.editlabels === "true") {
+    const modalInstance = labelEditorModal.open()
+    modalInstance.isOpen
+    
+  }
+}
+watch(() => route.query.editlabels, checkForModal)
 
 
 // Update label styles on colorMode change

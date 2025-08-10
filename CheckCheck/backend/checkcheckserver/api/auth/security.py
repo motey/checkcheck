@@ -64,7 +64,7 @@ async def get_current_user_auth(
     user_session_crud: UserSessionCRUD = Depends(UserSessionCRUD.get_crud),
     user_auth_crud: UserAuthCRUD = Depends(UserAuthCRUD.get_crud),
     api_token: Optional[HTTPAuthorizationCredentials] = Depends(api_token_security),
-) -> UserAuth:
+) -> UserAuth | None:
     user_auth: UserAuth | None = None
     user_session: UserSession | None = None
     if api_token:
@@ -106,8 +106,12 @@ async def get_current_user_auth(
             raise not_authenticated_exception
         elif user_auth.auth_source_type == AllowedAuthSchemeType.oidc:
             # we try the oidc refresh token
+
             session_id = request.cookies.get(SESSION_COOKIE_NAME, None)
-            user_session: UserSession = await user_session_crud.get(str(session_id))
+            # TODO: do need to catch a "session_id is None" case here?
+            user_session: UserSession = await user_session_crud.get(
+                uuid.UUID(str(session_id))
+            )
             try:
                 user_auth = await oidc_refresh_access_token(
                     oauth_client=oauth_clients[user_auth.oidc_provider_slug],
