@@ -106,7 +106,7 @@ async def oidc_refresh_access_token(
             refresh_token=refresh_token,
             grant_type="refresh_token",
         )
-        user_auth.update_oidc_access_token(new_access_token)
+        user_auth.update_oidc_token(new_access_token)
     except Exception as e:
         log.debug(f"REFRESH OIDC TOKEN FAILED. Error: {e}")
         # log.error(e)
