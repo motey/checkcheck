@@ -123,7 +123,7 @@ async def oidc_refresh_access_token(
     return user_auth
 
 
-async def revoke_token(oauth_client: OAuthContainer, token: str):
+async def revoke_oidc_token(oauth_client: OAuthContainer, token: str):
 
     # Nothing to do if no token
     if token is None:

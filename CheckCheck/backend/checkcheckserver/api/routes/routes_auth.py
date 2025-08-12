@@ -55,7 +55,7 @@ from checkcheckserver.api.auth.utils import (
     get_userinfo_from_token_or_endpoint,
     get_access_token_expires_at_value_from_token,
     generate_client_session_id,
-    revoke_token,
+    revoke_oidc_token,
     create_new_user_default_labels,
 )
 
@@ -424,7 +424,7 @@ async def logout(
             # revoke token
 
             oauth_client = oauth_clients[current_user_auth.oidc_provider_slug]
-            await revoke_token(oauth_client=oauth_client, token=refresh_token)
+            await revoke_oidc_token(oauth_client=oauth_client, token=refresh_token)
 
     elif current_user_auth.auth_source_type == AllowedAuthSchemeType.api_token:
         await user_auth_crud.delete(id=current_user_auth.id)
