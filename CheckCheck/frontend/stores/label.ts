@@ -92,6 +92,12 @@ export const useCheckListsLabelStore = defineStore("checkListLabelStore", {
       $transferAttrs(fresh_label, this.labels[old_label_index]!)
       this._sort()
     },
+    async deleteLabel(labelId: string) {
+      const { $checkapi } = useNuxtApp();
+      await $checkapi("/api/label/{label_id}", { method: "delete", path: { label_id: labelId } });
+      const index = this.labels.findIndex((label) => label.id === labelId);
+      if (index !== -1) this.labels.splice(index, 1);
+    },
     async _sort() {
       // this is just a placeholder for now
         //this.labels.sort((a, b) => a.sort_order - b.sort_order);

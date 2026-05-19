@@ -1,14 +1,13 @@
 <template>
-        <UButton :key="label!.id" size="xs" class="font-bold rounded-full" :style="getLabelStyle()">
-            {{ label!.display_name }}{{ getLabelStyle() }}
-        </UButton>
+    <UButton :key="label!.id" size="xs" class="font-bold rounded-full" :style="labelStyle">
+        {{ label!.display_name }}
+    </UButton>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, guardReactiveProps } from "vue";
+import { computed } from "vue";
 import { useColorMode } from "#imports";
 import { useCheckListsLabelStore } from "@/stores/label";
-import { useCheckListsStore } from "@/stores/checklist";
 
 const colorMode = useColorMode();
 const labelStore = useCheckListsLabelStore();
@@ -22,38 +21,19 @@ const props = defineProps({
     fallbackColor: { type: Object as PropType<ChecklistColorSchemeType>, required: false },
 });
 
-// Wait for labels to load immediately
-const label = ref(labelStore.getLabel(props.labelId));
+const label = computed(() => labelStore.getLabel(props.labelId));
 
-// Check if colors are loaded
-const colorsReady = computed(() => checkListColorSchemeStore.colors.length > 0);
-
-// Style helper
-const getLabelStyle = () => {
-    var labelColorScheme: ChecklistColorSchemeType | null | undefined = checkListColorSchemeStore.colors.find(
-        (c) => c.id === label.value?.color_id
-    );
-    if (!labelColorScheme) {
-        labelColorScheme = props.fallbackColor;
-    }
-    if (colorMode.value === "dark") {
-        return {
-            backgroundColor: labelColorScheme?.backgroundcolor_dark_hex ?? 'transparent',
-            color: labelColorScheme?.textcolor_dark_hex ?? 'unset',
-            borderColor: labelColorScheme?.accentcolor_dark_hex ?? 'gray',
-            borderWidth: '1px',
-            paddingBlock: 'unset',
-            // transition: 'border-color 0.3s',
-        };
-    } else {
-        return {
-            backgroundColor: labelColorScheme?.backgroundcolor_light_hex ?? 'transparent',
-            color: labelColorScheme?.textcolor_light_hex ?? 'unset',
-            borderColor: labelColorScheme?.accentcolor_light_hex ?? 'gray',
-            borderWidth: '1px',
-            paddingBlock: 'unset',
-            // transition: 'border-color 0.3s',
-        };
-    }
-};
+const labelStyle = computed(() => {
+    const colorScheme: ChecklistColorSchemeType | undefined =
+        checkListColorSchemeStore.colors.find((c) => c.id === label.value?.color_id)
+        ?? props.fallbackColor;
+    const dark = colorMode.value === "dark";
+    return {
+        backgroundColor: dark ? (colorScheme?.backgroundcolor_dark_hex ?? 'transparent') : (colorScheme?.backgroundcolor_light_hex ?? 'transparent'),
+        color: dark ? (colorScheme?.textcolor_dark_hex ?? 'unset') : (colorScheme?.textcolor_light_hex ?? 'unset'),
+        borderColor: dark ? (colorScheme?.accentcolor_dark_hex ?? 'gray') : (colorScheme?.accentcolor_light_hex ?? 'gray'),
+        borderWidth: '1px',
+        paddingBlock: 'unset',
+    };
+});
 </script>

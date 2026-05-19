@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "CheckCheck REST API",
-    "version": "0.1.dev30+gcfa6008.d20260519"
+    "version": "0.1.dev34+ge466573.d20260519"
   },
   "paths": {
     "/api/health": {

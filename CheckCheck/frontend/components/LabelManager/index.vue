@@ -17,40 +17,26 @@
 </template>
 
 <script setup lang="ts">
-const runtimeConfig = useRuntimeConfig();
-const appConfig = useAppConfig();
-import { useDragAndDrop, dragAndDrop } from "@formkit/drag-and-drop/vue";
+import { useDragAndDrop } from "@formkit/drag-and-drop/vue";
 import { animations } from "@formkit/drag-and-drop";
-import { useDebounceFn } from "@vueuse/core";
-import { useCheckListsColorSchemeStore } from "@/stores/color";
+import { watch } from "vue";
 import { useCheckListsLabelStore } from "@/stores/label";
-const checkListsColorSchemeStore = useCheckListsColorSchemeStore();
+
 const checkListsLabelStore = useCheckListsLabelStore();
-const colorMode = useColorMode();
 
-const checkListsStore = useCheckListsStore();
-const checkListsItemStore = useCheckListsItemStore();
-
-const props = defineProps({});
-
-const [ItemsView, draggableItems] = useDragAndDrop(checkListsLabelStore.labels, {
-  //group: "checkListItems",
+const [ItemsView, draggableItems] = useDragAndDrop([...checkListsLabelStore.labels], {
   dragHandle: ".label-item-drag-handle",
-
-  onDragend: (event) => {
-    (async () => {
-      
-      const draggedItem = event.draggedNode.data.value as LabelType;
-      const allItems = event.values as LabelType[];
-      console.log("WE MOVE")
-      //checkListsLabelStore.reorderChecklistItems(props.parentCheckList.id, allItems, draggedItem)
-    })();
-    //valuesChanged.value = `${event.previousValues} -> ${event.values}`;
-  },
-  draggable: (el) => !(el && el.classList.contains('no-drag')),
+  draggable: (el) => !(el && el.classList.contains("no-drag")),
   plugins: [animations()],
 });
 
+watch(
+  () => checkListsLabelStore.labels,
+  (newLabels) => {
+    draggableItems.value = [...newLabels];
+  },
+  { deep: true }
+);
 </script>
  
 <style scoped>
