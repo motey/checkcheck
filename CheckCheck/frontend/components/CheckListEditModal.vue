@@ -12,7 +12,6 @@
 </template>
 
 <script setup lang="ts">
-console.log("MODAL OPEN");
 // Props
 const props = defineProps({
   checkListId: {

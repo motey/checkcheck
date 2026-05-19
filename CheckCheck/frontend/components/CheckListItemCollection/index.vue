@@ -53,7 +53,6 @@ const [ItemsView, draggableItems] = useDragAndDrop(checklistItems, {
       
       const draggedItem = event.draggedNode.data.value as CheckListItemType;
       const allItems = event.values as CheckListItemType[];
-      console.log("WE MOVE")
       checkListsItemStore.reorderChecklistItems(props.parentCheckList.id, allItems, draggedItem)
     })();
     //valuesChanged.value = `${event.previousValues} -> ${event.values}`;

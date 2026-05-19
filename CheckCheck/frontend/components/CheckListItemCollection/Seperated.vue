@@ -43,8 +43,7 @@
 </template>
 
 <script setup lang="ts">
-const runtimeConfig = useRuntimeConfig();
-const appConfig = useAppConfig();
+import { computed } from "vue";
 import { useCheckListsStore } from "@/stores/checklist";
 import { useCheckListsItemStore } from "@/stores/checklist_item";
 import { Collapse } from "vue-collapsed";
@@ -57,7 +56,7 @@ const props = defineProps({
   showMaxItems: { type: Number, required: false },
 });
 
-const checkList = ref(await checkListStore.fetch(props.parentCheckList.id));
+const checkList = computed(() => checkListStore.get(props.parentCheckList.id) ?? props.parentCheckList);
 const checkedItemCount = checkListItemStore.getItemCount(checkList.value.id, true);
 const unCheckedItemCount = checkListItemStore.getItemCount(checkList.value.id, false);
 
@@ -78,7 +77,6 @@ const switchCollapseCheckedItems = () => {
     await checkListStore.update(checkList.value.id, {checked_items_collapsed:checkList.value.checked_items_collapsed} as CheckListUpdateType);
   })();
 
-  console.log("SWITCH COLLAPSE");
 };
 </script>
 

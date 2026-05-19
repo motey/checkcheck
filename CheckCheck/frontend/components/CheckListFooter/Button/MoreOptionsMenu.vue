@@ -49,7 +49,6 @@ const items = computed(
             await checkListsStore.update(props.checkListId, { checked_items_seperated: checked } as CheckListUpdateType);
           })();
 
-          console.log(checked);
         },
         onSelect(e: Event) {
           e.preventDefault();

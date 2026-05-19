@@ -4,6 +4,7 @@ export default defineNuxtPlugin({
     // Get API client configs from nuxt.config.ts runtimeConfig.public.openFetch
     const clients = useRuntimeConfig().public.openFetch
     const router = useRouter()
+    const toast = useToast()
 
     if (!clients) return { provide: {} }
 
@@ -13,6 +14,20 @@ export default defineNuxtPlugin({
       if (current.fullPath !== '/login' && !current.query.redirect) {
         router.push({ path: '/login', query: { redirect: current.fullPath } })
       }
+    }
+
+    const handleError = (ctx: any) => {
+      const status = ctx.response?.status
+      if (status === 401) {
+        handleUnauthorized()
+        return
+      }
+      const method = ctx.request ? String(ctx.request).split('?')[0] : 'request'
+      toast.add({
+        title: `Error ${status ?? ''}`.trim(),
+        description: `${ctx.options?.method?.toUpperCase() ?? 'Request'} ${method} failed`,
+        color: 'error',
+      })
     }
 
     // Create API clients with request/response interceptors
@@ -28,7 +43,7 @@ export default defineNuxtPlugin({
             ;(localOptions?.onResponse as any)?.(ctx)
           },
           onResponseError(ctx) {
-            if (ctx.response?.status === 401) handleUnauthorized()
+            handleError(ctx)
             ;(localOptions?.onResponseError as any)?.(ctx)
           }
         }))

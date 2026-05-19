@@ -1,6 +1,5 @@
 import { defineStore } from "pinia";
-import type { components, operations } from "#open-fetch-schemas/checkapi";
-import { useCheckListsItemStore } from "@/stores/checklist_item";
+import { transferAttrs } from "~/utils/helpers";
 
 export type CheckListLabelState = {
   labels: LabelType[];
@@ -13,95 +12,111 @@ export const useCheckListsLabelStore = defineStore("checkListLabelStore", {
     } as CheckListLabelState),
   getters: {
     getLabel: (state) => {
-      return (labelId: string) => {
-        return state.labels.find((label) => label.id == labelId);
-      };
+      return (labelId: string) => state.labels.find((label) => label.id == labelId);
     },
   },
   actions: {
     async fetchLabels() {
       const { $checkapi } = useNuxtApp();
       try {
-        const resLabels = await $checkapi("/api/label", {
-          method: "get",
-        });
-        this.labels = resLabels;
+        this.labels = await $checkapi("/api/label", { method: "get" });
       } catch (error) {
-        console.error("Could not fetch checklist labels from backend 'GET /api/label'", error);
+        console.error("Could not fetch labels 'GET /api/label'", error);
       }
       await this._sort();
-      return;
     },
-
     async getChecklistLabels(checkListId: string, refresh: boolean = true) {
       const checkListStore = useCheckListsStore();
-        const checklist = await checkListStore.fetch(checkListId);
+      const checklist = await checkListStore.fetch(checkListId);
       if (refresh) {
-        const { $checkapi, $transferAttrs } = useNuxtApp();
-        // refresh global label list
-        await this.fetchLabels()
-        // get labels attached to checklists
-        const labels = await $checkapi("/api/checklist/{checklist_id}/label", { method: "get", path: { checklist_id: checkListId } })
-        $transferAttrs(labels, checklist.labels)
+        const { $checkapi } = useNuxtApp();
+        await this.fetchLabels();
+        const labels = await $checkapi("/api/checklist/{checklist_id}/label", {
+          method: "get",
+          path: { checklist_id: checkListId },
+        });
+        transferAttrs(labels, checklist.labels);
       }
-      return checklist.labels
-      
-      
+      return checklist.labels;
     },
     async addCheckListLabel(checkListId: string, labelId: string) {
-      const { $checkapi, $transferAttrs } = useNuxtApp();
+      const { $checkapi } = useNuxtApp();
       const checkListStore = useCheckListsStore();
       const checklist = await checkListStore.fetch(checkListId);
-      const fresh_label = await $checkapi("/api/checklist/{checklist_id}/label/{label_id}", {
-        method: "put",
-        path: { checklist_id: checkListId, label_id: labelId },
-      });
-      const old_label = checklist.labels.find((label) => label.id == labelId);
-      if (old_label != undefined) {
-        // label is allready attached but we refresh its data from the server for good measure
-        $transferAttrs(fresh_label, old_label);
-      } else {
-        checklist.labels.push(fresh_label);
+      try {
+        const fresh_label = await $checkapi("/api/checklist/{checklist_id}/label/{label_id}", {
+          method: "put",
+          path: { checklist_id: checkListId, label_id: labelId },
+        });
+        const old_label = checklist.labels.find((label) => label.id == labelId);
+        if (old_label != undefined) {
+          transferAttrs(fresh_label, old_label);
+        } else {
+          checklist.labels.push(fresh_label);
+        }
+      } catch (error) {
+        console.error("Could not add label to checklist", error);
+        throw error;
       }
-        this._sort()
+      this._sort();
     },
     async removeCheckListLabel(checkListId: string, labelId: string) {
-        const { $checkapi } = useNuxtApp();
-        const checkListStore = useCheckListsStore();
-        const checklist = await checkListStore.fetch(checkListId);
-        const fresh_label = await $checkapi("/api/checklist/{checklist_id}/label/{label_id}", {
+      const { $checkapi } = useNuxtApp();
+      const checkListStore = useCheckListsStore();
+      const checklist = await checkListStore.fetch(checkListId);
+      try {
+        await $checkapi("/api/checklist/{checklist_id}/label/{label_id}", {
           method: "delete",
           path: { checklist_id: checkListId, label_id: labelId },
         });
-        const old_label_index = checklist.labels.findIndex((label) => label.id == labelId);
-        if (old_label_index !== -1) {
-          checklist.labels.splice(old_label_index,1);
-        }
+        const index = checklist.labels.findIndex((label) => label.id == labelId);
+        if (index !== -1) checklist.labels.splice(index, 1);
+      } catch (error) {
+        console.error("Could not remove label from checklist", error);
+        throw error;
+      }
     },
     async createLabel(label: LabelCreateType) {
       const { $checkapi } = useNuxtApp();
-      const fresh_label = await $checkapi("/api/label", { method: "post", body: label })
-      this.labels.push(fresh_label);
-      this._sort()
-      return fresh_label
+      try {
+        const fresh_label = await $checkapi("/api/label", { method: "post", body: label });
+        this.labels.push(fresh_label);
+        this._sort();
+        return fresh_label;
+      } catch (error) {
+        console.error("Could not create label 'POST /api/label'", error);
+        throw error;
+      }
     },
-    async updateLabel(labelId:string, label: LabelUpdateType) {
-      const { $checkapi,$transferAttrs } = useNuxtApp();
-      const fresh_label = await $checkapi("/api/label/{label_id}", { method: "patch", path: { label_id: labelId }, body: label })
-      const old_label_index = this.labels.findIndex((label) => label.id == labelId);
-      $transferAttrs(fresh_label, this.labels[old_label_index]!)
-      this._sort()
+    async updateLabel(labelId: string, label: LabelUpdateType) {
+      const { $checkapi } = useNuxtApp();
+      try {
+        const fresh_label = await $checkapi("/api/label/{label_id}", {
+          method: "patch",
+          path: { label_id: labelId },
+          body: label,
+        });
+        const index = this.labels.findIndex((l) => l.id == labelId);
+        if (index !== -1) transferAttrs(fresh_label, this.labels[index]!);
+        this._sort();
+      } catch (error) {
+        console.error("Could not update label 'PATCH /api/label/" + labelId + "'", error);
+        throw error;
+      }
     },
     async deleteLabel(labelId: string) {
       const { $checkapi } = useNuxtApp();
-      await $checkapi("/api/label/{label_id}", { method: "delete", path: { label_id: labelId } });
-      const index = this.labels.findIndex((label) => label.id === labelId);
-      if (index !== -1) this.labels.splice(index, 1);
+      try {
+        await $checkapi("/api/label/{label_id}", { method: "delete", path: { label_id: labelId } });
+        const index = this.labels.findIndex((label) => label.id === labelId);
+        if (index !== -1) this.labels.splice(index, 1);
+      } catch (error) {
+        console.error("Could not delete label 'DELETE /api/label/" + labelId + "'", error);
+        throw error;
+      }
     },
     async _sort() {
-      // this is just a placeholder for now
-        //this.labels.sort((a, b) => a.sort_order - b.sort_order);
-        this.labels.sort((a, b) => b.sort_order! - a.sort_order!);
+      this.labels.sort((a, b) => b.sort_order! - a.sort_order!);
     },
   },
 });

@@ -11,7 +11,6 @@ export default defineNuxtConfig({
     "nuxt-open-fetch",
     "@nuxt/ui",
     "@pinia/nuxt",
-    "nuxt-lodash",
     "@nuxt/fonts",
     "@nuxt/icon",
     "@nuxtjs/color-mode",
