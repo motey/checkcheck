@@ -1,30 +1,58 @@
 <template>
   <NuxtLayout>
     <div class="flex flex-col h-screen">
-      <Navbar />
-      
+      <Navbar @toggle-sidebar="mobileNavOpen = !mobileNavOpen" />
+
       <div class="flex flex-1 overflow-hidden">
-        <div class="flex-none side-menu-frame h-full overflow-y-auto">
-          
-          <SideMenu v-model:collapsed="isSideBarcollapsed" v-model:miniMenu="isSideBarMinimized"/>
-        </div>
-        <div class="flex-1 checklist-content-frame h-full overflow-y-auto">
+        <SideMenu v-model:collapsed="sidebarCollapsed" />
+        <main class="flex-1 h-full overflow-y-auto">
           <CheckListBoard />
-        </div>
-      </div>
-      <div class="hidden">
-        <USwitch v-model="isSideBarMinimized">Menu</USwitch>
+        </main>
       </div>
     </div>
+
+    <!-- Mobile nav drawer (portaled, lives outside the flex flow) -->
+    <SideMenuDrawer v-model:open="mobileNavOpen" />
   </NuxtLayout>
 </template>
+
 <script setup lang="ts">
-const runtimeConfig = useRuntimeConfig();
-import SideMenu from "~/components/SideMenu.vue";
+import { ref, watch } from "vue";
+import { useRoute, useRouter } from "vue-router";
+import { LabelManagerModal } from "#components";
 
-const isSideBarcollapsed = ref(false)
-const isSideBarMinimized = ref(false)
+const route = useRoute();
+const router = useRouter();
+const sidebarCollapsed = ref(false);
+const mobileNavOpen = ref(false);
 
+const labelEditorOverlay = useOverlay();
+const labelEditorModal = labelEditorOverlay.create(LabelManagerModal);
+
+// Guard so a pending open() can't be double-triggered
+let modalOpening = false;
+
+watch(
+  () => route.query.editlabels,
+  async (val) => {
+    if (val === "true") {
+      if (modalOpening) return;
+      modalOpening = true;
+      await labelEditorModal.open();
+      modalOpening = false;
+      // Modal was closed by the user — strip editlabels from URL without
+      // adding a history entry (replace, not push).
+      if (route.query.editlabels === "true") {
+        const { editlabels: _, ...rest } = route.query;
+        router.replace({ query: rest });
+      }
+    } else {
+      // editlabels disappeared from URL (e.g. browser back while modal open)
+      labelEditorModal.close();
+    }
+  },
+  { immediate: true }
+);
 </script>
 
 <style scoped></style>
