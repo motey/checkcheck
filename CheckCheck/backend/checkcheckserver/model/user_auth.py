@@ -223,13 +223,16 @@ class UserAuth(_UserAuthBase, TimestampedModel, table=True):
     def verify_api_token(
         self,
         api_token: SecretStr | str | None,
-        raise_exception_if_wrong: Exception = None,
+        raise_exception_if_wrong: Exception | None = None,
     ) -> bool:
-        token = api_token
-        if isinstance(api_token, SecretStr):
-            token = api_token.get_secret_value()
+        if api_token is None:
+            return False
+        elif isinstance(api_token, SecretStr):
+            token: str = api_token.get_secret_value()
+        else:
+            token = api_token
         log.debug(f"TOKEN {token}")
-        if "." in api_token:
+        if "." in token:
             token = token.split(".", maxsplit=1)[1]  # remove the token id
         token = self.add_salt(token, self.salt)
         token_correct = crypt_context_api_token.verify(token, self.api_token_hashed)
@@ -248,16 +251,18 @@ class UserAuth(_UserAuthBase, TimestampedModel, table=True):
             json.dumps(oidc_token).encode()
         ).decode()
 
-    def update_oidc_access_token(self, access_token: Dict):
+    def update_oidc_token(self, oidc_token: Dict):
         """_summary_
 
         Args:
-            access_token (Dict): example `{'access_token': 'pnAkhmYYMwyApZCRhDKx41Mvb3daCrOOAlqbICHhzm', 'expires_in': 3600, 'scope': 'openid profile email', 'token_type': 'Bearer', 'expires_at': 1747088292}`
+            oidc_token (Dict): example `{'access_token': 'pnAkhmYYMwyApZCRhDKx41Mvb3daCrOOAlqbICHhzm', 'expires_in': 3600, 'scope': 'openid profile email', 'token_type': 'Bearer', 'expires_at': 1747088292}`
         """
         old_token = self.get_decrypted_oidc_token()
-        old_token = old_token | access_token
-        self.expires_at_epoch_time = access_token["expires_at"]
-        self.set_api_token(old_token)
+        old_token = (
+            old_token | oidc_token
+        )  # merge with old token to not overwrite refresh tokens, on access token update
+        self.expires_at_epoch_time = oidc_token["expires_at"]
+        self.set_oidc_token(old_token)
 
     def get_decrypted_oidc_token(self) -> dict:
         return json.loads(fernet.decrypt(self.oidc_token_encrypted).decode())

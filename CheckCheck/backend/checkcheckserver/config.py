@@ -162,7 +162,8 @@ class Config(BaseSettings):
             description="The client secret of the OpenID Connect provider."
         )
         SCOPES: List[str] = Field(
-            description="", default=["openid", "profile", "email"]
+            default=["openid", "profile", "email", "offline_access"],
+            description="hint: Scope `offline_access` is needed to get not only a access token but also a refresh token. This enables the application to keep the session alive without the need for the user to relogin.",
         )
 
         def get_scopes_as_string(self):
