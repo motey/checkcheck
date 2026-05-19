@@ -42,9 +42,18 @@ class SyncNotification(BaseTable, table=True):
     cli_id: Optional[uuid.UUID] = Field(
         description="ID of Checklist item that has to be updated by the client"
     )
-    upd_prop: Literal["position", "text", "state", "color"] = Field(
-        default=None, sa_type=String
-    )
+    upd_prop: Literal[
+        "item_state",
+        "item_text",
+        "item_position",
+        "item_created",
+        "item_deleted",
+        "checklist",
+        "checklist_position",
+        "checklist_created",
+        "checklist_deleted",
+        "checklist_label",
+    ] = Field(default=None, sa_type=String)
 
 
 class SyncNotificationPackage(BaseModel):

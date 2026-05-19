@@ -43,31 +43,32 @@ class SyncNotifiationCRUD(
         res = await self.session.exec(query)
         noti = res.one_or_none()
 
-        checklist_item_id = noti.cl_id
+        if noti is None:
+            return None
+
+        checklist_id = noti.cl_id
 
         ## get checklist owner
-        owner_query = select(CheckList.owner_id).where(
-            CheckList.id == checklist_item_id
-        )
+        owner_query = select(CheckList.owner_id).where(CheckList.id == checklist_id)
         res = await self.session.exec(owner_query)
-        owner_id = owner_query.one()
+        owner_id = res.one_or_none()
 
         ## get collaborators ids
         collab_user_ids_query = select(CheckListCollaborator.user_id).where(
-            CheckListCollaborator.checklist_id == checklist_item_id
+            CheckListCollaborator.checklist_id == checklist_id
         )
         res = await self.session.exec(collab_user_ids_query)
         collab_user_ids = res.all()
-
-        if noti is None:
-            return None
         del_statement = delete(SyncNotification).where(
             SyncNotification.timestamp == noti.timestamp
         )
         await self.session.exec(del_statement)
         await self.session.commit()
+        target_ids = list(collab_user_ids)
+        if owner_id is not None:
+            target_ids.append(owner_id)
         return SyncNotificationPackage(
-            target_user_ids=collab_user_ids + [owner_id], notification=noti
+            target_user_ids=target_ids, notification=noti
         )
 
     async def fetch_next_event_for_user(

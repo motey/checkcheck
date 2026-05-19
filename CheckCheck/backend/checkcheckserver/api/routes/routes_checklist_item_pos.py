@@ -82,6 +82,8 @@ config = Config()
 
 from checkcheckserver.log import get_logger
 from checkcheckserver.model.checklist import CheckList
+from checkcheckserver.db.sync_notification import SyncNotifiationCRUD
+from checkcheckserver.model.sync_notifications import SyncNotification
 
 log = get_logger()
 
@@ -119,8 +121,9 @@ async def update_checklist_item_position(
     checklist_item_pos_crud: CheckListItemPositionCRUD = Depends(
         CheckListItemPositionCRUD.get_crud
     ),
+    sync_crud: SyncNotifiationCRUD = Depends(SyncNotifiationCRUD.get_crud),
 ) -> CheckListItemPosition:
-    return await checklist_item_pos_crud.update(
+    result = await checklist_item_pos_crud.update(
         checklist_item_position_update=CheckListItemPositionUpdate(
             checklist_item_id=checklist_item_id,
             **position.model_dump(exclude_unset=True),
@@ -130,6 +133,10 @@ async def update_checklist_item_position(
             detail=f"Item with uuid '{checklist_item_id}' can not be found.",
         ),
     )
+    await sync_crud.create(SyncNotification(
+        cl_id=checklist_access.checklist.id, cli_id=checklist_item_id, upd_prop="item_position"
+    ))
+    return result
 
 
 @fast_api_checklist_item_pos_router.put(
@@ -144,6 +151,7 @@ async def move_item_under_other_item(
     checklist_item_pos_crud: CheckListItemPositionCRUD = Depends(
         CheckListItemPositionCRUD.get_crud
     ),
+    sync_crud: SyncNotifiationCRUD = Depends(SyncNotifiationCRUD.get_crud),
 ) -> CheckListItemPosition:
     target_pos = await checklist_item_pos_crud.get(
         checklist_item_id=checklist_item_id,
@@ -171,6 +179,9 @@ async def move_item_under_other_item(
             decimal.Decimal(str(other_item_pos.index)) + decimal.Decimal(str(0.4))
         )
         await checklist_item_pos_crud.update(target_pos)
+        await sync_crud.create(SyncNotification(
+            cl_id=checklist_access.checklist.id, cli_id=checklist_item_id, upd_prop="item_position"
+        ))
         return target_pos
     target_pos.index = float(
         (
@@ -183,6 +194,9 @@ async def move_item_under_other_item(
         + decimal.Decimal(str(other_item_pos.index))
     )
     await checklist_item_pos_crud.update(target_pos)
+    await sync_crud.create(SyncNotification(
+        cl_id=checklist_access.checklist.id, cli_id=checklist_item_id, upd_prop="item_position"
+    ))
     return target_pos
 
 
@@ -198,6 +212,7 @@ async def move_item_above_other_item(
     checklist_item_pos_crud: CheckListItemPositionCRUD = Depends(
         CheckListItemPositionCRUD.get_crud
     ),
+    sync_crud: SyncNotifiationCRUD = Depends(SyncNotifiationCRUD.get_crud),
 ) -> CheckListItemPosition:
     target_pos = await checklist_item_pos_crud.get(
         checklist_item_id=checklist_item_id,
@@ -225,6 +240,9 @@ async def move_item_above_other_item(
             decimal.Decimal(str(other_item_pos.index)) - decimal.Decimal(str(0.4))
         )
         await checklist_item_pos_crud.update(target_pos)
+        await sync_crud.create(SyncNotification(
+            cl_id=checklist_access.checklist.id, cli_id=checklist_item_id, upd_prop="item_position"
+        ))
         return target_pos
     target_pos.index = (
         (
@@ -234,6 +252,9 @@ async def move_item_above_other_item(
         / 2
     ) - decimal.Decimal(str(other_item_pos.index))
     await checklist_item_pos_crud.update(target_pos)
+    await sync_crud.create(SyncNotification(
+        cl_id=checklist_access.checklist.id, cli_id=checklist_item_id, upd_prop="item_position"
+    ))
     return target_pos
 
 
@@ -248,6 +269,7 @@ async def move_item_to_bottom_of_checklist(
     checklist_item_pos_crud: CheckListItemPositionCRUD = Depends(
         CheckListItemPositionCRUD.get_crud
     ),
+    sync_crud: SyncNotifiationCRUD = Depends(SyncNotifiationCRUD.get_crud),
 ) -> CheckListItemPosition:
     target_pos = await checklist_item_pos_crud.get(
         checklist_item_id=checklist_item_id,
@@ -264,6 +286,9 @@ async def move_item_to_bottom_of_checklist(
         return target_pos
     target_pos.index = decimal.Decimal(str(last_pos.index)) - decimal.Decimal("0.4")
     await checklist_item_pos_crud.update(target_pos)
+    await sync_crud.create(SyncNotification(
+        cl_id=checklist_access.checklist.id, cli_id=checklist_item_id, upd_prop="item_position"
+    ))
     return target_pos
 
 
@@ -278,6 +303,7 @@ async def move_item_to_top_of_checklist(
     checklist_item_pos_crud: CheckListItemPositionCRUD = Depends(
         CheckListItemPositionCRUD.get_crud
     ),
+    sync_crud: SyncNotifiationCRUD = Depends(SyncNotifiationCRUD.get_crud),
 ) -> CheckListItemPosition:
     target_pos = await checklist_item_pos_crud.get(
         checklist_item_id=checklist_item_id,
@@ -296,4 +322,7 @@ async def move_item_to_top_of_checklist(
         decimal.Decimal(str(first_pos.index)) + decimal.Decimal("0.4")
     )
     await checklist_item_pos_crud.update(target_pos)
+    await sync_crud.create(SyncNotification(
+        cl_id=checklist_access.checklist.id, cli_id=checklist_item_id, upd_prop="item_position"
+    ))
     return target_pos

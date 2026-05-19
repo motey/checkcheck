@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "CheckCheck REST API",
-    "version": "0.1.dev34+ge466573.d20260519"
+    "version": "0.1.dev37+gd0a03f4.d20260519"
   },
   "paths": {
     "/api/health": {
@@ -4439,10 +4439,16 @@
           "upd_prop": {
             "type": "string",
             "enum": [
-              "position",
-              "text",
-              "state",
-              "color"
+              "item_state",
+              "item_text",
+              "item_position",
+              "item_created",
+              "item_deleted",
+              "checklist",
+              "checklist_position",
+              "checklist_created",
+              "checklist_deleted",
+              "checklist_label"
             ],
             "title": "Upd Prop"
           }

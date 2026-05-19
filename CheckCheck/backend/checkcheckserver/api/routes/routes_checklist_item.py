@@ -82,6 +82,8 @@ config = Config()
 
 from checkcheckserver.log import get_logger
 from checkcheckserver.model.checklist import CheckList
+from checkcheckserver.db.sync_notification import SyncNotifiationCRUD
+from checkcheckserver.model.sync_notifications import SyncNotification
 
 log = get_logger()
 
@@ -220,6 +222,7 @@ async def create_checklist_item(
     checklist_item_state_crud: CheckListItemStateCRUD = Depends(
         CheckListItemStateCRUD.get_crud
     ),
+    sync_crud: SyncNotifiationCRUD = Depends(SyncNotifiationCRUD.get_crud),
     current_user: User = Depends(get_current_user),
 ) -> CheckListItemRead:
     new_checklist_item_id = uuid.uuid4()
@@ -263,7 +266,9 @@ async def create_checklist_item(
     await checklist_item_crud.create(checklist_item)
     await checklist_item_pos_crud.create(checklist_item_position)
     await checklist_item_state_crud.create(checklist_item_state)
-
+    await sync_crud.create(SyncNotification(
+        cl_id=checklist_id, cli_id=new_checklist_item_id, upd_prop="item_created"
+    ))
     return await checklist_item_crud.get(new_checklist_item_id)
 
 
@@ -277,6 +282,7 @@ async def update_checklist_item(
     checklist_item_update: CheckListItemUpdate,
     checklist_access: UserChecklistAccess = Security(user_has_checklist_access),
     checklist_item_crud: CheckListItemCRUD = Depends(CheckListItemCRUD.get_crud),
+    sync_crud: SyncNotifiationCRUD = Depends(SyncNotifiationCRUD.get_crud),
     current_user: User = Depends(get_current_user),
 ) -> CheckListItemRead:
     checklist_id = checklist_access.checklist.id
@@ -298,6 +304,9 @@ async def update_checklist_item(
         id_=checklist_item_id,
         raise_exception_if_not_exists=checklist_item_not_exists_error,
     )
+    await sync_crud.create(SyncNotification(
+        cl_id=checklist_id, cli_id=checklist_item_id, upd_prop="item_text"
+    ))
     return db_item
 
 
@@ -310,6 +319,7 @@ async def delete_checklist_item(
     checklist_item_id: uuid.UUID,
     checklist_access: UserChecklistAccess = Security(user_has_checklist_access),
     checklist_item_crud: CheckListItemCRUD = Depends(CheckListItemCRUD.get_crud),
+    sync_crud: SyncNotifiationCRUD = Depends(SyncNotifiationCRUD.get_crud),
     current_user: User = Depends(get_current_user),
 ) -> bool:
     checklist_id = checklist_access.checklist.id
@@ -325,7 +335,8 @@ async def delete_checklist_item(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Item with id {checklist_item_id} not existing in checklist with id {checklist_id}",
         )
-    await checklist_item_crud.delete(
-        id_=checklist_item_id,
-    )
+    await checklist_item_crud.delete(id_=checklist_item_id)
+    await sync_crud.create(SyncNotification(
+        cl_id=checklist_id, cli_id=checklist_item_id, upd_prop="item_deleted"
+    ))
     return True

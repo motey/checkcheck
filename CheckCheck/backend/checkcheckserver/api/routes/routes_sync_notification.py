@@ -101,7 +101,7 @@ async def sync_via_server_send_events(
                 data = await queue.get()
                 yield data
         finally:
-            clients.remove(queue)
+            clients[:] = [(q, u, r) for q, u, r in clients if q is not queue]
 
     return StreamingResponse(notification_stream(), media_type="text/event-stream")
 
@@ -118,7 +118,7 @@ async def notify_clients():
             continue
         for queue, user, request in clients:
             if user.id in noti.target_user_ids:
-                await queue.put(f"{noti.notification.model_dump_json()}\n\n")
+                await queue.put(f"data: {noti.notification.model_dump_json()}\n\n")
 
 
 @asynccontextmanager

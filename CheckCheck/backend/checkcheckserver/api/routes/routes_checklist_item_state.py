@@ -78,6 +78,8 @@ from checkcheckserver.api.paginator import (
     QueryParamsInterface,
 )
 from checkcheckserver.log import get_logger
+from checkcheckserver.db.sync_notification import SyncNotifiationCRUD
+from checkcheckserver.model.sync_notifications import SyncNotification
 
 config = Config()
 
@@ -102,7 +104,7 @@ async def get_checklist_item_checked_state(
 ) -> CheckListItemStateWithoutChecklistID:
     return await checklist_item_state_crud.get_checklist_item_state(
         checklist_item_id=checklist_item_id,
-        raise_exception_if_none=HTTPException(status_code=status.HTTP_404_NOT_FOUND),
+        raise_if_checklist_item_does_not_exists=HTTPException(status_code=status.HTTP_404_NOT_FOUND),
     )
 
 
@@ -118,5 +120,12 @@ async def set_checklist_item_checked_state(
     checklist_item_state_crud: CheckListItemStateCRUD = Depends(
         CheckListItemStateCRUD.get_crud
     ),
+    sync_crud: SyncNotifiationCRUD = Depends(SyncNotifiationCRUD.get_crud),
 ) -> CheckListItemStateWithoutChecklistID:
-    return await checklist_item_state_crud.update(update_obj=val, id_=checklist_item_id)
+    result = await checklist_item_state_crud.update(update_obj=val, id_=checklist_item_id)
+    await sync_crud.create(SyncNotification(
+        cl_id=checklist_access.checklist.id,
+        cli_id=checklist_item_id,
+        upd_prop="item_state",
+    ))
+    return result

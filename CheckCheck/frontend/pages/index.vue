@@ -20,11 +20,16 @@
 import { ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { LabelManagerModal } from "#components";
+import { useSync } from "~/composables/useSync";
 
 const route = useRoute();
 const router = useRouter();
 const sidebarCollapsed = ref(false);
 const mobileNavOpen = ref(false);
+
+const { connect, disconnect } = useSync();
+onMounted(connect);
+onUnmounted(disconnect);
 
 const labelEditorOverlay = useOverlay();
 const labelEditorModal = labelEditorOverlay.create(LabelManagerModal);

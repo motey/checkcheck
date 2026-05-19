@@ -61,6 +61,8 @@ config = Config()
 
 from checkcheckserver.log import get_logger
 from checkcheckserver.model.checklist import CheckList
+from checkcheckserver.db.sync_notification import SyncNotifiationCRUD
+from checkcheckserver.model.sync_notifications import SyncNotification
 
 log = get_logger()
 
@@ -188,6 +190,7 @@ async def add_label_to_checklist(
     checklist_access: UserChecklistAccess = Security(user_has_checklist_access),
     label_crud: LabelCRUD = Depends(LabelCRUD.get_crud),
     checklist_label_crud: ChecklistLabelCRUD = Depends(ChecklistLabelCRUD.get_crud),
+    sync_crud: SyncNotifiationCRUD = Depends(SyncNotifiationCRUD.get_crud),
     current_user: User = Depends(get_current_user),
 ) -> LabelReadAPI:
     label_not_exist_exception = HTTPException(
@@ -208,6 +211,7 @@ async def add_label_to_checklist(
         ),
         exists_ok=True,
     )
+    await sync_crud.create(SyncNotification(cl_id=checklist_access.checklist.id, upd_prop="checklist_label"))
     return existing_label
 
 
@@ -220,6 +224,7 @@ async def remove_label_from_checklist(
     checklist_access: UserChecklistAccess = Security(user_has_checklist_access),
     label_crud: LabelCRUD = Depends(LabelCRUD.get_crud),
     checklist_label_crud: ChecklistLabelCRUD = Depends(ChecklistLabelCRUD.get_crud),
+    sync_crud: SyncNotifiationCRUD = Depends(SyncNotifiationCRUD.get_crud),
     current_user: User = Depends(get_current_user),
 ):
     await checklist_label_crud.delete(
@@ -227,3 +232,4 @@ async def remove_label_from_checklist(
         label_id=label_id,
         user_id=current_user.id,
     )
+    await sync_crud.create(SyncNotification(cl_id=checklist_access.checklist.id, upd_prop="checklist_label"))

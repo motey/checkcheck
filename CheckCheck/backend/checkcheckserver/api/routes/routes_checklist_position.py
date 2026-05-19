@@ -56,6 +56,8 @@ config = Config()
 
 from checkcheckserver.log import get_logger
 from checkcheckserver.model.checklist import CheckList
+from checkcheckserver.db.sync_notification import SyncNotifiationCRUD
+from checkcheckserver.model.sync_notifications import SyncNotification
 
 log = get_logger()
 
@@ -121,6 +123,7 @@ async def update_checklist_position(
     checklist_obj: CheckListPositionUpdate,
     checklist_pos_crud: CheckListPositionCRUD = Depends(CheckListPositionCRUD.get_crud),
     checklist_access: UserChecklistAccess = Security(user_has_checklist_access),
+    sync_crud: SyncNotifiationCRUD = Depends(SyncNotifiationCRUD.get_crud),
     current_user: User = Depends(get_current_user),
 ) -> CheckListPosition:
     result_item = await checklist_pos_crud.update(
@@ -128,6 +131,7 @@ async def update_checklist_position(
         user_id=current_user.id,
         checklist_id=checklist_access.checklist.id,
     )
+    await sync_crud.create(SyncNotification(cl_id=checklist_access.checklist.id, upd_prop="checklist_position"))
     return result_item
 
 
@@ -140,6 +144,7 @@ async def move_checklist_under_other_checklist(
     checklist_id: uuid.UUID,
     other_checklist_id: uuid.UUID,
     checklist_pos_crud: CheckListPositionCRUD = Depends(CheckListPositionCRUD.get_crud),
+    sync_crud: SyncNotifiationCRUD = Depends(SyncNotifiationCRUD.get_crud),
     current_user: User = Depends(get_current_user),
 ) -> CheckListPosition:
     """Move a checklist under another checklist in the positon index (the new checklist-position-index-value will be lower to the other checklist-position-index-value)
@@ -182,6 +187,7 @@ async def move_checklist_under_other_checklist(
         await checklist_pos_crud.update(
             target_pos, checklist_id=checklist_id, user_id=current_user.id
         )
+        await sync_crud.create(SyncNotification(cl_id=checklist_id, upd_prop="checklist_position"))
         return target_pos
     target_pos.index = float(
         (
@@ -196,6 +202,7 @@ async def move_checklist_under_other_checklist(
     await checklist_pos_crud.update(
         target_pos, checklist_id=checklist_id, user_id=current_user.id
     )
+    await sync_crud.create(SyncNotification(cl_id=checklist_id, upd_prop="checklist_position"))
     return target_pos
 
 
@@ -208,6 +215,7 @@ async def move_checklist_above_other_checklist(
     checklist_id: uuid.UUID,
     other_checklist_id: uuid.UUID,
     checklist_pos_crud: CheckListPositionCRUD = Depends(CheckListPositionCRUD.get_crud),
+    sync_crud: SyncNotifiationCRUD = Depends(SyncNotifiationCRUD.get_crud),
     current_user: User = Depends(get_current_user),
 ) -> CheckListPosition:
     """Move a checklist above another checklist in the positon index (the new checklist-position-index-value will be higher compared to the other checklist-position-index-value)
@@ -250,6 +258,7 @@ async def move_checklist_above_other_checklist(
         await checklist_pos_crud.update(
             target_pos, checklist_id=checklist_id, user_id=current_user.id
         )
+        await sync_crud.create(SyncNotification(cl_id=checklist_id, upd_prop="checklist_position"))
         return target_pos
     target_pos.index = float(
         (
@@ -264,4 +273,5 @@ async def move_checklist_above_other_checklist(
     await checklist_pos_crud.update(
         target_pos, checklist_id=checklist_id, user_id=current_user.id
     )
+    await sync_crud.create(SyncNotification(cl_id=checklist_id, upd_prop="checklist_position"))
     return target_pos

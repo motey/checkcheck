@@ -38,6 +38,18 @@ declare global {
     // ChecklistColorScheme
     type ChecklistColorSchemeType = components["schemas"]["ChecklistColorScheme"]
     
+    // Sync
+    type SyncNotificationUpdateProp =
+        | "item_state" | "item_text" | "item_position" | "item_created" | "item_deleted"
+        | "checklist" | "checklist_position" | "checklist_created" | "checklist_deleted"
+        | "checklist_label"
+    type SyncNotificationType = {
+        timestamp: number
+        cl_id: string
+        cli_id: string | null
+        upd_prop: SyncNotificationUpdateProp
+    }
+
     // Labels
     type LabelType = components["schemas"]["LabelReadAPI"]
     type LabelCreateType = components["schemas"]["LabelCreate"]

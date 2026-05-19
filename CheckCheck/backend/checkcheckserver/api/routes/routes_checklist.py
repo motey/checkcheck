@@ -68,6 +68,8 @@ config = Config()
 
 from checkcheckserver.log import get_logger
 from checkcheckserver.model.checklist import CheckList
+from checkcheckserver.db.sync_notification import SyncNotifiationCRUD
+from checkcheckserver.model.sync_notifications import SyncNotification
 
 log = get_logger()
 
@@ -125,6 +127,7 @@ async def create_checklist(
         CheckListPositionCRUD.get_crud
     ),
     checklist_crud: CheckListCRUD = Depends(CheckListCRUD.get_crud),
+    sync_crud: SyncNotifiationCRUD = Depends(SyncNotifiationCRUD.get_crud),
 ) -> CheckListApiWithSubObj:
     checklist_db: CheckList = await checklist_crud.create(
         CheckListCreate(
@@ -160,8 +163,8 @@ async def create_checklist(
     checklist_db: CheckList = await checklist_crud.get(
         checklist_db.id,
     )
-    print("checklist_db", checklist_db.model_dump())
     checklist_db.position = index
+    await sync_crud.create(SyncNotification(cl_id=checklist_db.id, upd_prop="checklist_created"))
     return checklist_db
 
 
@@ -194,8 +197,9 @@ async def update_checklist(
     checklist: CheckListUpdate,
     checklist_crud: CheckListCRUD = Depends(CheckListCRUD.get_crud),
     checklist_access: UserChecklistAccess = Security(user_has_checklist_access),
+    sync_crud: SyncNotifiationCRUD = Depends(SyncNotifiationCRUD.get_crud),
 ) -> CheckListApiWithSubObj:
-    return await checklist_crud.update(
+    result = await checklist_crud.update(
         id_=checklist_id,
         update_obj=checklist,
         raise_exception_if_not_exists=HTTPException(
@@ -203,6 +207,8 @@ async def update_checklist(
             detail=f"No checklist with id '{checklist_id}'",
         ),
     )
+    await sync_crud.create(SyncNotification(cl_id=checklist_id, upd_prop="checklist"))
+    return result
 
 
 @fast_api_checklist_router.delete(
@@ -224,6 +230,7 @@ async def delete_checklist(
         CheckListPositionCRUD.get_crud
     ),
     checklist_access: UserChecklistAccess = Security(user_has_checklist_access),
+    sync_crud: SyncNotifiationCRUD = Depends(SyncNotifiationCRUD.get_crud),
 ):
     if checklist_access.user_is_collaborator:
         await checklist_position_crud.delete(
@@ -232,6 +239,7 @@ async def delete_checklist(
         await checklist_collaborator_crud.delete(
             user_id=checklist_access.user.id, checklist_id=checklist_id
         )
+        await sync_crud.create(SyncNotification(cl_id=checklist_id, upd_prop="checklist_deleted"))
         return
 
     if checklist_access.user_is_owner:
@@ -244,3 +252,4 @@ async def delete_checklist(
                 detail=f"No checklist with id '{checklist_id}'",
             ),
         )
+        await sync_crud.create(SyncNotification(cl_id=checklist_id, upd_prop="checklist_deleted"))
