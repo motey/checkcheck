@@ -64,7 +64,8 @@ class AllowedAuthSchemeType(str, enum.Enum):
 class _UserAuthBase(BaseTable, table=False):
     user_id: uuid.UUID = Field(foreign_key="user.id")
     auth_source_type: AllowedAuthSchemeType = Field(
-        default=AllowedAuthSchemeType.basic, sa_column=Column(Enum(AllowedAuthSchemeType))
+        default=AllowedAuthSchemeType.basic,
+        sa_column=Column(Enum(AllowedAuthSchemeType)),
     )
 
     oidc_provider_slug: Optional[str] = Field(index=True, default=None)
@@ -120,7 +121,7 @@ class UserAuthCreate(_UserAuthBase, UserAuthUpdate, table=False):
 class UserAuth(_UserAuthBase, TimestampedModel, table=True):
     """This table stores the information of what type a certain user is and how the user can access our application.
     Either a user is of "local"-type and can login with the (hashed) password in this table or a user is external.
-    External user are only comming from a OpenID Connect Provider at the moment and are maked as "oidc". Later there maybe "ldap" user as well.
+    External user are only comming from a OpenID Connect Provider at the moment and are marked as "oidc". Later there maybe "ldap" user as well.
     External users may have an extra table to store further auth informations. For oidc users that table is in checkcheckserver/db/user_auth_external_oidc_token.py
 
     Args:

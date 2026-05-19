@@ -30,10 +30,10 @@ class UserSessionCRUD(
         update_model=UserSession,
     )
 ):
-
     async def get_by_user_auth_id(
         self, user_auth_id: uuid.UUID, raise_exception_if_none: Exception = None
     ) -> UserSession | None:
+        log.debug(f"user_auth_id: {user_auth_id}")
         query = select(UserSession).where(UserSession.user_auth_id == user_auth_id)
         results = await self.session.exec(statement=query)
         user_session: UserSession | None = results.one_or_none()

@@ -328,7 +328,7 @@ async def auth_oidc_callback(
         token = await oauth_client.authorize_access_token(request)
     except OAuthError as e:
         log.error(e, exc_info=True)
-        return HTTPException(
+        raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Auth error can not fetch access token from {oauth_client.access_token_url}. Error: {e}",
         )

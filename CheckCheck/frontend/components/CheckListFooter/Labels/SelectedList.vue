@@ -1,17 +1,12 @@
 <template>
-    
     <div v-if="colorsReady" class="flex flex-wrap gap-2">
       <UIcon name="i-lucide-tags"></UIcon>
-      <UButton
+      <CheckListFooterLabelsItem
         v-for="label in labels"
-        :key="label.id"
-        size="xs"
-        class="font-bold rounded-full"
-        :style="getLabelStyle(label.color_id)"
-        
+        :labelId="label.id"
+        :fallbackColor="checkListColor"
       >
-        {{ label.display_name }}
-      </UButton>
+      </CheckListFooterLabelsItem>
     </div>
   </template>
   
@@ -35,7 +30,7 @@
   
   // Wait for labels to load immediately
   const labels = ref(await labelStore.getChecklistLabels(props.checkListId,false));
-  
+  const checkListColor = checkListStore.get(props.checkListId)!.color
   // Check if colors are loaded
   const colorsReady = computed(() => checkListColorSchemeStore.colors.length > 0);
   

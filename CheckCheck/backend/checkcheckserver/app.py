@@ -55,7 +55,6 @@ class FastApiAppContainer:
         self.shutdown_callbacks.append(AppLifespanCallback(func=func, params=params))
 
     def dump_open_api_specification(self, json_file_path: Path):
-
         if json_file_path.suffix.upper() not in [".JSON"]:
             json_file_path = Path(json_file_path, "openapi.json")
         json_parent_dir_path = json_file_path.parent

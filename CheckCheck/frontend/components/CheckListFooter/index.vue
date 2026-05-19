@@ -1,5 +1,5 @@
 <template>
-  <CheckListFooterLabelsPreviewButton :checkListId="checkListId"></CheckListFooterLabelsPreviewButton>
+  <CheckListFooterLabelsSelectedList :checkListId="checkListId"></CheckListFooterLabelsSelectedList>
   <div class="flex justify-center">
   <UButtonGroup>
     <CheckListFooterButtonArchive :checkListId="checkListId" />
