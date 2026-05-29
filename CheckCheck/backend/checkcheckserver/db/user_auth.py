@@ -1,5 +1,6 @@
 # Basics
 from typing import AsyncGenerator, List, Optional, Literal, Sequence
+import datetime
 
 # Libs
 import enum
@@ -181,17 +182,42 @@ class UserAuthCRUD(
         await self.session.refresh(user_auth)
         return user_auth
 
+    async def list_api_tokens_by_user_id(
+        self,
+        user_id: uuid.UUID,
+        include_revoked: bool = False,
+    ) -> Sequence[UserAuth]:
+        query = select(UserAuth).where(
+            and_(
+                UserAuth.user_id == user_id,
+                UserAuth.auth_source_type == AllowedAuthSchemeType.api_token,
+            )
+        )
+        if not include_revoked:
+            query = query.where(
+                or_(UserAuth.revoked == False, UserAuth.revoked == None)
+            )
+        results = await self.session.exec(statement=query)
+        return results.all()
+
+    async def touch_last_used_at(self, user_auth_id: uuid.UUID) -> None:
+        user_auth = await self.session.get(UserAuth, user_auth_id)
+        if user_auth is not None:
+            user_auth.last_used_at = datetime.datetime.now(tz=datetime.timezone.utc)
+            self.session.add(user_auth)
+            await self.session.commit()
+
     async def delete(
         self, id: str | uuid.UUID, raise_exception_if_not_exists=None
     ) -> None | Literal[True]:
-        user_auth = select(UserAuth).where(UserAuth.id == id)
-        if user_auth is None and raise_exception_if_not_exists:
-            raise raise_exception_if_not_exists
-        else:
-            query = delete(UserAuth).where(UserAuth.id == id)
-            await self.session.exec(statement=query)
-            await self.session.commit()
-            return True
+        if raise_exception_if_not_exists:
+            result = await self.session.exec(select(UserAuth).where(UserAuth.id == id))
+            if result.one_or_none() is None:
+                raise raise_exception_if_not_exists
+        query = delete(UserAuth).where(UserAuth.id == id)
+        await self.session.exec(statement=query)
+        await self.session.commit()
+        return True
 
     async def update(
         self,

@@ -9,7 +9,7 @@ import json
 # Libs
 import enum
 import uuid
-from pydantic import SecretStr
+from pydantic import BaseModel, ConfigDict, SecretStr
 from sqlmodel import Field, Column, Enum, UniqueConstraint, CheckConstraint
 from passlib.context import CryptContext
 import secrets
@@ -68,6 +68,11 @@ class _UserAuthBase(BaseTable, table=False):
         sa_column=Column(Enum(AllowedAuthSchemeType)),
     )
 
+    display_name: Optional[str] = Field(
+        default=None,
+        max_length=128,
+        description="User-visible label for this credential (e.g. 'CI server key', 'Home laptop').",
+    )
     oidc_provider_slug: Optional[str] = Field(index=True, default=None)
     api_token_id: Optional[str] = Field(
         default=None,
@@ -158,6 +163,10 @@ class UserAuth(_UserAuthBase, TimestampedModel, table=True):
         description="Salt for hashing basic passwords and api tokens",
     )
     oidc_token_encrypted: Optional[str] = Field(default=None)
+    last_used_at: Optional[datetime.datetime] = Field(
+        default=None,
+        description="Timestamp of the last successful authentication using this credential.",
+    )
 
     @classmethod
     def from_update_or_create_object(
@@ -280,3 +289,19 @@ class UserAuth(_UserAuthBase, TimestampedModel, table=True):
     @classmethod
     def add_salt(cls, pw: str, salt: str):
         return f"{pw}{salt}"
+
+
+class UserAuthPublic(BaseModel):
+    """Safe-to-expose read model for API key / credential listings. Contains no secrets."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    user_id: uuid.UUID
+    auth_source_type: AllowedAuthSchemeType
+    display_name: Optional[str] = None
+    api_token_id: Optional[str] = None
+    expires_at_epoch_time: Optional[int] = None
+    last_used_at: Optional[datetime.datetime] = None
+    created_at: datetime.datetime
+    revoked: Optional[bool] = None

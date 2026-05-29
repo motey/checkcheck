@@ -53,6 +53,10 @@ class CheckListPositionApiCreate(BaseTable, table=False):
         default=False,
         description="Archived items are filtered out by default. They are considered obsolete.",
     )
+    checked_items_collapsed: Optional[bool] = Field(
+        default=False,
+        description="If true the client should hide checked items in the list view.",
+    )
 
 
 class CheckListPositionUpdate(CheckListPositionApiCreate, table=False):

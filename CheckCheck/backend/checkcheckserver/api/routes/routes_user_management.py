@@ -1,6 +1,7 @@
 from typing import Annotated, Sequence, List, Type
 from datetime import datetime, timedelta, timezone
 import uuid
+from checkcheckserver.model.user_auth import UserAuthPublic
 
 from fastapi import Depends, Security, FastAPI, HTTPException, status, Query, Body, Form
 from fastapi.security import OAuth2PasswordRequestForm
@@ -204,3 +205,48 @@ async def set_user_password(
             user_auth_update=user_auth_update, id_=user_auth_pw.id
         )
     return user
+
+
+# ── Admin: API Key Management ─────────────────────────────────────────────────
+
+
+@fast_api_user_manage_router.get(
+    "/user/{user_id}/api-keys",
+    response_model=List[UserAuthPublic],
+    description=f"List all API keys for a user. {NEEDS_USERMAN_API_INFO}",
+)
+async def admin_list_user_api_keys(
+    user_id: uuid.UUID,
+    include_revoked: bool = Query(default=False),
+    _: bool = Security(user_is_usermanager),
+    user_crud: UserCRUD = Depends(UserCRUD.get_crud),
+    user_auth_crud: UserAuthCRUD = Depends(UserAuthCRUD.get_crud),
+) -> List[UserAuthPublic]:
+    user = await user_crud.get(
+        user_id,
+        raise_exception_if_none=HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="User not found"
+        ),
+    )
+    tokens = await user_auth_crud.list_api_tokens_by_user_id(
+        user_id=user.id,
+        include_revoked=include_revoked,
+    )
+    return [UserAuthPublic.model_validate(t) for t in tokens]
+
+
+@fast_api_user_manage_router.delete(
+    "/user/{user_id}/api-keys/{api_token_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    description=f"Revoke a specific API key for any user. {NEEDS_USERMAN_API_INFO}",
+)
+async def admin_delete_user_api_key(
+    user_id: uuid.UUID,
+    api_token_id: str,
+    _: bool = Security(user_is_usermanager),
+    user_auth_crud: UserAuthCRUD = Depends(UserAuthCRUD.get_crud),
+):
+    token_auth = await user_auth_crud.get_api_token_by_id(api_token_id)
+    if token_auth is None or token_auth.user_id != user_id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="API key not found")
+    await user_auth_crud.delete(token_auth.id)

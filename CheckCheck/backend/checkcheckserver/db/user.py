@@ -184,8 +184,9 @@ class UserCRUD(
             raise_exception_if_none=raise_exception_if_not_exists,
             show_deactivated=True,
         )
+        settable_fields = set(User.model_fields.keys()) - {"id"}
         for k, v in user_update.model_dump(exclude_unset=True).items():
-            if k in UserUpdate.model_fields.keys():
+            if k in settable_fields:
                 setattr(user_from_db, k, v)
         self.session.add(user_from_db)
         await self.session.commit()

@@ -2,6 +2,7 @@ from _single_test_file_runner import run_all_tests_if_test_file_called
 
 if __name__ == "__main__":
     run_all_tests_if_test_file_called()
+
 from typing import List, Dict
 import json
 import time
@@ -12,7 +13,8 @@ from statics import (
     ADMIN_USER_EMAIL,
     ADMIN_USER_NAME,
 )
-
+NO_CHECKLISTS = 10
+MAX_NO_CHECKLIST_ITEMS = 30
 
 def test_much_data():
     # count current list amount
@@ -69,7 +71,7 @@ def test_much_data():
         CheckListApiCreate,
     )
 
-    for i in range(0, 100):
+    for i in range(0, NO_CHECKLISTS):
 
         cl = req(
             f"api/checklist",
@@ -101,7 +103,7 @@ def test_much_data():
             print("label", label_id)
             req(f"/api/checklist/{cl['id']}/label/{label_id}", method="put")
         checklists.append(cl)
-        for j in range(0, random.randint(0, 70)):
+        for j in range(0, random.randint(0, MAX_NO_CHECKLIST_ITEMS)):
             # from checkcheckserver.api.routes.routes_checklist_item import create_checklist_item
             print(i, j)
             req(

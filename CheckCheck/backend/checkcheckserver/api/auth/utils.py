@@ -88,13 +88,13 @@ async def oidc_refresh_access_token(
     oauth_client: OAuthContainer,
     user_auth_crud: UserAuthCRUD,
     user_auth: UserAuth,
-    user_session_crud: UserSessionCRUD,
-    user_session: UserSession,
+    user_session_crud: Optional[UserSessionCRUD] = None,
+    user_session: Optional[UserSession] = None,
     raise_custom_expection_if_fails: Exception = None,
 ) -> UserAuth:
     log.debug("REFRESH OIDC TOKEN")
-    # sanity check
-    assert user_session.user_auth_id == user_auth.id
+    if user_session is not None:
+        assert user_session.user_auth_id == user_auth.id
     old_token = user_auth.get_decrypted_oidc_token()
     try:
         oidc_server_metadata = await oauth_client.client.load_server_metadata()
@@ -109,12 +109,12 @@ async def oidc_refresh_access_token(
         user_auth.update_oidc_token(new_access_token)
     except Exception as e:
         log.debug(f"REFRESH OIDC TOKEN FAILED. Error: {e}")
-        # log.error(e)
         if raise_custom_expection_if_fails:
             raise raise_custom_expection_if_fails
         raise e
-    user_session.expires_at_epoch_time = new_access_token.get("expires_at")
-    user_session = await user_session_crud.update(user_session)
+    if user_session is not None and user_session_crud is not None:
+        user_session.expires_at_epoch_time = new_access_token.get("expires_at")
+        await user_session_crud.update(user_session)
     user_auth_update = UserAuthUpdate(
         oidc_token=user_auth.get_decrypted_oidc_token(),
         expires_at_epoch_time=new_access_token.get("expires_at"),
@@ -140,7 +140,7 @@ async def revoke_oidc_token(oauth_client: OAuthContainer, token: str):
         return None
     resp = await oauth_client.client.post(
         revocation_endpoint,
-        data={"token": token, "token_type_hint": "access_token"},
+        data={"token": token, "token_type_hint": "refresh_token"},
         headers={"Content-Type": "application/x-www-form-urlencoded"},
         auth=(oauth_client.client.client_id, oauth_client.client.client_secret),
     )
@@ -187,6 +187,8 @@ async def validate_api_token(
         token,
         raise_exception_if_wrong=not_authenticated_exception,
     )
+    if user_auth_crud is not None:
+        await user_auth_crud.touch_last_used_at(token_user_auth.id)
     return token_user_auth
 
 
@@ -196,23 +198,28 @@ async def wipe_expired_user_session_or_user_auth(
     user_session: Optional[UserSession] = None,
     user_session_crud: Optional[UserSessionCRUD] = None,
 ):
-    log.warning("TODO: Session wiping is not implemeted yet")
+    if user_session is not None and user_session_crud is not None:
+        try:
+            await user_session_crud.delete(user_session.id)
+        except Exception as e:
+            log.warning(f"Failed to delete expired session {user_session.id}: {e}")
+    if user_auth is not None and user_auth.auth_source_type == AllowedAuthSchemeType.oidc:
+        try:
+            await user_auth_crud.delete(user_auth.id)
+        except Exception as e:
+            log.warning(f"Failed to delete expired OIDC user_auth {user_auth.id}: {e}")
 
 
 def get_access_token_expires_at_value_from_token(token: dict) -> int:
-    raw_userinfo: Dict | None = None
     log.debug(f"get_access_token_expires_at_value_from_token token {token}")
     if "userinfo" in token and "exp" in token["userinfo"]:
         return token["userinfo"]["exp"]
-    if "expire_at" in token:
+    if "expires_at" in token:
         return token["expires_at"]
     if "expires_in" in token and "userinfo" in token and "iat" in token["userinfo"]:
-        return token["userinfo"]["iat"] - token["expires_in"]
+        return token["userinfo"]["iat"] + token["expires_in"]
     if "expires_in" in token:
-        # this should never happen. not sure if we should do this anyway...
-        # Todo: review this
-        log.warning("ARE WE SURE THAT WE WANT TO CALCULATE THE expire time like this?")
-        return int(datetime.datetime.now().timestamp()) - token["expires_in"]
+        return int(datetime.datetime.now().timestamp()) + token["expires_in"]
     raise ValueError("Can not determine expires_at time for oidc token.")
 
 

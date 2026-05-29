@@ -1,8 +1,8 @@
-from typing import Annotated, Sequence, List, Type
+from typing import Annotated, Sequence, List, Type, Optional
 from datetime import datetime, timedelta, timezone
 import uuid
 
-from fastapi import Depends, Security, FastAPI, HTTPException, status, Query, Body, Form
+from fastapi import Depends, Security, FastAPI, HTTPException, Request, status, Query, Body, Form
 from fastapi.security import OAuth2PasswordRequestForm
 from jose import JWTError, jwt
 from passlib.context import CryptContext
@@ -31,10 +31,14 @@ from checkcheckserver.db.user_auth import (
     UserAuthCRUD,
     AllowedAuthSchemeType,
 )
+from checkcheckserver.db.user_session import UserSession, UserSessionCRUD
+from checkcheckserver.model.user_auth import UserAuthPublic
 from checkcheckserver.api.auth.security import (
+    SESSION_COOKIE_NAME,
     user_is_admin,
     user_is_usermanager,
     get_current_user,
+    get_current_user_auth,
 )
 
 
@@ -110,3 +114,168 @@ async def set_my_password(
     updated_user_auth = UserAuthUpdate(basic_password=new_password)
     await user_auth_crud.update(updated_user_auth, id_=old_user_auth.id)
     return True
+
+
+# ── API Key Management ────────────────────────────────────────────────────────
+
+
+class APIKeyCreateRequest(BaseModel):
+    display_name: str = Field(
+        min_length=1,
+        max_length=128,
+        description="Human-readable label for this key (e.g. 'CI pipeline', 'Home laptop').",
+    )
+    expires_in_days: Optional[int] = Field(
+        default=None,
+        ge=1,
+        le=3650,
+        description="Validity in days from now. Omit to use the server default.",
+    )
+
+
+class APIKeyCreatedResponse(UserAuthPublic):
+    token: str = Field(
+        description="The plaintext API token. This is shown exactly once — store it safely."
+    )
+
+
+@fast_api_user_self_service_router.get(
+    "/user/me/api-keys",
+    response_model=List[UserAuthPublic],
+    description="List all active API keys belonging to the current user.",
+)
+async def list_my_api_keys(
+    include_revoked: bool = Query(default=False),
+    current_user: User = Security(get_current_user),
+    user_auth_crud: UserAuthCRUD = Depends(UserAuthCRUD.get_crud),
+) -> List[UserAuthPublic]:
+    tokens = await user_auth_crud.list_api_tokens_by_user_id(
+        user_id=current_user.id,
+        include_revoked=include_revoked,
+    )
+    return [UserAuthPublic.model_validate(t) for t in tokens]
+
+
+@fast_api_user_self_service_router.post(
+    "/user/me/api-keys",
+    response_model=APIKeyCreatedResponse,
+    status_code=status.HTTP_201_CREATED,
+    description="Create a new named API key. The plaintext token is returned **once** — save it.",
+)
+async def create_my_api_key(
+    body: APIKeyCreateRequest,
+    current_user: User = Security(get_current_user),
+    user_auth_crud: UserAuthCRUD = Depends(UserAuthCRUD.get_crud),
+) -> APIKeyCreatedResponse:
+    expires_at: Optional[int] = None
+    if body.expires_in_days is not None:
+        expires_at = int(
+            (datetime.now(tz=timezone.utc) + timedelta(days=body.expires_in_days)).timestamp()
+        )
+    elif config.API_TOKEN_DEFAULT_EXPIRY_TIME_MINUTES is not None:
+        expires_at = int(
+            datetime.now(tz=timezone.utc).timestamp()
+            + config.API_TOKEN_DEFAULT_EXPIRY_TIME_MINUTES * 60
+        )
+
+    new_auth = UserAuthCreate(
+        user_id=current_user.id,
+        auth_source_type=AllowedAuthSchemeType.api_token,
+        display_name=body.display_name,
+        expires_at_epoch_time=expires_at,
+    )
+    new_auth.generate_api_token()
+    plaintext_token = new_auth.get_api_token()
+    saved = await user_auth_crud.create(new_auth)
+    return APIKeyCreatedResponse(
+        **UserAuthPublic.model_validate(saved).model_dump(),
+        token=plaintext_token,
+    )
+
+
+@fast_api_user_self_service_router.delete(
+    "/user/me/api-keys/{api_token_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    description="Revoke an API key by its identifier prefix. Only the owner can revoke their own keys.",
+)
+async def delete_my_api_key(
+    api_token_id: str,
+    current_user: User = Security(get_current_user),
+    user_auth_crud: UserAuthCRUD = Depends(UserAuthCRUD.get_crud),
+):
+    token_auth = await user_auth_crud.get_api_token_by_id(api_token_id)
+    if token_auth is None or token_auth.user_id != current_user.id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="API key not found")
+    await user_auth_crud.delete(token_auth.id)
+
+
+# ── Session Management ────────────────────────────────────────────────────────
+
+
+@fast_api_user_self_service_router.get(
+    "/user/me/sessions",
+    response_model=List[UserSession],
+    description="List all active sessions for the current user.",
+)
+async def list_my_sessions(
+    current_user: User = Security(get_current_user),
+    user_session_crud: UserSessionCRUD = Depends(UserSessionCRUD.get_crud),
+) -> List[UserSession]:
+    return await user_session_crud.list_by_user_id(
+        user_id=current_user.id,
+        include_expired=False,
+    )
+
+
+@fast_api_user_self_service_router.delete(
+    "/user/me/sessions/{session_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    description="Revoke a specific session. Useful to log out from another device.",
+)
+async def delete_my_session(
+    session_id: uuid.UUID,
+    current_user: User = Security(get_current_user),
+    current_user_auth: UserAuth = Depends(get_current_user_auth),
+    user_session_crud: UserSessionCRUD = Depends(UserSessionCRUD.get_crud),
+    user_auth_crud: UserAuthCRUD = Depends(UserAuthCRUD.get_crud),
+):
+    session = await user_session_crud.get(session_id)
+    if session is None or session.user_id != current_user.id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session not found")
+    await user_session_crud.delete(session.id)
+    # If this session's linked auth is OIDC, also delete the OIDC user_auth entry
+    session_auth = await user_auth_crud.get(session.user_auth_id)
+    if session_auth is not None and session_auth.auth_source_type == AllowedAuthSchemeType.oidc:
+        await user_auth_crud.delete(session_auth.id)
+
+
+@fast_api_user_self_service_router.delete(
+    "/user/me/sessions",
+    status_code=status.HTTP_204_NO_CONTENT,
+    description="Revoke all sessions except the current one.",
+)
+async def delete_all_my_sessions_except_current(
+    request: Request,
+    current_user: User = Security(get_current_user),
+    user_session_crud: UserSessionCRUD = Depends(UserSessionCRUD.get_crud),
+    user_auth_crud: UserAuthCRUD = Depends(UserAuthCRUD.get_crud),
+):
+    # Identify the current session from the cookie (None when using a Bearer token).
+    current_session_id: uuid.UUID | None = None
+    raw_cookie = request.cookies.get(SESSION_COOKIE_NAME)
+    if raw_cookie:
+        try:
+            current_session_id = uuid.UUID(raw_cookie)
+        except ValueError:
+            pass
+
+    sessions = await user_session_crud.list_by_user_id(
+        user_id=current_user.id, include_expired=True
+    )
+    for session in sessions:
+        if current_session_id is not None and session.id == current_session_id:
+            continue  # keep the session the caller is currently using
+        session_auth = await user_auth_crud.get(session.user_auth_id)
+        await user_session_crud.delete(session.id)
+        if session_auth is not None and session_auth.auth_source_type == AllowedAuthSchemeType.oidc:
+            await user_auth_crud.delete(session_auth.id)

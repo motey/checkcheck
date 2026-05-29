@@ -65,7 +65,7 @@ class CheckListPositionCRUD(
         if pagination:
             query = pagination.append_to_query(query)
         results = await self.session.exec(statement=query)
-        return results.all()
+        return results.unique().all()
 
     async def count(
         self,

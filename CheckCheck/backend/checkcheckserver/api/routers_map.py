@@ -19,15 +19,9 @@ def mount_fast_api_routers(fastapi_app: FastAPI):
 
     fastapi_app.include_router(fast_api_auth_base_router, tags=["Auth"], prefix="/api")
 
-    ### USER MANAGEMENT
-    from checkcheckserver.api.routes.routes_user_management import (
-        fast_api_user_manage_router,
-    )
-
-    fastapi_app.include_router(
-        fast_api_user_manage_router, tags=["User Admin"], prefix="/api"
-    )
-
+    # Self-service routes (/user/me, /user/me/api-keys, …) must be registered
+    # BEFORE management routes (/user/{user_id}, …) so FastAPI matches the
+    # literal "me" segment first instead of treating it as a UUID path param.
     ### USER SELF SERVICE
     from checkcheckserver.api.routes.routes_user import (
         fast_api_user_self_service_router,
@@ -35,6 +29,15 @@ def mount_fast_api_routers(fastapi_app: FastAPI):
 
     fastapi_app.include_router(
         fast_api_user_self_service_router, tags=["User"], prefix="/api"
+    )
+
+    ### USER MANAGEMENT
+    from checkcheckserver.api.routes.routes_user_management import (
+        fast_api_user_manage_router,
+    )
+
+    fastapi_app.include_router(
+        fast_api_user_manage_router, tags=["User Admin"], prefix="/api"
     )
 
     ### APP - Business logic

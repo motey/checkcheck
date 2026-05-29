@@ -149,7 +149,8 @@ async def delete_label(
     )
     if existing_label.owner_id != current_user.id:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED)
-    return await label_crud.delete(id_=label_id)
+    await label_crud.delete(id_=label_id)
+    return existing_label
 
 
 @fast_api_checklist_label_router.put(
@@ -193,6 +194,7 @@ async def add_label_to_checklist(
     sync_crud: SyncNotifiationCRUD = Depends(SyncNotifiationCRUD.get_crud),
     current_user: User = Depends(get_current_user),
 ) -> LabelReadAPI:
+    checklist_id = checklist_access.checklist.id
     label_not_exist_exception = HTTPException(
         status_code=status.HTTP_404_NOT_FOUND, detail="Label does not exist"
     )
@@ -205,13 +207,13 @@ async def add_label_to_checklist(
 
     await checklist_label_crud.create(
         CheckListLabelCreate(
-            checklist_id=checklist_access.checklist.id,
+            checklist_id=checklist_id,
             label_id=label_id,
             user_id=current_user.id,
         ),
         exists_ok=True,
     )
-    await sync_crud.create(SyncNotification(cl_id=checklist_access.checklist.id, upd_prop="checklist_label"))
+    await sync_crud.create(SyncNotification(cl_id=checklist_id, upd_prop="checklist_label"))
     return existing_label
 
 

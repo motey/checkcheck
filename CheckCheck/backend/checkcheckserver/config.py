@@ -109,8 +109,9 @@ class Config(BaseSettings):
         description="Local DB users are enabled to login. You could disable this, when having an external OIDC provider.",
     )
 
-    AUTH_BASIC_USER_DB_REGISTER_ENABLED: Literal[False] = Field(
-        default=False, description="Self registration of users is not supported yet."
+    AUTH_BASIC_USER_DB_REGISTER_ENABLED: bool = Field(
+        default=False,
+        description="Allow unauthenticated users to self-register a local account via POST /auth/basic/register. Disabled by default; enable only when you also have email verification or other anti-spam controls in place.",
     )
 
     AUTH_BASIC_SESSION_LIFETIME_MINUTES: Optional[int] = Field(

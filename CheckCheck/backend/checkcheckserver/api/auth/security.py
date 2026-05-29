@@ -99,19 +99,17 @@ async def get_current_user_auth(
         if user_auth.revoked:
             raise not_authenticated_exception
         if user_auth.auth_source_type == AllowedAuthSchemeType.basic:
-            wipe_expired_user_session_or_user_auth(
+            await wipe_expired_user_session_or_user_auth(
+                user_auth=user_auth,
+                user_auth_crud=user_auth_crud,
                 user_session=user_session,
                 user_session_crud=user_session_crud,
             )
             raise not_authenticated_exception
         elif user_auth.auth_source_type == AllowedAuthSchemeType.oidc:
-            # we try the oidc refresh token
-
-            session_id = request.cookies.get(SESSION_COOKIE_NAME, None)
-            # TODO: do need to catch a "session_id is None" case here?
-            user_session: UserSession = await user_session_crud.get(
-                uuid.UUID(str(session_id))
-            )
+            # For API-token path user_session is None; look it up by user_auth_id
+            if user_session is None:
+                user_session = await user_session_crud.get_by_user_auth_id(user_auth.id)
             try:
                 user_auth = await oidc_refresh_access_token(
                     oauth_client=oauth_clients[user_auth.oidc_provider_slug],
@@ -149,7 +147,10 @@ async def get_current_user(
     if user_auth is None:
         raise not_authenticated_exception
 
-    return await user_crud.get(user_auth.user_id)
+    user = await user_crud.get(user_auth.user_id)
+    if user is None:
+        raise not_authenticated_exception
+    return user
 
 
 async def user_is_admin(

@@ -1,7 +1,7 @@
 from typing import List, Dict, Type, Callable, Optional, Tuple
 import importlib
 from sqlalchemy.ext.asyncio import AsyncConnection
-from pathlib import Path, PurePath
+from pathlib import Path
 from dataclasses import dataclass
 import yaml
 
@@ -117,13 +117,9 @@ class DataProvisioner:
 
 async def provision_data(conn: AsyncConnection = None):
     log.info("Loading default data...")
-    import __main__
-
-    root_path = Path(__main__.__file__).parent
-    default_data_yaml_path = Path(
-        PurePath(root_path, Path(config.APP_PROVISIONING_DEFAULT_DATA_YAML_FILE))
-    )
-    print("default_data_yaml_path", default_data_yaml_path)
+    # APP_PROVISIONING_DEFAULT_DATA_YAML_FILE is an absolute path set at config import time
+    default_data_yaml_path = Path(config.APP_PROVISIONING_DEFAULT_DATA_YAML_FILE)
+    log.debug(f"default_data_yaml_path: {default_data_yaml_path}")
     data_provisioner = DataProvisioner(default_data_yaml_path)
     await data_provisioner.run()
     log.info("Try loading base data if configured...")

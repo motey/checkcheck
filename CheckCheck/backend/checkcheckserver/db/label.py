@@ -95,10 +95,10 @@ class LabelCRUD(
         # sort user labels are left (not included in label_order)
         for label in all_labels:
             if label.id not in label_order:
-                label.sort_order == i
+                label.sort_order = i
                 i = i + 10
                 sorted_labels.append(label)
-        self.session.add(sorted_labels)
+        self.session.add_all(sorted_labels)
         await self.session.commit()
 
         results = await self.session.exec(statement=query)

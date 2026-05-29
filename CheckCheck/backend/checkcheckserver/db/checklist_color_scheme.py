@@ -44,4 +44,12 @@ class ChecklistColorSchemeCRUD(
         update_model=ChecklistColorScheme,
     )
 ):
-    pass
+    async def get(
+        self,
+        id_: str,
+        raise_exception_if_none: Exception = None,
+    ) -> Optional[ChecklistColorScheme]:
+        result = await self.session.get(ChecklistColorScheme, id_)
+        if result is None and raise_exception_if_none:
+            raise raise_exception_if_none
+        return result

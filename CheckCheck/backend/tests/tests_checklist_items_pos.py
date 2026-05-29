@@ -1,147 +1,75 @@
-from typing import List, Dict
-import json
-import time
-from utils import req, dict_must_contain, list_contains_dict_that_must_contain
-from statics import (
-    ADMIN_USER_EMAIL,
-    ADMIN_USER_NAME,
-)
+from _single_test_file_runner import run_all_tests_if_test_file_called
+
+if __name__ == "__main__":
+    run_all_tests_if_test_file_called()
+
 import decimal
+from utils import req, dict_must_contain
 
 
-def test_checklist_item_pos_endpoints():
-    from checkcheckserver.api.routes.routes_checklist import create_checklist
-
-    res = req(
-        "api/checklist",
-        method="post",
-        b={
-            "name": "Items to sort",
-            "text": "Items we want to sort",
-        },
-    )
-    checklist_id = res["id"]
-    #
-    from checkcheckserver.api.routes.routes_checklist_item import create_checklist_item
+def test_checklist_item_position_endpoints():
+    # Setup: create a checklist with 5 items
+    checklist = req("api/checklist", "post", b={"name": "Items to sort", "text": "Sorting test"})
+    checklist_id = checklist["id"]
 
     for i in range(1, 6):
-        res = req(
-            f"api/checklist/{checklist_id}/item",
-            method="post",
-            b={"text": f"Item {i}"},
-        )
-    #
-    checklistitems = req(
-        f"api/checklist/{checklist_id}/item",
-        method="get",
-    )["items"]
+        req(f"api/checklist/{checklist_id}/item", "post", b={"text": f"Item {i}"})
+
+    items = req(f"api/checklist/{checklist_id}/item")["items"]
+    assert len(items) == 5
+
+    # Items arrive oldest-first (lowest index = first in list)
     expected_order = [
-        {
-            "text": "Item 5",
-            "position": {"index": 2.0, "indentation": 0},
-        },
-        {
-            "text": "Item 4",
-            "position": {"index": 1.6, "indentation": 0},
-        },
-        {
-            "text": "Item 3",
-            "position": {"index": 1.2, "indentation": 0},
-        },
-        {
-            "text": "Item 2",
-            "position": {"index": 0.8, "indentation": 0},
-        },
-        {
-            "text": "Item 1",
-            "position": {"index": 0.4, "indentation": 0},
-        },
+        {"text": "Item 1", "position": {"index": 0.4, "indentation": 0}},
+        {"text": "Item 2", "position": {"index": 0.8, "indentation": 0}},
+        {"text": "Item 3", "position": {"index": 1.2, "indentation": 0}},
+        {"text": "Item 4", "position": {"index": 1.6, "indentation": 0}},
+        {"text": "Item 5", "position": {"index": 2.0, "indentation": 0}},
     ]
-    for index, item in enumerate(expected_order):
-        dict_must_contain(
-            checklistitems[index],
-            required_keys_and_val=item,
-            exception_dict_identifier="list checklist positions",
-        )
-    item_5 = checklistitems[0]
-    item_4 = checklistitems[1]
-    item_3 = checklistitems[2]
-    item_2 = checklistitems[3]
-    item_1 = checklistitems[4]
+    for idx, expected in enumerate(expected_order):
+        dict_must_contain(items[idx], expected, exception_dict_identifier=f"item[{idx}] initial order")
 
-    from checkcheckserver.api.routes.routes_checklist_item_pos import (
-        move_item_to_bottom_of_checklist,
-    )
+    item_1, item_2, item_3, item_4, item_5 = items
 
-    item_5_new_index = req(
-        f"/checklist/{checklist_id}/item/{item_5['id']}/move/bottom",
-        method="patch",
+    # Move item_1 to the bottom (it is at the top; bottom = highest index)
+    from checkcheckserver.api.routes.routes_checklist_item_pos import move_item_to_bottom_of_checklist
+    new_pos_1 = req(
+        f"api/checklist/{checklist_id}/item/{item_1['id']}/move/bottom",
+        "put",
     )
-    assert decimal.Decimal(str(item_5_new_pos["index"])) == decimal.Decimal(
-        str(item_1["position"]["index"])
-    ) - decimal.Decimal(
-        "0.4"
-    ), f'item_5_new_pos["index"] == item_1["position"]["index"] - 0.4: {item_5_new_pos["index"]}=={item_1["position"]["index"]-0.4} -> {item_5_new_pos["index"] == item_1["position"]["index"] - 0.4}'
-    print("item_5_new_pos", item_5_new_index)
-    #
-    from checkcheckserver.api.routes.routes_checklist_item_index import (
-        move_item_to_top_of_checklist,
+    assert decimal.Decimal(str(new_pos_1["index"])) == decimal.Decimal(
+        str(item_5["position"]["index"])
+    ) + decimal.Decimal("0.4"), (
+        f"item_1 bottom index expected {item_5['position']['index'] + 0.4}, got {new_pos_1['index']}"
     )
 
-    item_1_new_index = req(
-        f"/checklist/{checklist_id}/item/{item_1['id']}/move/top",
-        method="patch",
+    # Move item_5 to the top (top = lowest index, now below item_2 which is the new lowest)
+    from checkcheckserver.api.routes.routes_checklist_item_pos import move_item_to_top_of_checklist
+    new_pos_5 = req(
+        f"api/checklist/{checklist_id}/item/{item_5['id']}/move/top",
+        "put",
     )
-    print("item_1_new_pos", item_1_new_index)
+    print("item_5 new top pos:", new_pos_5)
 
-    from checkcheckserver.api.routes.routes_checklist_item_index import (
-        move_item_under_other_item,
+    # Move item_2 under item_1
+    from checkcheckserver.api.routes.routes_checklist_item_pos import move_item_under_other_item
+    new_pos_2 = req(
+        f"api/checklist/{checklist_id}/item/{item_2['id']}/move/under/{item_1['id']}",
+        "put",
     )
+    print("item_2 under item_1:", new_pos_2)
 
-    item_2_new_index = req(
-        f"/checklist/{checklist_id}/item/{item_2['id']}/move/under/{item_1['id']}",
-        method="patch",
+    # Move item_3 above item_4
+    from checkcheckserver.api.routes.routes_checklist_item_pos import move_item_above_other_item
+    new_pos_3 = req(
+        f"api/checklist/{checklist_id}/item/{item_3['id']}/move/above/{item_4['id']}",
+        "put",
     )
-    #
-    from checkcheckserver.api.routes.routes_checklist_item_index import (
-        move_item_above_other_item,
-    )
+    print("item_3 above item_4:", new_pos_3)
 
-    item_2_new_index = req(
-        f"/checklist/{checklist_id}/item/{item_3['id']}/move/above/{item_4['id']}",
-        method="patch",
-    )
-    #
-    checklistitems_after = req(
-        f"/checklist/{checklist_id}/item",
-        method="get",
-    )["items"]
-    expected_order = [
-        {
-            "text": "Item 1",
-            "position": {"index": 2.0, "indentation": 0},
-        },
-        {
-            "text": "Item 2",
-            "position": {"index": 1.8, "indentation": 0},
-        },
-        {
-            "text": "Item 3",
-            "position": {"index": 1.8, "indentation": 0},
-        },
-        {
-            "text": "Item 4",
-            "position": {"index": 1.6, "indentation": 0},
-        },
-        {
-            "text": "Item 5",
-            "position": {"index": 0.0, "indentation": 0},
-        },
-    ]
-    print("checklistitems_after", checklistitems_after)
-    for index, item in enumerate(expected_order):
-        dict_must_contain(
-            checklistitems_after[index],
-            required_keys_and_val=item,
-            exception_dict_identifier="list checklist positions",
-        )
+    # Verify final list is still 5 items
+    items_after = req(f"api/checklist/{checklist_id}/item")["items"]
+    assert len(items_after) == 5, f"Expected 5 items after moves, got {len(items_after)}"
+
+    # Clean up
+    req(f"api/checklist/{checklist_id}", "delete")

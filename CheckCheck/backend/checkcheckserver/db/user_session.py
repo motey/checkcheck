@@ -41,3 +41,15 @@ class UserSessionCRUD(
         if user_session is None and raise_exception_if_none:
             raise raise_exception_if_none
         return user_session
+
+    async def list_by_user_id(
+        self,
+        user_id: uuid.UUID,
+        include_expired: bool = False,
+    ) -> Sequence[UserSession]:
+        query = select(UserSession).where(UserSession.user_id == user_id)
+        results = await self.session.exec(statement=query)
+        sessions = results.all()
+        if not include_expired:
+            sessions = [s for s in sessions if not s.is_expired()]
+        return sessions

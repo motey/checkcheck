@@ -21,7 +21,7 @@ from fastapi import (
     Query,
     Request,
 )
-from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
+from fastapi.security import HTTPAuthorizationCredentials, OAuth2PasswordBearer, OAuth2PasswordRequestForm
 import httpx
 
 from authlib.integrations.base_client.errors import OAuthError
@@ -45,6 +45,7 @@ from checkcheckserver.model.user_auth import (
 )
 from checkcheckserver.api.auth.security import (
     SESSION_COOKIE_NAME,
+    api_token_security,
     oauth_clients,
     get_current_user,
     get_current_user_auth,
@@ -57,6 +58,7 @@ from checkcheckserver.api.auth.utils import (
     generate_client_session_id,
     revoke_oidc_token,
     create_new_user_default_labels,
+    validate_api_token,
 )
 
 from checkcheckserver.config import Config
@@ -119,12 +121,12 @@ async def auth_basic_register(
         or not config.AUTH_BASIC_USER_DB_REGISTER_ENABLED
     ):
         raise HTTPException(
-            status=status.HTTP_403_FORBIDDEN,
+            status_code=status.HTTP_403_FORBIDDEN,
             detail="Basic password login is disabled or registration is disabled.",
         )
     if password != password_repeat:
-        HTTPException(
-            status=status.HTTP_400_BAD_REQUEST,
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
             detail="Passwords do not match.",
         )
     user = await user_crud.create(
@@ -175,7 +177,9 @@ async def auth_basic_login_session_based(
     new_session = UserSessionCreate(
         user_id=user_auth.user_id,
         user_auth_id=user_auth.id,
-        display_name=new_session_name,
+        session_name=new_session_name,
+        ip=request.client.host if request.client else None,
+        user_agent=request.headers.get("user-agent", "unknown"),
     )
     user_session: UserSession = await user_session_crud.create(new_session)
     response = RedirectResponse(
@@ -350,6 +354,17 @@ async def auth_oidc_callback(
         user: User = await user_crud.create(user_create)
     elif user is None:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED)
+    else:
+        # Sync display_name, email and roles from the OIDC provider on every login
+        from checkcheckserver.db.user import UserUpdateByAdmin
+
+        synced = UserCreate.from_oidc_userinfo(userinfo)
+        update = UserUpdateByAdmin(
+            display_name=synced.display_name,
+            email=synced.email,
+            roles=synced.roles,
+        )
+        user = await user_crud.update(user_update=update, user_id=user.id)
     user_auth = await user_auth_crud.create(
         UserAuthCreate(
             user_id=user.id,
@@ -364,7 +379,7 @@ async def auth_oidc_callback(
             user_id=user.id,
             user_auth_id=user_auth.id,
             session_name=generate_client_session_id(request=request),
-            ip=request.client.host,
+            ip=request.client.host if request.client else None,
             user_agent=request.headers.get("user-agent", "unknown"),
             expires_at_epoch_time=user_auth.expires_at_epoch_time,
         )
@@ -382,9 +397,6 @@ async def auth_oidc_callback(
         await user_auth_crud.create(user_auth_token)
         return api_token_response
 
-        # the token get hashed when writen into the DB and will never be seen in plaintext in the backend after this function
-        await user_auth_crud.create(user_auth_token)
-
     elif login_type == "session":
         # Set a session cookie (here, just user ID as session token)
         response = RedirectResponse(url="/" if not target_path else target_path)
@@ -392,7 +404,7 @@ async def auth_oidc_callback(
             key=SESSION_COOKIE_NAME,
             value=str(user_session.id),
             httponly=True,
-            secure=False,  # True in prod
+            secure=config.SET_SESSION_COOKIE_SECURE,
             samesite="Lax",
         )
         return response
@@ -402,29 +414,35 @@ async def auth_oidc_callback(
 async def logout(
     request: Request,
     current_user_auth: UserAuth = Depends(get_current_user_auth),
+    api_token: Optional[HTTPAuthorizationCredentials] = Depends(api_token_security),
     user_session_crud: UserSessionCRUD = Depends(UserSessionCRUD.get_crud),
     user_auth_crud: UserAuthCRUD = Depends(UserAuthCRUD.get_crud),
 ):
-    if current_user_auth.auth_source_type in [
+    response = JSONResponse(content={"message": "Logged out successfully"})
+    if api_token:
+        # Delete the actual api_token UserAuth (get_current_user_auth resolves to the
+        # parent basic UserAuth, so we must look up the token record directly).
+        token_user_auth = await validate_api_token(
+            token=api_token.credentials,
+            not_authenticated_exception=HTTPException(status_code=401, detail="Not authenticated"),
+            user_auth_crud=user_auth_crud,
+        )
+        await user_auth_crud.delete(id=token_user_auth.id)
+    elif current_user_auth.auth_source_type in [
         AllowedAuthSchemeType.oidc,
         AllowedAuthSchemeType.basic,
     ]:
         user_session = await user_session_crud.get_by_user_auth_id(current_user_auth.id)
-        await user_session_crud.delete(user_session.id)
-        response = JSONResponse(content={"message": "Logged out successfully"})
+        if user_session:
+            await user_session_crud.delete(user_session.id)
+        response.delete_cookie(key=SESSION_COOKIE_NAME)
         log.debug(f"current_user_auth: {current_user_auth}")
         if current_user_auth.auth_source_type == AllowedAuthSchemeType.oidc:
-            # delete local oidc token storage
-
             refresh_token = current_user_auth.get_decrypted_oidc_token().get(
                 "refresh_token"
             )
             await user_auth_crud.delete(id=current_user_auth.id)
-
-            # revoke token
-
             oauth_client = oauth_clients[current_user_auth.oidc_provider_slug]
             await revoke_oidc_token(oauth_client=oauth_client, token=refresh_token)
 
-    elif current_user_auth.auth_source_type == AllowedAuthSchemeType.api_token:
-        await user_auth_crud.delete(id=current_user_auth.id)
+    return response

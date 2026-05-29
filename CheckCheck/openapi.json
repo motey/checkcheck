@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "CheckCheck REST API",
-    "version": "0.1.dev37+gd0a03f4.d20260519"
+    "version": "0.1.dev38+geb1ee32.d20260529"
   },
   "paths": {
     "/api/health": {
@@ -437,6 +437,355 @@
         ]
       }
     },
+    "/api/user/me": {
+      "get": {
+        "tags": [
+          "User"
+        ],
+        "summary": "Get Myself",
+        "description": "Get account data from the current user",
+        "operationId": "get_myself_api_user_me_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/User"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      },
+      "patch": {
+        "tags": [
+          "User"
+        ],
+        "summary": "Update Myself",
+        "description": "Update my user account data.",
+        "operationId": "update_myself_api_user_me_patch",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UserUpdateByUser"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/User"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/user/me/password": {
+      "put": {
+        "tags": [
+          "User"
+        ],
+        "summary": "Set My Password",
+        "description": "Set my password if i am a 'local' user. If my account was provisioned via an external OpenID Connect provider this does nothing except the return value will be `false`.",
+        "operationId": "set_my_password_api_user_me_password_put",
+        "requestBody": {
+          "content": {
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_set_my_password_api_user_me_password_put"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "boolean",
+                  "title": "Response Set My Password Api User Me Password Put"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/user/me/api-keys": {
+      "get": {
+        "tags": [
+          "User"
+        ],
+        "summary": "List My Api Keys",
+        "description": "List all active API keys belonging to the current user.",
+        "operationId": "list_my_api_keys_api_user_me_api_keys_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "include_revoked",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false,
+              "title": "Include Revoked"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/UserAuthPublic"
+                  },
+                  "title": "Response List My Api Keys Api User Me Api Keys Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "User"
+        ],
+        "summary": "Create My Api Key",
+        "description": "Create a new named API key. The plaintext token is returned **once** \u2014 save it.",
+        "operationId": "create_my_api_key_api_user_me_api_keys_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/APIKeyCreateRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIKeyCreatedResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/user/me/api-keys/{api_token_id}": {
+      "delete": {
+        "tags": [
+          "User"
+        ],
+        "summary": "Delete My Api Key",
+        "description": "Revoke an API key by its identifier prefix. Only the owner can revoke their own keys.",
+        "operationId": "delete_my_api_key_api_user_me_api_keys__api_token_id__delete",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "api_token_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Api Token Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/user/me/sessions": {
+      "get": {
+        "tags": [
+          "User"
+        ],
+        "summary": "List My Sessions",
+        "description": "List all active sessions for the current user.",
+        "operationId": "list_my_sessions_api_user_me_sessions_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/UserSession"
+                  },
+                  "type": "array",
+                  "title": "Response List My Sessions Api User Me Sessions Get"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      },
+      "delete": {
+        "tags": [
+          "User"
+        ],
+        "summary": "Delete All My Sessions Except Current",
+        "description": "Revoke all sessions except the current one.",
+        "operationId": "delete_all_my_sessions_except_current_api_user_me_sessions_delete",
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/user/me/sessions/{session_id}": {
+      "delete": {
+        "tags": [
+          "User"
+        ],
+        "summary": "Delete My Session",
+        "description": "Revoke a specific session. Useful to log out from another device.",
+        "operationId": "delete_my_session_api_user_me_sessions__session_id__delete",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Session Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/user": {
       "post": {
         "tags": [
@@ -784,56 +1133,52 @@
         }
       }
     },
-    "/api/user/me": {
+    "/api/user/{user_id}/api-keys": {
       "get": {
         "tags": [
-          "User"
+          "User Admin"
         ],
-        "summary": "Get Myself",
-        "description": "Get account data from the current user",
-        "operationId": "get_myself_api_user_me_get",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/User"
-                }
-              }
-            }
-          }
-        },
+        "summary": "Admin List User Api Keys",
+        "description": "List all API keys for a user. Need usermanager role",
+        "operationId": "admin_list_user_api_keys_api_user__user_id__api_keys_get",
         "security": [
           {
             "HTTPBearer": []
           }
-        ]
-      },
-      "patch": {
-        "tags": [
-          "User"
         ],
-        "summary": "Update Myself",
-        "description": "Update my user account data.",
-        "operationId": "update_myself_api_user_me_patch",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/UserUpdateByUser"
-              }
+        "parameters": [
+          {
+            "name": "user_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "User Id"
             }
           },
-          "required": true
-        },
+          {
+            "name": "include_revoked",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false,
+              "title": "Include Revoked"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "description": "Successful Response",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/User"
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/UserAuthPublic"
+                  },
+                  "title": "Response Admin List User Api Keys Api User  User Id  Api Keys Get"
                 }
               }
             }
@@ -848,42 +1193,46 @@
               }
             }
           }
-        },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ]
+        }
       }
     },
-    "/api/user/me/password": {
-      "put": {
+    "/api/user/{user_id}/api-keys/{api_token_id}": {
+      "delete": {
         "tags": [
-          "User"
+          "User Admin"
         ],
-        "summary": "Set My Password",
-        "description": "Set my password if i am a 'local' user. If my account was provisioned via an external OpenID Connect provider this does nothing except the return value will be `false`.",
-        "operationId": "set_my_password_api_user_me_password_put",
-        "requestBody": {
-          "content": {
-            "application/x-www-form-urlencoded": {
-              "schema": {
-                "$ref": "#/components/schemas/Body_set_my_password_api_user_me_password_put"
-              }
+        "summary": "Admin Delete User Api Key",
+        "description": "Revoke a specific API key for any user. Need usermanager role",
+        "operationId": "admin_delete_user_api_key_api_user__user_id__api_keys__api_token_id__delete",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "user_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "User Id"
+            }
+          },
+          {
+            "name": "api_token_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Api Token Id"
             }
           }
-        },
+        ],
         "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "boolean",
-                  "title": "Response Set My Password Api User Me Password Put"
-                }
-              }
-            }
+          "204": {
+            "description": "Successful Response"
           },
           "422": {
             "description": "Validation Error",
@@ -895,12 +1244,7 @@
               }
             }
           }
-        },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ]
+        }
       }
     },
     "/api/color": {
@@ -1309,6 +1653,7 @@
                 "index",
                 "pinned",
                 "archived",
+                "checked_items_collapsed",
                 "checklist_id",
                 "user_id"
               ],
@@ -3062,6 +3407,128 @@
   },
   "components": {
     "schemas": {
+      "APIKeyCreateRequest": {
+        "properties": {
+          "display_name": {
+            "type": "string",
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Display Name",
+            "description": "Human-readable label for this key (e.g. 'CI pipeline', 'Home laptop')."
+          },
+          "expires_in_days": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 3650.0,
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expires In Days",
+            "description": "Validity in days from now. Omit to use the server default."
+          }
+        },
+        "type": "object",
+        "required": [
+          "display_name"
+        ],
+        "title": "APIKeyCreateRequest"
+      },
+      "APIKeyCreatedResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "user_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "User Id"
+          },
+          "auth_source_type": {
+            "$ref": "#/components/schemas/AllowedAuthSchemeType"
+          },
+          "display_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Display Name"
+          },
+          "api_token_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Api Token Id"
+          },
+          "expires_at_epoch_time": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expires At Epoch Time"
+          },
+          "last_used_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Used At"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "revoked": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Revoked"
+          },
+          "token": {
+            "type": "string",
+            "title": "Token",
+            "description": "The plaintext API token. This is shown exactly once \u2014 store it safely."
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "user_id",
+          "auth_source_type",
+          "created_at",
+          "token"
+        ],
+        "title": "APIKeyCreatedResponse"
+      },
       "APIToken": {
         "properties": {
           "access_token": {
@@ -3696,6 +4163,19 @@
             "description": "Archived items are filtered out by default. They are considered obsolete.",
             "default": false
           },
+          "checked_items_collapsed": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Checked Items Collapsed",
+            "description": "If true the client should hide checked items in the list view.",
+            "default": false
+          },
           "checklist_id": {
             "type": "string",
             "format": "uuid",
@@ -3748,6 +4228,19 @@
             "title": "Archived",
             "description": "Archived items are filtered out by default. They are considered obsolete.",
             "default": false
+          },
+          "checked_items_collapsed": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Checked Items Collapsed",
+            "description": "If true the client should hide checked items in the list view.",
+            "default": false
           }
         },
         "type": "object",
@@ -3784,6 +4277,19 @@
             ],
             "title": "Archived",
             "description": "Archived items are filtered out by default. They are considered obsolete.",
+            "default": false
+          },
+          "checked_items_collapsed": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Checked Items Collapsed",
+            "description": "If true the client should hide checked items in the list view.",
             "default": false
           }
         },
@@ -3831,6 +4337,19 @@
             ],
             "title": "Archived",
             "description": "Archived items are filtered out by default. They are considered obsolete.",
+            "default": false
+          },
+          "checked_items_collapsed": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Checked Items Collapsed",
+            "description": "If true the client should hide checked items in the list view.",
             "default": false
           }
         },
@@ -4542,6 +5061,93 @@
         ],
         "title": "User"
       },
+      "UserAuthPublic": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "user_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "User Id"
+          },
+          "auth_source_type": {
+            "$ref": "#/components/schemas/AllowedAuthSchemeType"
+          },
+          "display_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Display Name"
+          },
+          "api_token_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Api Token Id"
+          },
+          "expires_at_epoch_time": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expires At Epoch Time"
+          },
+          "last_used_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Used At"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "revoked": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Revoked"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "user_id",
+          "auth_source_type",
+          "created_at"
+        ],
+        "title": "UserAuthPublic",
+        "description": "Safe-to-expose read model for API key / credential listings. Contains no secrets."
+      },
       "UserCreate": {
         "properties": {
           "email": {
@@ -4624,6 +5230,82 @@
           "user_name"
         ],
         "title": "UserCreate"
+      },
+      "UserSession": {
+        "properties": {
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At",
+            "nullable": false
+          },
+          "user_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "User Id"
+          },
+          "user_auth_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "User Auth Id"
+          },
+          "session_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Session Name"
+          },
+          "ip": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ip"
+          },
+          "user_agent": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "User Agent"
+          },
+          "expires_at_epoch_time": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expires At Epoch Time",
+            "description": "The set time when the session expires or the OIDC token needs a refresh."
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "user_id",
+          "user_auth_id"
+        ],
+        "title": "UserSession"
       },
       "UserUpdateByAdmin": {
         "properties": {

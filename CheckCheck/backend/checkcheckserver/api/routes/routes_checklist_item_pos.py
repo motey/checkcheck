@@ -284,7 +284,7 @@ async def move_item_to_bottom_of_checklist(
     if last_pos.index == target_pos.index:
         await checklist_item_pos_crud.update(target_pos)
         return target_pos
-    target_pos.index = decimal.Decimal(str(last_pos.index)) - decimal.Decimal("0.4")
+    target_pos.index = float(decimal.Decimal(str(last_pos.index)) + decimal.Decimal("0.4"))
     await checklist_item_pos_crud.update(target_pos)
     await sync_crud.create(SyncNotification(
         cl_id=checklist_access.checklist.id, cli_id=checklist_item_id, upd_prop="item_position"
@@ -319,7 +319,7 @@ async def move_item_to_top_of_checklist(
         await checklist_item_pos_crud.update(target_pos)
         return target_pos
     target_pos.index = float(
-        decimal.Decimal(str(first_pos.index)) + decimal.Decimal("0.4")
+        decimal.Decimal(str(first_pos.index)) - decimal.Decimal("0.4")
     )
     await checklist_item_pos_crud.update(target_pos)
     await sync_crud.create(SyncNotification(
