@@ -29,7 +29,7 @@
           side="right"
         >
           <NuxtLink
-            :to="{ query: { label: label.id } }"
+            :to="{ query: { ...route.query, label: label.id } }"
             class="flex items-center gap-3 px-2 py-1.5 rounded-lg text-sm transition-colors hover:bg-elevated"
             :class="route.query.label === label.id ? 'bg-elevated font-medium' : 'text-muted'"
           >
@@ -69,7 +69,7 @@ const colorMode = useColorMode();
 const labelStore = useCheckListsLabelStore();
 const colorStore = useCheckListsColorSchemeStore();
 
-const isHome = computed(() => !route.query.label && !route.query.editlabels);
+const isHome = computed(() => !route.query.label && !route.query.editlabels && !route.query.search);
 
 function labelDotStyle(label: LabelType) {
   const color = colorStore.colors.find((c) => c.id === label.color_id);

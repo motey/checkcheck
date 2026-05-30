@@ -40,6 +40,7 @@ from checkcheckserver.model.checklist_position import CheckListPosition
 from checkcheckserver.model.checklist import CheckListApi, CheckListApiWithSubObj
 from checkcheckserver.model.label import Label
 from checkcheckserver.model.checklist_label import CheckListLabel
+from checkcheckserver.model.checklist_item import CheckListItem
 
 log = get_logger()
 config = Config()
@@ -80,12 +81,32 @@ class CheckListCRUD(
         self,
         user_id: uuid.UUID,
         archived: Optional[bool] = None,
+        search: Optional[str] = None,
     ) -> int:
         query = select(func.count()).select_from(CheckList)
 
         if archived is not None:
             query = query.where(CheckListPosition.archived == archived)
         query = self._add_user_has_access_query(query, user_id)
+        if search is not None:
+            needle = f"%{search}%"
+            item_match = (
+                select(CheckListItem.id)
+                .where(
+                    and_(
+                        CheckListItem.checklist_id == CheckList.id,
+                        CheckListItem.text.ilike(needle),
+                    )
+                )
+                .exists()
+            )
+            query = query.where(
+                or_(
+                    col(CheckList.name).ilike(needle),
+                    col(CheckList.text).ilike(needle),
+                    item_match,
+                )
+            )
 
         results = await self.session.exec(statement=query)
         return results.first()
@@ -113,6 +134,7 @@ class CheckListCRUD(
         include_sub_obj: bool = False,
         archived: Optional[bool] = None,
         label_id: Optional[uuid.UUID] = None,
+        search: Optional[str] = None,
         pagination: QueryParamsInterface = None,
     ) -> List[CheckList | CheckListApiWithSubObj]:
         query = select(CheckList)
@@ -125,6 +147,25 @@ class CheckListCRUD(
         if label_id is not None:
             query = query.join(CheckListLabel).where(
                 CheckListLabel.label_id == label_id
+            )
+        if search is not None:
+            needle = f"%{search}%"
+            item_match = (
+                select(CheckListItem.id)
+                .where(
+                    and_(
+                        CheckListItem.checklist_id == CheckList.id,
+                        CheckListItem.text.ilike(needle),
+                    )
+                )
+                .exists()
+            )
+            query = query.where(
+                or_(
+                    col(CheckList.name).ilike(needle),
+                    col(CheckList.text).ilike(needle),
+                    item_match,
+                )
             )
         query = query.order_by(desc(CheckListPosition.index))
         if pagination:

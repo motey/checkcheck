@@ -4,6 +4,8 @@ import { transferAttrs, findNewPlacementForItem, sortBySubset } from "~/utils/he
 export type CheckListState = {
   checkLists: CheckListType[];
   total_backend_count: number;
+  searchResults: CheckListType[] | null;
+  searchTotalCount: number;
 };
 
 export const useCheckListsStore = defineStore("checkList", {
@@ -11,6 +13,8 @@ export const useCheckListsStore = defineStore("checkList", {
     ({
       checkLists: [],
       total_backend_count: -1,
+      searchResults: null,
+      searchTotalCount: 0,
     } as CheckListState),
   getters: {
     checklist_ids(state) {
@@ -204,6 +208,27 @@ export const useCheckListsStore = defineStore("checkList", {
       const checkList = index !== -1 ? this.checkLists[index]! : await this.refresh(checkListId);
       transferAttrs(resChecklistPosition, checkList.position);
       return checkList.position;
+    },
+    async searchChecklists(query: string, labelId: string | null = null) {
+      const { $checkapi } = useNuxtApp();
+      const checkListItemStore = useCheckListsItemStore();
+      let resPage: CheckListsPageType;
+      try {
+        resPage = await $checkapi("/api/checklist", {
+          method: "get",
+          query: { search: query, archived: false, limit: 100, offset: 0, ...(labelId ? { label_id: labelId } : {}) },
+        });
+      } catch (error) {
+        console.error("Could not search checklists 'GET /api/checklist?search='", error);
+        return;
+      }
+      await checkListItemStore.fetchMultipleChecklistsItemsPreview(resPage.items.map((i) => i.id));
+      this.searchResults = resPage.items;
+      this.searchTotalCount = resPage.total_count;
+    },
+    clearSearch() {
+      this.searchResults = null;
+      this.searchTotalCount = 0;
     },
     async _sort() {
       this.checkLists.sort((a, b) => b.position.index - a.position.index);

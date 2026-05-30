@@ -6,9 +6,7 @@
     class="checklist list-drag-handle shadow rounded gap-0 textareas-inherit-color min-h-48  flex flex-col border-1 border-solid px-4 sm:p-4 lg:p-6 lg:pb-1 sm:pb-1"
   >
 
-    <div v-if="!editModeActive" class="flex-none text-lg font-semibold min-h-8">
-      {{ checkList!.name }}
-    </div>
+    <div v-if="!editModeActive" class="flex-none text-lg font-semibold min-h-8" v-html="highlightText(checkList!.name, searchQuery)" />
     <UTextarea
       v-if="editModeActive"
       autoresize
@@ -19,7 +17,7 @@
       v-model="checkList!.name!"
       class="flex-initial w-full grow pl-1 text-2xl font-semibold"
     />
-    <p v-if="!editModeActive" class="flex-none line-clamp-3">{{ checkList!.text }}</p>
+    <p v-if="!editModeActive" class="flex-none line-clamp-3" v-html="highlightText(checkList!.text, searchQuery)" />
     <UTextarea
       v-if="editModeActive"
       ref="notesTextField"
@@ -65,10 +63,13 @@ const appConfig = useAppConfig();
 import { useDebounceFn } from "@vueuse/core";
 import { useCheckListsStore } from "@/stores/checklist";
 import { useCheckListsItemStore } from "@/stores/checklist_item";
+import { highlightText } from "@/utils/highlight";
 const colorMode = useColorMode();
 
 const checkListsStore = useCheckListsStore();
 const checkListsItemStore = useCheckListsItemStore();
+const route = useRoute();
+const searchQuery = computed(() => (route.query.search as string) || null);
 
 const props = defineProps({
   checkListId: {

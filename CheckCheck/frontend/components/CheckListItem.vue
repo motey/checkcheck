@@ -8,9 +8,8 @@
     <div class="flex-none w-4">
       <UCheckbox v-model="checkListItem!.state.checked" @click.stop="toggleCheck()" size="xl"  />
     </div>
-    <div v-if="!parentEditMode" :class="[' pl-2', { 'line-clamp-3': !parentEditMode, 'strikethrough': checkListItem?.state.checked }]" class="">
-      {{ checkListItem!.text }}
-    </div>
+    <div v-if="!parentEditMode" :class="[' pl-2', { 'line-clamp-3': !parentEditMode, 'strikethrough': checkListItem?.state.checked }]" class=""
+      v-html="highlightText(checkListItem!.text, searchQuery)" />
 
     <UTextarea
       placeholder="Enter some text..."
@@ -36,6 +35,7 @@ import { useDebounceFn } from "@vueuse/core";
 import type { PropType } from "vue";
 import { useCheckListsItemStore } from "@/stores/checklist_item";
 import { useTextareaAutosize } from '@vueuse/core'
+import { highlightText } from "@/utils/highlight";
 
 const props = defineProps({
   checkListItem: { type: Object as PropType<CheckListItemType>, required: false },
@@ -55,6 +55,8 @@ onMounted(() => {
 */
 const hover = ref(false);
 const checkListsItemStore = useCheckListsItemStore();
+const route = useRoute();
+const searchQuery = computed(() => (route.query.search as string) || null);
 const emit = defineEmits(["checkedItem"]);
 function toggleCheck() {
   (async () => {

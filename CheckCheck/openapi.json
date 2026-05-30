@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "CheckCheck REST API",
-    "version": "0.1.dev38+geb1ee32.d20260529"
+    "version": "0.1.dev39+g0977327.d20260530"
   },
   "paths": {
     "/api/health": {
@@ -1324,6 +1324,22 @@
                 }
               ],
               "title": "Label Id"
+            }
+          },
+          {
+            "name": "search",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Search"
             }
           },
           {

@@ -7,7 +7,7 @@
       class="no-drag text-center py-4"
       ref="loadMoreTrigger"
       v-element-visibility="onLoadingTriggerVisibility"
-      v-if="checkLists.length < total_backend_count"
+      v-if="searchResults === null && checkLists.length < total_backend_count"
     >
       <UButton icon="i-heroicons-arrow-path" :loading="loadingInProcess" variant="ghost"> Load more... </UButton>
     </li>
@@ -23,12 +23,13 @@ import { useDragAndDrop } from "@formkit/drag-and-drop/vue";
 import { animations } from "@formkit/drag-and-drop";
 import { CheckListEditModal } from "#components";
 import { vElementVisibility } from "@vueuse/components";
+import { useDebounceFn } from "@vueuse/core";
 
 const route = useRoute();
 const checkListStore = useCheckListsStore();
 const checkListsColorSchemeStore = useCheckListsColorSchemeStore();
 const checkListsLabelStore = useCheckListsLabelStore();
-const { checkLists, total_backend_count } = storeToRefs(checkListStore);
+const { checkLists, total_backend_count, searchResults } = storeToRefs(checkListStore);
 
 const loadingTriggerIsVisible = ref(false);
 const loadingInProcess = ref(false);
@@ -48,14 +49,34 @@ const [checkListBoard, dragCheckLists] = useDragAndDrop<CheckListType>([], {
     const allItems = event.values as CheckListType[];
     checkListStore.reorderCheckLists(allItems, draggedItem);
   },
-  draggable: (el) => !(el && el.classList.contains("no-drag")),
+  draggable: (el) => !(el && el.classList.contains("no-drag")) && searchResults.value === null,
   plugins: [animations()],
 });
 
-// Sync drag list from store whenever filters or store contents change
+// Debounced backend search — fires 300 ms after the last keystroke
+const runSearch = useDebounceFn(async (query: string | null, labelId: string | null) => {
+  if (query) {
+    await checkListStore.searchChecklists(query, labelId);
+  } else {
+    checkListStore.clearSearch();
+  }
+}, 300);
+
+// Re-run whenever search text OR label filter changes
+watch(
+  () => ({ search: route.query.search as string, label: route.query.label as string }),
+  ({ search, label }) => runSearch(search || null, label || null),
+  { immediate: true }
+);
+
+// Sync drag list — use search results when active, else normal paginated list
 watchEffect(() => {
-  const labelId = (route.query.label as string) || null;
-  dragCheckLists.value = checkListStore.getCheckLists({ archived: false, label_id: labelId });
+  if (searchResults.value !== null) {
+    dragCheckLists.value = searchResults.value;
+  } else {
+    const labelId = (route.query.label as string) || null;
+    dragCheckLists.value = checkListStore.getCheckLists({ archived: false, label_id: labelId });
+  }
 });
 
 async function onLoadingTriggerVisibility(state: boolean) {
