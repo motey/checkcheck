@@ -49,7 +49,7 @@ const [checkListBoard, dragCheckLists] = useDragAndDrop<CheckListType>([], {
     const allItems = event.values as CheckListType[];
     checkListStore.reorderCheckLists(allItems, draggedItem);
   },
-  draggable: (el) => !(el && el.classList.contains("no-drag")) && searchResults.value === null,
+  draggable: (el) => !(el && el.classList.contains("no-drag")),
   plugins: [animations()],
 });
 

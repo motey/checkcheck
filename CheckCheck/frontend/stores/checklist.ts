@@ -58,7 +58,21 @@ export const useCheckListsStore = defineStore("checkList", {
       } else if (placement.placement == "below") {
         await this.moveCheckListUnderOtherCheckList(movedItem, placement.target_neighbor_item as CheckListType);
       }
-      this.checkLists = sortBySubset(this.checkLists, newOrder) as CheckListType[];
+      if (newOrder.length === this.checkLists.length) {
+        // Full board: optimistic reorder via sortBySubset
+        this.checkLists = sortBySubset(this.checkLists, newOrder) as CheckListType[];
+      } else {
+        // Subset drag (search results): propagate the updated position to checkLists and re-sort
+        const idx = this.checkLists.findIndex((cl) => cl.id === movedItem.id);
+        if (idx !== -1) {
+          transferAttrs(movedItem.position, this.checkLists[idx]!.position);
+        }
+        await this._sort();
+        // Keep searchResults in the dragged order so watchEffect doesn't reset dragCheckLists
+        if (this.searchResults !== null) {
+          this.searchResults = [...newOrder];
+        }
+      }
     },
     async create(checklist: CheckListCreateType): Promise<CheckListType> {
       if (!checklist) throw new Error("Checklistid empty");

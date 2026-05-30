@@ -1,10 +1,28 @@
-import { createSharedComposable } from "@vueuse/core";
+import { createSharedComposable, useDebounceFn } from "@vueuse/core";
 import { useCheckListsStore } from "@/stores/checklist";
 import { useCheckListsItemStore } from "@/stores/checklist_item";
 
 export const useSync = createSharedComposable(() => {
   const checkListStore = useCheckListsStore();
   const checkListItemStore = useCheckListsItemStore();
+
+  // One debounced refresher per checklist — collapses bursts of item_position /
+  // item_created events (e.g. a notification backlog) into a single fetch.
+  const pendingItemRefresh = new Map<string, () => void>();
+  function scheduleItemRefresh(clId: string) {
+    if (!pendingItemRefresh.has(clId)) {
+      pendingItemRefresh.set(
+        clId,
+        useDebounceFn(() => {
+          if (checkListItemStore.checkListsItems[clId]) {
+            checkListItemStore.refreshAllCheckListItems(clId);
+          }
+          pendingItemRefresh.delete(clId);
+        }, 1200)
+      );
+    }
+    pendingItemRefresh.get(clId)!();
+  }
 
   let es: EventSource | null = null;
 
@@ -42,9 +60,7 @@ export const useSync = createSharedComposable(() => {
 
       case "item_position":
       case "item_created":
-        if (checkListItemStore.checkListsItems[clId]) {
-          checkListItemStore.refreshAllCheckListItems(clId);
-        }
+        scheduleItemRefresh(clId);
         break;
 
       case "item_deleted":
