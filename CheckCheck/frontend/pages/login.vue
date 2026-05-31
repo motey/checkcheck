@@ -27,9 +27,10 @@
 
         <!-- Basic Auth Form -->
         <form v-if="method.auth_type === 'basic'" @submit.prevent="() => basicLogin()" class="space-y-4">
-          <UInput v-model="username" label="Username" required icon="i-lucide-user" class="w-full" size="xl" />
+          <UInput v-model="username" data-testid="login-username" label="Username" required icon="i-lucide-user" class="w-full" size="xl" />
           <UInput
             v-model="password"
+            data-testid="login-password"
             label="Password"
             type="password"
             required

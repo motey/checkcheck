@@ -1,5 +1,5 @@
 <template>
-  <ul v-if="dragCheckLists" ref="checkListBoard" class="grid gap-4 grid-cols-[repeat(auto-fill,minmax(16rem,1fr))]">
+  <ul v-if="dragCheckLists" ref="checkListBoard" data-testid="checklist-board" class="grid gap-4 grid-cols-[repeat(auto-fill,minmax(16rem,1fr))]">
     <li v-for="checkList in dragCheckLists" :key="checkList.id" class="w-full sm:w-auto checklist-preview">
       <CheckList :checkListId="checkList.id" @click="openCheckListEditor(checkList.id)" :previewModeActive="true" />
     </li>

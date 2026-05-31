@@ -35,7 +35,7 @@ export default defineNuxtConfig({
   nitro: {
     devProxy: {
       "/api": {
-        target: "http://localhost:8181/api",
+        target: process.env.API_PROXY_TARGET ?? "http://localhost:8181/api",
         changeOrigin: true,
         headers: {
           Host: "localhost:3000",
@@ -54,8 +54,10 @@ export default defineNuxtConfig({
       hmr: {
         protocol: "ws",
         host: "localhost",
-        port: 3000,
-        clientPort: 3000,
+        // Use the same port the dev server listens on so HMR works when the
+        // server is started on a non-default port (e.g. PORT=3001 for E2E tests).
+        port: parseInt(process.env.PORT ?? "3000"),
+        clientPort: parseInt(process.env.PORT ?? "3000"),
       },
     },
   },
