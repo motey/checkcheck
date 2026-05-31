@@ -1,33 +1,10 @@
-from typing import AsyncGenerator, List, Optional, Literal, Sequence, Annotated
-from pydantic import (
-    validate_email,
-    StringConstraints,
-    field_validator,
-    ValidationInfo,
-    BaseModel,
-)
-import datetime
-from fastapi import Depends
-from typing import Optional
-from sqlmodel import Field, UniqueConstraint, Relationship, String
-
+from typing import List, Optional, Literal
+from pydantic import BaseModel
 import uuid
-from uuid import UUID
 import time
-from checkcheckserver.model._base_model import BaseTable, TimestampedModel
-from checkcheckserver.model.checklist_color_scheme import ChecklistColorScheme
-from checkcheckserver.model.checklist_position import (
-    CheckListPosition,
-    CheckListPositionPublicWithoutChecklistID,
-)
+from sqlmodel import Field, String
 
-from checkcheckserver.model.user import User
-from checkcheckserver.config import Config
-from checkcheckserver.log import get_logger
-
-
-log = get_logger()
-config = Config()
+from checkcheckserver.model._base_model import BaseTable
 
 
 class SyncNotification(BaseTable, table=True):
@@ -40,7 +17,8 @@ class SyncNotification(BaseTable, table=True):
         description="Checklist that has to be updated by the client"
     )
     cli_id: Optional[uuid.UUID] = Field(
-        description="ID of Checklist item that has to be updated by the client"
+        default=None,
+        description="ID of Checklist item that has to be updated by the client",
     )
     upd_prop: Literal[
         "item_state",

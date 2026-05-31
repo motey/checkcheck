@@ -1,28 +1,16 @@
-from typing import AsyncGenerator, List, Optional, Literal, Sequence, Annotated, Tuple
-from pydantic import validate_email, validator, StringConstraints
-from pydantic_core import PydanticCustomError
-from fastapi import Depends
-import contextlib
-from typing import Optional
-from sqlmodel.ext.asyncio.session import AsyncSession
-from sqlmodel import Field, select, delete, Column, JSON, SQLModel, func, col, and_, or_
-
+from typing import List, Optional
 import uuid
-from uuid import UUID
+import json
 
-from sqlalchemy.orm import selectinload
-from checkcheckserver.config import Config
+from sqlmodel import select, delete
+from sqlalchemy import text
+
+from checkcheckserver.config import Config, DbBackend
 from checkcheckserver.log import get_logger
-
 from checkcheckserver.db._base_crud import create_crud_base
-from checkcheckserver.model.user import User
 from checkcheckserver.model.checklist import CheckList
 from checkcheckserver.model.checklist_collaborator import CheckListCollaborator
-
-from checkcheckserver.model.sync_notifications import (
-    SyncNotification,
-    SyncNotificationPackage,
-)
+from checkcheckserver.model.sync_notifications import SyncNotification, SyncNotificationPackage
 
 log = get_logger()
 config = Config()
@@ -37,80 +25,59 @@ class SyncNotifiationCRUD(
     )
 ):
 
-    async def fetch_next_notificaton(self) -> SyncNotificationPackage | None:
-        query = select(SyncNotification).order_by(SyncNotification.timestamp).limit(1)
-
-        res = await self.session.exec(query)
-        noti = res.one_or_none()
-
-        if noti is None:
-            return None
-
-        checklist_id = noti.cl_id
-
-        ## get checklist owner
-        owner_query = select(CheckList.owner_id).where(CheckList.id == checklist_id)
-        res = await self.session.exec(owner_query)
-        owner_id = res.one_or_none()
-
-        ## get collaborators ids
-        collab_user_ids_query = select(CheckListCollaborator.user_id).where(
-            CheckListCollaborator.checklist_id == checklist_id
+    async def _resolve_target_user_ids(self, cl_id: uuid.UUID) -> List[uuid.UUID]:
+        owner_res = await self.session.exec(
+            select(CheckList.owner_id).where(CheckList.id == cl_id)
         )
-        res = await self.session.exec(collab_user_ids_query)
-        collab_user_ids = res.all()
-        del_statement = delete(SyncNotification).where(
-            SyncNotification.timestamp == noti.timestamp
+        owner_id = owner_res.one_or_none()
+
+        collab_res = await self.session.exec(
+            select(CheckListCollaborator.user_id).where(
+                CheckListCollaborator.checklist_id == cl_id
+            )
         )
-        await self.session.exec(del_statement)
-        await self.session.commit()
-        target_ids = list(collab_user_ids)
+        target_ids = list(collab_res.all())
         if owner_id is not None:
             target_ids.append(owner_id)
-        return SyncNotificationPackage(
-            target_user_ids=target_ids, notification=noti
+        return target_ids
+
+    async def fetch_next_notificaton(self) -> SyncNotificationPackage | None:
+        """SQLite only. Fetch and delete the oldest pending notification."""
+        res = await self.session.exec(
+            select(SyncNotification).order_by(SyncNotification.timestamp).limit(1)
         )
-
-    async def fetch_next_event_for_user(
-        self, user_id: uuid.UUID
-    ) -> SyncNotificationPackage | None:
-        query = select(SyncNotification).order_by(SyncNotification.timestamp).limit(1)
-
-        res = await self.session.exec(query)
         noti = res.one_or_none()
-
-        checklist_item_id = noti.cl_id
-
-        ## get checklist owner
-        owner_query = select(CheckList.owner_id).where(
-            CheckList.id == checklist_item_id
-        )
-        res = await self.session.exec(owner_query)
-        owner_id = owner_query.one()
-        if user_id == owner_id:
-            return noti
-
-        ## get collaborators ids
-        collab_user_ids_query = select(CheckListCollaborator.user_id).where(
-            CheckListCollaborator.checklist_id == checklist_item_id
-        )
-        res = await self.session.exec(collab_user_ids_query)
-        collab_user_ids = res.all()
-        if user_id in collab_user_ids:
-            return noti
-        return None
-
         if noti is None:
             return None
-        del_statement = delete(SyncNotification).where(
-            SyncNotification.timestamp == noti.timestamp
+
+        target_ids = await self._resolve_target_user_ids(noti.cl_id)
+
+        await self.session.exec(
+            delete(SyncNotification).where(SyncNotification.timestamp == noti.timestamp)
         )
-        await self.session.exec(del_statement)
         await self.session.commit()
-        return SyncNotificationPackage(
-            target_user_ids=collab_user_ids + [owner_id], notification=noti
-        )
+        return SyncNotificationPackage(target_user_ids=target_ids, notification=noti)
 
     async def create(self, noti: SyncNotification):
-        self.session.add(noti)
-        await self.session.commit()
+        if config.db_backend == DbBackend.POSTGRES:
+            target_ids = await self._resolve_target_user_ids(noti.cl_id)
+            payload = json.dumps({
+                "timestamp": noti.timestamp,
+                "cl_id": str(noti.cl_id),
+                "cli_id": str(noti.cli_id) if noti.cli_id else None,
+                "upd_prop": noti.upd_prop,
+                "target_user_ids": [str(uid) for uid in target_ids],
+            })
+            await self.session.execute(
+                text("SELECT pg_notify('checkcheck_sync', :payload)"),
+                {"payload": payload},
+            )
+            await self.session.commit()
+        else:
+            # SQLite: plain INSERT. The drain loop delivers notifications in
+            # order; the frontend debounce collapses any high-frequency bursts.
+            # A (cl_id, cli_id, upd_prop) upsert would silently drop updates
+            # for different items sharing the same upd_prop (e.g. two items
+            # moved in rapid succession), so we do a plain INSERT instead.
+            self.session.add(noti)
+            await self.session.commit()

@@ -244,13 +244,13 @@ async def move_item_above_other_item(
             cl_id=checklist_access.checklist.id, cli_id=checklist_item_id, upd_prop="item_position"
         ))
         return target_pos
-    target_pos.index = (
+    target_pos.index = float(
         (
             decimal.Decimal(str(other_item_pos.index))
-            - decimal.Decimal(str(item_over_other_item_pos.index))
+            + decimal.Decimal(str(item_over_other_item_pos.index))
         )
         / 2
-    ) - decimal.Decimal(str(other_item_pos.index))
+    )
     await checklist_item_pos_crud.update(target_pos)
     await sync_crud.create(SyncNotification(
         cl_id=checklist_access.checklist.id, cli_id=checklist_item_id, upd_prop="item_position"

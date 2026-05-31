@@ -268,7 +268,7 @@ async def move_checklist_above_other_checklist(
             )
             / 2
         )
-        + decimal.Decimal(str(checklist_above_other_checklist_pos.index))
+        + decimal.Decimal(str(other_pos.index))
     )
     await checklist_pos_crud.update(
         target_pos, checklist_id=checklist_id, user_id=current_user.id

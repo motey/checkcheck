@@ -8,13 +8,13 @@ Tracked gaps and planned improvements for the CheckCheck frontend (some of them 
 
 These are things that exist in the UI but don't work yet.
 
-- **Search input** – Navbar has a search field but it is not wired to any filtering logic.
 - **Textarea auto-height bug** – Single long rows in item textareas don't auto-size correctly (TODO comment in `CheckListItem.vue`).
 - **Item textarea new-line/new-item behaviour improvements** - When pressing enter lets create a new item under the curren one. Only shift+enter should introduce a linebreak.
 - **Label reorder not persisted** – Drag-and-drop in the label manager reorders labels visually but never calls the backend to save the new `sort_order`. Changes are lost on reload.
-- **Tidy up Card Menu** - Remove mockup item in submenu (show downloads, show history), move delete to submenu, find better shorter name for "Seperate Checked Items"
+- **Tidy up/Finish Card Menu** - Remove mockup item in submenu (show downloads, show history), move delete to submenu, find better shorter name for "Seperate Checked Items". "Seperate Checked Items" only once to toogle, then we need to close and reopen the card
 - **Chrome shows scrollbars on cards item list** - we do not want that. should be same behaviour as in firefox
 - **Large text items not expanded** - When opening a card on a fresh loaded webclient some larger text items are cutoff and have a scrollbar. when editing somehting closing the card and reopening it all is fine. 
+- **Card menu gets hidden when viewport it too small** - if the item list is longer than the viewport the menu at the bottom of card is hidden and one needs to scroll down. the menu should always be at the bottom of the viewport in this case and only the items list in a scrollable "frame".
 ---
 
 ## Sharing & Collaboration

@@ -16,6 +16,8 @@ from fastapi import Depends
 import contextlib
 from sqlmodel.ext.asyncio.session import AsyncSession
 from checkcheckserver.api.paginator import QueryParamsInterface
+from checkcheckserver.config import Config as _Config, DbBackend as _DbBackend
+_db_backend = _Config().db_backend
 from sqlmodel import func, select, delete, col
 from uuid import UUID
 
@@ -234,8 +236,13 @@ class CRUDBase(
         try:
             await self.session.commit()
         except IntegrityError as err:
-            # log.debug("IntegrityError", err)
-            if "UNIQUE constraint failed" in str(err) and exists_ok:
+            err_str = str(err)
+            is_unique_violation = (
+                "UNIQUE constraint failed" in err_str          # SQLite
+                or "UniqueViolationError" in err_str           # PostgreSQL/asyncpg
+                or "duplicate key value violates unique" in err_str  # PostgreSQL direct
+            )
+            if is_unique_violation and exists_ok:
                 log.debug(
                     f"Object of object of type '{type(obj)}' already exists. Skipping creation. <{obj}>. If this is called very often consider creating a custom create function for '{type(self)}'"
                 )
@@ -315,9 +322,7 @@ class CRUDBase(
         existing_obj = await self._get(id_, raise_exception_if_not_exists)
         if existing_obj is not None:
             del_statement = delete(tbl).where(tbl.id == id_)
-            if force_pragma_foreign_keys:
-                # sqlite does disable foreign keys by default. in some cases we need to delete childs of a parent row gets deleted (lookup keyword 'ON_DELETE CASCADE' for details).
-                # if needed set force_pragma_foreign_keys to true
+            if force_pragma_foreign_keys and _db_backend == _DbBackend.SQLITE:
                 await self.session.exec(text("PRAGMA foreign_keys = ON;"))
             await self.session.exec(del_statement)
             await self.session.commit()

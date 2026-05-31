@@ -1,6 +1,6 @@
 <template>
   <UContainer
-    v-if="checkListId"
+    v-if="checkList"
     :style="{ color: textColor, backgroundColor: backgroundColor, borderColor: accentColor }"
     :class="backgroundColor"
     class="checklist list-drag-handle shadow rounded gap-0 textareas-inherit-color min-h-48  flex flex-col border-1 border-solid px-4 sm:p-4 lg:p-6 lg:pb-1 sm:pb-1"
@@ -14,8 +14,10 @@
       :rows="0"
       :padded="false"
       placeholder="Enter a checklist title..."
-      v-model="checkList!.name!"
+      v-model="localName"
       class="flex-initial w-full grow pl-1 text-2xl font-semibold"
+      @focus="nameFocused = true"
+      @blur="nameFocused = false"
     />
     <p v-if="!editModeActive" class="flex-none line-clamp-3" v-html="highlightText(checkList!.text, searchQuery)" />
     <UTextarea
@@ -27,8 +29,10 @@
       :rows="0"
       :padded="false"
       placeholder="Enter some notes..."
-      v-model="checkList!.text!"
+      v-model="localText"
       class="w-full flex-none pl-1"
+      @focus="textFocused = true"
+      @blur="textFocused = false"
     />
     <div class="checklist-items-collection max-h-[90vm] overflow-y-scroll">
       <CheckListItemCollectionSeperated
@@ -85,7 +89,10 @@ if (props.previewModeActive) {
   showMaxItems.value = appConfig.previewItemCount;
 }
 
-const checkList = ref(await checkListsStore.get(props.checkListId));
+// computed() so the component always reads the current store object.
+// ref() would cache a pointer to the object at mount-time; if the store
+// replaces it (e.g. splice in refresh()), the component becomes stale.
+const checkList = computed(() => checkListsStore.get(props.checkListId));
 
 const textColor = computed(() => {
   const { color } = checkList.value!;
@@ -115,35 +122,35 @@ const backgroundColor = computed(() => {
 });
 
 const notesTextField = ref();
+const nameFocused = ref(false);
+const textFocused = ref(false);
 
 if (!props.previewModeActive && props.checkListId) {
   await checkListsItemStore.refreshAllCheckListItems(props.checkListId);
 }
 
+// Local copies decoupled from the store so SSE/update patches don't wipe
+// text the user is currently typing.
+const localName = ref(checkList.value?.name ?? '');
+const localText = ref(checkList.value?.text ?? '');
+
+// Sync FROM store only when the respective field is not focused.
+watch(() => checkList.value?.name, (n) => { if (!nameFocused.value) localName.value = n ?? ''; });
+watch(() => checkList.value?.text, (t) => { if (!textFocused.value) localText.value = t ?? ''; });
+
 const debouncedUpdateCheckListText = useDebounceFn(
-  (updatedAttrName, updatedAttrVal) => {
-    if (!checkList.value) {
-      return;
-    }
+  (updatedAttrName: string, updatedAttrVal: string) => {
+    if (!checkList.value) return;
     (async () => {
-      const patchBody = {
-        [updatedAttrName]: updatedAttrVal,
-      };
-      const res = await checkListsStore.update(checkList.value!.id, patchBody);
+      await checkListsStore.update(checkList.value!.id, { [updatedAttrName]: updatedAttrVal });
     })();
   },
   500,
   { maxWait: 3000 }
 );
 
-watch(
-  () => checkList.value?.text,
-  (t) => debouncedUpdateCheckListText("text", t!)
-);
-watch(
-  () => checkList.value?.name,
-  (n) => debouncedUpdateCheckListText("name", n!)
-);
+watch(localName, (n) => debouncedUpdateCheckListText("name", n));
+watch(localText, (t) => debouncedUpdateCheckListText("text", t));
 
 </script>
 

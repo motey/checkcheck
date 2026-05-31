@@ -43,8 +43,12 @@ onMounted(async () => {
   await checkListsLabelStore.fetchLabels();
 });
 
+let checklistDragInProgress = false;
+
 const [checkListBoard, dragCheckLists] = useDragAndDrop<CheckListType>([], {
+  onDragstart: () => { checklistDragInProgress = true; },
   onDragend: (event) => {
+    checklistDragInProgress = false;
     const draggedItem = event.draggedNode.data.value as CheckListType;
     const allItems = event.values as CheckListType[];
     checkListStore.reorderCheckLists(allItems, draggedItem);
@@ -69,14 +73,15 @@ watch(
   { immediate: true }
 );
 
-// Sync drag list — use search results when active, else normal paginated list
+// Sync drag list — use search results when active, else normal paginated list.
+// Guard: never splice while a drag is in progress — mid-drag store updates
+// (SSE, prev-drag async) reset FormKit DnD's state and corrupt event.values.
 watchEffect(() => {
-  if (searchResults.value !== null) {
-    dragCheckLists.value = searchResults.value;
-  } else {
-    const labelId = (route.query.label as string) || null;
-    dragCheckLists.value = checkListStore.getCheckLists({ archived: false, label_id: labelId });
-  }
+  if (checklistDragInProgress) return;
+  const newList = searchResults.value !== null
+    ? searchResults.value
+    : checkListStore.getCheckLists({ archived: false, label_id: (route.query.label as string) || null });
+  dragCheckLists.value.splice(0, dragCheckLists.value.length, ...newList);
 });
 
 async function onLoadingTriggerVisibility(state: boolean) {

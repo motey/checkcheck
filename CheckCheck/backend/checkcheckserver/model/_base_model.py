@@ -48,7 +48,7 @@ class UUIDModel(SQLModel):
 
 class TimestampedModel(SQLModel):
     created_at: datetime.datetime = Field(
-        default_factory=lambda: datetime.datetime.now(tz=datetime.timezone.utc),
+        default_factory=lambda: datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None),
         nullable=False,
     )
 

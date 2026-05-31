@@ -1,6 +1,5 @@
 from typing import List, Dict, Type, Callable, Optional, Tuple
 import importlib
-from sqlalchemy.ext.asyncio import AsyncConnection
 from pathlib import Path
 from dataclasses import dataclass
 import yaml
@@ -115,7 +114,7 @@ class DataProvisioner:
         raise ValueError(f"Expected '<class {class_path}>'. did not found in {module}")
 
 
-async def provision_data(conn: AsyncConnection = None):
+async def provision_data():
     log.info("Loading default data...")
     # APP_PROVISIONING_DEFAULT_DATA_YAML_FILE is an absolute path set at config import time
     default_data_yaml_path = Path(config.APP_PROVISIONING_DEFAULT_DATA_YAML_FILE)

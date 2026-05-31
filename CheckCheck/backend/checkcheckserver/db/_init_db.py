@@ -1,31 +1,16 @@
-from typing import AsyncGenerator, List, Optional, Awaitable, Any
+from typing import Optional
 import asyncio
-from fastapi import Depends
-from pathlib import Path, PurePath
+from pathlib import Path
 from sqlmodel import SQLModel
 from sqlalchemy.ext.asyncio import AsyncConnection
-from sqlmodel.ext.asyncio.session import AsyncSession
-from sqlalchemy.ext.asyncio import create_async_engine
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy import text
 from alembic.config import Config as AlembicConfig
 from alembic import command
 
-
 from checkcheckserver.db._engine import db_engine
 from checkcheckserver.db._session import get_async_session_context
-from checkcheckserver.model.checklist import CheckList
-from checkcheckserver.model.checklist_collaborator import CheckListCollaborator
-from checkcheckserver.model.checklist_color_scheme import ChecklistColorScheme
-from checkcheckserver.model.checklist_item import CheckListItem
-from checkcheckserver.model.checklist_position import (
-    CheckListPosition,
-)
-from checkcheckserver.db.user import (
-    User,
-    UserCRUD,
-)
+from checkcheckserver.db.user import User, UserCRUD
 from checkcheckserver.db.user_auth import (
-    UserAuth,
     UserAuthCreate,
     UserAuthCRUD,
     AllowedAuthSchemeType,
@@ -33,49 +18,64 @@ from checkcheckserver.db.user_auth import (
 from checkcheckserver.db._db_data_provisioner import provision_data
 from checkcheckserver.log import get_logger
 from checkcheckserver.config import Config
-from sqlalchemy.dialects.sqlite.aiosqlite import AsyncAdapt_aiosqlite_connection
 
 log = get_logger()
 config = Config()
 
 
-# db_engine = create_async_engine(str(config.SQL_DATABASE_URL), echo=False, future=True)
+async def _get_current_alembic_revision(conn: AsyncConnection) -> str | None:
+    try:
+        result = await conn.execute(
+            text("SELECT version_num FROM alembic_version LIMIT 1")
+        )
+        row = result.fetchone()
+        return row[0] if row else None
+    except Exception:
+        return None
 
-from checkcheckserver.db._session import get_async_session
-from sqlalchemy import event, Engine
-from sqlite3 import Connection as SQLite3Connection
 
+def init_schema_and_migrations():
+    """Synchronous. Call before the main event loop.
 
-@event.listens_for(db_engine.sync_engine, "connect")
-def enable_foreign_keys_on_sqlite(dbapi_connection, connection_record):
-    """SQLlite databases disable foreign key contraints by default. This behaviour would prevents us from using things like cascade deletes.
-    This addin enables that on every connect.
-
-    Args:
-        dbapi_connection (_type_): _description_
-        connection_record (_type_): _description_
+    Creates all tables (create_all for fresh databases) and runs alembic
+    migrations. Uses its own short-lived asyncio.run() for create_all, disposing
+    the pool inside that loop so the main event loop starts with clean connections.
     """
-    return
-    # this is disabled for now, as sqlite does not support nullable composite keys (SIMPLE foreign key mode as defined in SQL-92 Standard)
-    # we use nullable composite keys in the drug "Stamm"-model :(
-    # instead we force optionally "PRAGMA foreign_keys=ON" on a per delete call base. see CheckCheck/backend/checkcheckserver/db/_base_crud.py - CRUDBase.delete()
-    if isinstance(
-        dbapi_connection,
-        (
-            SQLite3Connection,
-            AsyncAdapt_aiosqlite_connection,
-        ),
-    ):
-        log.debug("SQLite Database: Enable PRAGMA foreign_keys")
-        cursor = dbapi_connection.cursor()
-        cursor.execute("PRAGMA foreign_keys=ON")
-        cursor.close()
+    async def _create_schema_and_check_rev():
+        async with db_engine.begin() as conn:
+            await conn.run_sync(SQLModel.metadata.create_all)
+        async with db_engine.connect() as conn:
+            rev = await _get_current_alembic_revision(conn)
+        # Dispose inside the event loop — asyncpg requires async close and
+        # will log MissingGreenlet errors if disposed via sync_engine.dispose().
+        await db_engine.dispose()
+        return rev
+
+    log.info(f"Create tables if not existent: {config.SQL_DATABASE_URL}")
+    current_rev = asyncio.run(_create_schema_and_check_rev())
+
+    alembic_dir = Path(Path(__file__).parent.parent.parent, "migrations")
+    alembic_cfg = AlembicConfig(config.DB_MIGRATION_ALEMBIC_CONFIG_FILE)
+    alembic_cfg.set_main_option("sqlalchemy.url", str(config.SQL_DATABASE_URL))
+    alembic_cfg.set_main_option("script_location", str(alembic_dir.resolve()))
+
+    log.info("Init database migrations if necessary")
+    if current_rev is None:
+        # Fresh database — schema already created by create_all above;
+        # stamp so upgrade doesn't try to re-apply already-implicit migrations.
+        command.stamp(alembic_cfg, "head")
+
+    log.info("Run database migrations if necessary")
+    command.upgrade(alembic_cfg, "head")
 
 
-async def create_admin_if_not_exists(conn: AsyncConnection = None):
-    # https://stackoverflow.com/questions/75150942/how-to-get-a-session-from-async-session-generator-fastapi-sqlalchemy
-    # session = await anext(get_async_session())
+async def init_db():
+    """Async. Must run inside the same event loop as uvicorn.
 
+    Creates the admin user and provisions seed data. Runs after
+    init_schema_and_migrations() so all tables and migrations are in place.
+    """
+    log.info("Creating admin user if not exists")
     async with get_async_session_context() as session:
         async with UserCRUD.crud_context(session) as user_crud:
             user_crud: UserCRUD = user_crud
@@ -97,51 +97,7 @@ async def create_admin_if_not_exists(conn: AsyncConnection = None):
                     basic_password=config.ADMIN_USER_PW.get_secret_value(),
                     auth_source_type=AllowedAuthSchemeType.basic,
                 )
-                log.info(f"admin_user_auth {admin_user_auth}")
                 await user_auth_crud.create(admin_user_auth)
 
-
-def init_alembic_migration_management():
-    alembic_dir = Path(Path(__file__).parent.parent.parent, "migrations")
-
-    alembic_cfg = AlembicConfig(config.DB_MIGRATION_ALEMBIC_CONFIG_FILE)
-    alembic_cfg.set_main_option("sqlalchemy.url", str(config.SQL_DATABASE_URL))
-    alembic_cfg.set_main_option("script_location", str(alembic_dir.resolve()))
-
-    # alembic_cfg.attributes["connection"] = connection
-    command.stamp(alembic_cfg, "head")
-
-
-def run_alembic_database_migrations():
-    alembic_dir = Path(Path(__file__).parent.parent.parent, "migrations")
-    alembic_cfg = AlembicConfig(config.DB_MIGRATION_ALEMBIC_CONFIG_FILE)
-    alembic_cfg.set_main_option("sqlalchemy.url", str(config.SQL_DATABASE_URL))
-    alembic_cfg.set_main_option("script_location", str(alembic_dir.resolve()))
-    command.upgrade(alembic_cfg, "head")
-
-
-async def create_schema(conn: AsyncConnection):
-    await conn.run_sync(SQLModel.metadata.create_all)
-
-
-async def _async_db_init_task(task: Awaitable) -> Any:
-    async with db_engine.begin() as conn:
-        return await task(conn)
-
-
-def _run_async_db_init_task(task: Awaitable) -> Any:
-
-    return asyncio.run(_async_db_init_task(task))
-
-
-def init_db():
-    log.info(f"Create tables if not existent {config.SQL_DATABASE_URL}")
-    _run_async_db_init_task(create_schema)
-    log.info(f"Init database migrations if neccessary")
-    init_alembic_migration_management()
-    log.info(f"Run database migrations if neccessary")
-    run_alembic_database_migrations()
-    # log.info(f"Create admin if not existent")
-    _run_async_db_init_task(create_admin_if_not_exists)
-    log.info(f"Insert DB provisioning data if neccessary")
-    _run_async_db_init_task(provision_data)
+    log.info("Insert DB provisioning data if necessary")
+    await provision_data()

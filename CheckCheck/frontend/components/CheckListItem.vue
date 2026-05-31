@@ -13,18 +13,17 @@
 
     <UTextarea
       placeholder="Enter some text..."
-      v-model="checkListItem!.text"
+      v-model="localText"
       v-if="parentEditMode"
       variant="none"
       autoresize
       :rows="1"
       :padded="false"
-
       :style="{ color: textColor }"
       class="w-full grow pl-2 cursor-auto m-0"
       :class="{ strikethrough: checkListItem?.state.checked }"
-      
-      
+      @focus="textFocused = true"
+      @blur="textFocused = false"
     />
   </UContainer>
 </template>
@@ -54,6 +53,7 @@ onMounted(() => {
 })
 */
 const hover = ref(false);
+const textFocused = ref(false);
 const checkListsItemStore = useCheckListsItemStore();
 const route = useRoute();
 const searchQuery = computed(() => (route.query.search as string) || null);
@@ -71,24 +71,30 @@ let textColor = props.parentCheckList!.color?.dark_text ? "#fff" : "#000";
 
 emit("checkedItem");
 
+// Local copy decoupled from the store so SSE/update patches don't wipe
+// text the user is currently typing.
+const localText = ref(props.checkListItem!.text ?? '');
+
+// Sync FROM store only when the field is not focused.
+watch(
+  () => props.checkListItem!.text,
+  (serverText) => {
+    if (!textFocused.value) localText.value = serverText ?? '';
+  }
+);
+
 const debouncedUpdateCheckListItemText = useDebounceFn(
-  (updatedAttrName: string, updatedAttrVal: string) => {
-    if (!props.checkListItem!) {
-      return;
-    }
+  (val: string) => {
+    if (!props.checkListItem) return;
     (async () => {
-      const patchBody = { [updatedAttrName]: updatedAttrVal } as CheckListUpdateType;
-      await checkListsItemStore.update(props.parentCheckList.id, props.checkListItem!.id, patchBody);
+      await checkListsItemStore.update(props.parentCheckList.id, props.checkListItem!.id, { text: val } as CheckListUpdateType);
     })();
   },
   500,
-  { maxWait: 3000 }                
+  { maxWait: 3000 }
 );
 
-watch(
-  () => props.checkListItem!.text,
-  (t) => debouncedUpdateCheckListItemText("text", t!)
-);
+watch(localText, (t) => debouncedUpdateCheckListItemText(t));
 
 
 </script>

@@ -1,5 +1,4 @@
 import { defineStore } from "pinia";
-import { transferAttrs } from "~/utils/helpers";
 
 export type CheckListLabelState = {
   labels: LabelType[];
@@ -35,7 +34,7 @@ export const useCheckListsLabelStore = defineStore("checkListLabelStore", {
           method: "get",
           path: { checklist_id: checkListId },
         });
-        transferAttrs(labels, checklist.labels);
+        checklist.labels = labels;
       }
       return checklist.labels;
     },
@@ -48,9 +47,9 @@ export const useCheckListsLabelStore = defineStore("checkListLabelStore", {
           method: "put",
           path: { checklist_id: checkListId, label_id: labelId },
         });
-        const old_label = checklist.labels.find((label) => label.id == labelId);
-        if (old_label != undefined) {
-          transferAttrs(fresh_label, old_label);
+        const index = checklist.labels.findIndex((label) => label.id == labelId);
+        if (index !== -1) {
+          checklist.labels.splice(index, 1, fresh_label);
         } else {
           checklist.labels.push(fresh_label);
         }
@@ -97,7 +96,7 @@ export const useCheckListsLabelStore = defineStore("checkListLabelStore", {
           body: label,
         });
         const index = this.labels.findIndex((l) => l.id == labelId);
-        if (index !== -1) transferAttrs(fresh_label, this.labels[index]!);
+        if (index !== -1) this.labels.splice(index, 1, fresh_label);
         this._sort();
       } catch (error) {
         console.error("Could not update label 'PATCH /api/label/" + labelId + "'", error);

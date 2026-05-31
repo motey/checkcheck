@@ -1,52 +1,17 @@
-from typing import Annotated, Sequence, List, Type, Optional, Tuple
-from datetime import datetime, timedelta, timezone
 import uuid
 import json
 import asyncio
 from contextlib import asynccontextmanager
-from fastapi import (
-    Depends,
-    Security,
-    HTTPException,
-    status,
-    Query,
-    Body,
-    Form,
-    Path,
-    Response,
-    Request,
-    BackgroundTasks,
-)
+from typing import List, Tuple
+
+from fastapi import Depends, APIRouter, FastAPI, Request
 from fastapi.responses import StreamingResponse
 
-
-from fastapi import Depends, APIRouter, FastAPI
-
-
 from checkcheckserver.db.user import User
-
-from checkcheckserver.api.auth.security import (
-    user_is_admin,
-    user_is_usermanager,
-    get_current_user,
-)
-
-from checkcheckserver.api.access import (
-    user_has_checklist_access,
-    UserChecklistAccess,
-)
-from checkcheckserver.api.paginator import (
-    PaginatedResponse,
-    create_query_params_class,
-    QueryParamsInterface,
-)
+from checkcheckserver.api.auth.security import get_current_user
 from checkcheckserver.log import get_logger
-from checkcheckserver.config import Config
+from checkcheckserver.config import Config, DbBackend
 from checkcheckserver.db._session import get_async_session_context
-
-
-from checkcheckserver.model.checklist_color_scheme import ChecklistColorScheme
-from checkcheckserver.db.checklist_color_scheme import ChecklistColorSchemeCRUD
 from checkcheckserver.db.sync_notification import (
     SyncNotifiationCRUD,
     SyncNotificationPackage,
@@ -54,85 +19,139 @@ from checkcheckserver.db.sync_notification import (
 )
 
 config = Config()
-
 log = get_logger()
 
-
 fast_api_sse_sync_router: APIRouter = APIRouter()
-clients: List[Tuple[asyncio.Queue, User, Request]] = []
 
-
-#####
-# this is a proof of concept.
-# Later we need a more scalable solution.
-# Reqs/ideas for a later improved implementation are:
-# * use redis as message broker/storage instead of a sql table(optionaly?)
-# * run as an extra worker process (optionaly?)
-#####
+# SQLite only: connected SSE clients.
+# Each entry is (queue, user, request).
+_sqlite_clients: List[Tuple[asyncio.Queue, User, Request]] = []
 
 
 @fast_api_sse_sync_router.get(
     "/sync",
     response_model=SyncNotification,
     response_class=StreamingResponse,
-    description=f"""A stream endpoint that will send notifications messages on which entities(CheckList or CheckListItem IDs) to update.""",
+    description="SSE stream that pushes sync notifications to the client.",
     responses={
         200: {
             "model": SyncNotification,
-            "description": "Example of a single response message. (Code will wont be actually 200 as this is a streaming response.) There can be multiple of these messages.",
+            "description": "Each SSE message is a serialised SyncNotification.",
         }
     },
 )
 async def sync_via_server_send_events(
     request: Request,
-    background_tasks: BackgroundTasks,
-    sync_crud: SyncNotifiationCRUD = Depends(SyncNotifiationCRUD.get_crud),
     current_user: User = Depends(get_current_user),
 ):
-    queue = asyncio.Queue()
-    clients.append((queue, current_user, request))
-    # background_tasks.add_task(notify_clients) # needs to be started on server start
-
-    async def notification_stream():
-        try:
-            while True:
-                if await request.is_disconnected():
-                    break
-                data = await queue.get()
-                yield data
-        finally:
-            clients[:] = [(q, u, r) for q, u, r in clients if q is not queue]
-
-    return StreamingResponse(notification_stream(), media_type="text/event-stream")
+    if config.db_backend == DbBackend.POSTGRES:
+        return StreamingResponse(
+            _postgres_stream(request, current_user),
+            media_type="text/event-stream",
+        )
+    return StreamingResponse(
+        _sqlite_stream(request, current_user),
+        media_type="text/event-stream",
+    )
 
 
-async def notify_clients():
+# ── Postgres path ─────────────────────────────────────────────────────────────
+
+async def _postgres_stream(request: Request, user: User):
+    """
+    Hold a dedicated raw asyncpg LISTEN connection per connected client.
+    SQLAlchemy's connection pool cannot hold LISTEN state, so we bypass it.
+    """
+    import asyncpg
+
+    raw_conn = await asyncpg.connect(config.POSTGRES_DSN)
+    queue: asyncio.Queue[str] = asyncio.Queue()
+
+    async def on_notify(conn, pid, channel, payload: str):
+        data = json.loads(payload)
+        if str(user.id) in data.get("target_user_ids", []):
+            await queue.put(payload)
+
+    await raw_conn.add_listener("checkcheck_sync", on_notify)
+    try:
+        while not await request.is_disconnected():
+            try:
+                payload = await asyncio.wait_for(queue.get(), timeout=30)
+                data = json.loads(payload)
+                noti = SyncNotification(
+                    timestamp=data["timestamp"],
+                    cl_id=uuid.UUID(data["cl_id"]),
+                    cli_id=uuid.UUID(data["cli_id"]) if data.get("cli_id") else None,
+                    upd_prop=data["upd_prop"],
+                )
+                yield f"data: {noti.model_dump_json()}\n\n"
+            except asyncio.TimeoutError:
+                yield ": keepalive\n\n"  # prevent proxy / load-balancer timeout
+    finally:
+        await raw_conn.remove_listener("checkcheck_sync", on_notify)
+        await raw_conn.close()
+
+
+# ── SQLite path ───────────────────────────────────────────────────────────────
+
+async def _sqlite_stream(request: Request, user: User):
+    """
+    Each client gets a personal asyncio.Queue. The background drain loop
+    (notify_clients) polls the sync_notifications table, resolves target users,
+    and pushes serialised events into the matching queues.
+    """
+    queue: asyncio.Queue[str] = asyncio.Queue()
+    _sqlite_clients.append((queue, user, request))
+    try:
+        while not await request.is_disconnected():
+            data = await queue.get()
+            if data is None:  # shutdown signal
+                break
+            yield data
+    finally:
+        _sqlite_clients[:] = [t for t in _sqlite_clients if t[0] is not queue]
+
+
+async def _sqlite_drain():
+    """
+    Background task (SQLite only). Drains the sync_notifications table and
+    fans out to connected clients. Runs without sleep while there are pending
+    rows; sleeps 1 s only when the queue is empty.
+    """
     while True:
-        await asyncio.sleep(1)
         noti: SyncNotificationPackage | None = None
         async with get_async_session_context() as session:
-            async with SyncNotifiationCRUD.crud_context(session) as notification_crud:
-                notification_crud: SyncNotifiationCRUD = notification_crud
-                noti = await notification_crud.fetch_next_notificaton()
-        if noti is None:
-            continue
-        for queue, user, request in clients:
-            if user.id in noti.target_user_ids:
-                await queue.put(f"data: {noti.notification.model_dump_json()}\n\n")
+            async with SyncNotifiationCRUD.crud_context(session) as crud:
+                noti = await crud.fetch_next_notificaton()
 
+        if noti is None:
+            await asyncio.sleep(1)
+            continue
+
+        # Fan out to all connected clients that are in the target set.
+        payload = f"data: {noti.notification.model_dump_json()}\n\n"
+        for queue, user, _ in list(_sqlite_clients):
+            if user.id in noti.target_user_ids:
+                await queue.put(payload)
+        # No sleep — loop immediately while rows are pending.
+
+
+# ── Lifespan ──────────────────────────────────────────────────────────────────
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Start the background task to process messages
-    broadcast_task = asyncio.create_task(notify_clients())
-
-    yield  # Hand over control to the application while running
-
-    # Cleanup: notify all clients to disconnect
-    for client in clients:
-        await client.put(None)  # Send a "None" to signal closing
-    clients.clear()
-    broadcast_task.cancel()  # Cancel the background task
+    drain_task = None
+    if config.db_backend == DbBackend.SQLITE:
+        drain_task = asyncio.create_task(_sqlite_drain())
+    try:
+        yield
+    finally:
+        if drain_task is not None:
+            drain_task.cancel()
+        # Signal all connected SQLite clients to close.
+        for queue, _, _ in _sqlite_clients:
+            await queue.put(None)
+        _sqlite_clients.clear()
 
 
 fast_api_sse_sync_router.lifespan_context = lifespan

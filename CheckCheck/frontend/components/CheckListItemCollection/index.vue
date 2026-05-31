@@ -33,29 +33,33 @@ const props = defineProps({
 });
 const checklistItems = ref<CheckListItemType[]>([]);
 
+let dragInProgress = false;
+
 watchEffect(() => {
   const sourceItems = checkListsItemStore.getCheckListItems(
     props.parentCheckList.id,
     props.filterCheckedItems,
     props.showMaxItems
   );
-
-  // Only copy if it's different to avoid resetting drag
-  checklistItems.value = sourceItems.map(item => ({ ...item }));
+  // Never reset the drag list while a drag is in progress: mid-drag store
+  // updates (from SSE or from a previous drag's async completing) would call
+  // splice() and reset FormKit DnD's internal state, causing event.values in
+  // onDragend to report the original order instead of the drop destination.
+  if (dragInProgress) return;
+  const newList = sourceItems.map(item => ({ ...item }));
+  checklistItems.value.splice(0, checklistItems.value.length, ...newList);
 });
 
 const [ItemsView, draggableItems] = useDragAndDrop(checklistItems, {
-  //group: "checkListItems",
   dragHandle: ".list-item-drag-handle",
-
+  onDragstart: () => { dragInProgress = true; },
   onDragend: (event) => {
+    dragInProgress = false;
+    const draggedItem = event.draggedNode.data.value as CheckListItemType;
+    const allItems = event.values as CheckListItemType[];
     (async () => {
-      
-      const draggedItem = event.draggedNode.data.value as CheckListItemType;
-      const allItems = event.values as CheckListItemType[];
-      checkListsItemStore.reorderChecklistItems(props.parentCheckList.id, allItems, draggedItem)
+      checkListsItemStore.reorderChecklistItems(props.parentCheckList.id, allItems, draggedItem);
     })();
-    //valuesChanged.value = `${event.previousValues} -> ${event.values}`;
   },
   draggable: (el) => !(el && el.classList.contains('no-drag')),
   plugins: [animations()],

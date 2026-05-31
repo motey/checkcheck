@@ -10,7 +10,19 @@ from typing import List, Annotated, Optional, Literal, Dict
 from pathlib import Path, PurePath
 import socket
 from textwrap import dedent
+from enum import Enum
 from checkcheckserver.utils import get_random_string, val_means_true, slugify_string
+
+
+class DbBackend(Enum):
+    POSTGRES = "postgres"
+    SQLITE = "sqlite"
+
+
+def get_db_backend(url: str) -> DbBackend:
+    if url.startswith("postgresql") or url.startswith("asyncpg"):
+        return DbBackend.POSTGRES
+    return DbBackend.SQLITE
 
 env_file_path = os.environ.get(
     "CHECKCHECK_DOT_ENV_FILE", Path(__file__).parent / ".env"
@@ -214,6 +226,14 @@ class Config(BaseSettings):
     DB_MIGRATION_ALEMBIC_CONFIG_FILE: str = Field(
         default=f"{repo_root_folder}/alembic.ini"
     )
+
+    @property
+    def db_backend(self) -> DbBackend:
+        return get_db_backend(self.SQL_DATABASE_URL)
+
+    @property
+    def POSTGRES_DSN(self) -> str:
+        return self.SQL_DATABASE_URL.replace("postgresql+asyncpg://", "postgresql://")
 
     ###### CONFIG END ######
     # "class Config:" is a pydantic-settings pre-defined config class to control the behaviour of our settings model

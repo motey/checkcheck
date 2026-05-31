@@ -1,5 +1,5 @@
 import { defineStore } from "pinia";
-import { transferAttrs, findNewPlacementForItem, sortBySubset } from "~/utils/helpers";
+import { findNewPlacementForItem, sortBySubset } from "~/utils/helpers";
 
 export type CheckListState = {
   checkLists: CheckListType[];
@@ -21,9 +21,8 @@ export const useCheckListsStore = defineStore("checkList", {
       return state.checkLists.map((item) => item.id);
     },
     get: (state) => {
-      return (checkListId: string) => {
-        return state.checkLists[state.checkLists.findIndex((checklist) => checklist.id == checkListId)];
-      };
+      return (checkListId: string) =>
+        state.checkLists.find((cl) => cl.id === checkListId);
     },
     getCheckLists: (state) => {
       return ({
@@ -59,16 +58,10 @@ export const useCheckListsStore = defineStore("checkList", {
         await this.moveCheckListUnderOtherCheckList(movedItem, placement.target_neighbor_item as CheckListType);
       }
       if (newOrder.length === this.checkLists.length) {
-        // Full board: optimistic reorder via sortBySubset
         this.checkLists = sortBySubset(this.checkLists, newOrder) as CheckListType[];
       } else {
-        // Subset drag (search results): propagate the updated position to checkLists and re-sort
-        const idx = this.checkLists.findIndex((cl) => cl.id === movedItem.id);
-        if (idx !== -1) {
-          transferAttrs(movedItem.position, this.checkLists[idx]!.position);
-        }
+        // Subset drag (search results) — position already updated by the move action above.
         await this._sort();
-        // Keep searchResults in the dragged order so watchEffect doesn't reset dragCheckLists
         if (this.searchResults !== null) {
           this.searchResults = [...newOrder];
         }
@@ -86,7 +79,10 @@ export const useCheckListsStore = defineStore("checkList", {
         throw error;
       }
       await checkListItemStore.refreshAllCheckListItems(resChecklist.id);
-      this.checkLists.push(resChecklist);
+      // SSE checklist_created may have already added the item during the await above
+      if (!this.checkLists.some((c) => c.id === resChecklist.id)) {
+        this.checkLists.push(resChecklist);
+      }
       this._sort();
       return resChecklist;
     },
@@ -106,7 +102,7 @@ export const useCheckListsStore = defineStore("checkList", {
       }
       const index = this.checkLists.findIndex((c) => c.id == resChecklist.id);
       if (index !== -1) {
-        transferAttrs(resChecklist, this.checkLists[index]!);
+        this.checkLists.splice(index, 1, resChecklist);
       } else {
         this.checkLists.push(resChecklist);
         await this._sort();
@@ -161,7 +157,8 @@ export const useCheckListsStore = defineStore("checkList", {
         return;
       }
       await checkListItemStore.fetchMultipleChecklistsItemsPreview(resChecklistPage.items.map((item) => item.id));
-      this.checkLists = [...this.checkLists, ...resChecklistPage.items];
+      const existingIds = new Set(this.checkLists.map((c) => c.id));
+      this.checkLists = [...this.checkLists, ...resChecklistPage.items.filter((c) => !existingIds.has(c.id))];
       this.total_backend_count = resChecklistPage.total_count;
       return resChecklistPage.items;
     },
@@ -175,7 +172,7 @@ export const useCheckListsStore = defineStore("checkList", {
           path: { checklist_id: itemToMove.id, other_checklist_id: otherItem.id },
           method: "put",
         });
-        transferAttrs(resPos, itemToMove.position);
+        itemToMove.position = resPos;
       } catch (error) {
         console.error("Could not move checklist under another", error);
         throw error;
@@ -193,7 +190,7 @@ export const useCheckListsStore = defineStore("checkList", {
           path: { checklist_id: itemToMove.id, other_checklist_id: otherItem.id },
           method: "put",
         });
-        transferAttrs(resPos, itemToMove.position);
+        itemToMove.position = resPos;
       } catch (error) {
         console.error("Could not move checklist above another", error);
         throw error;
@@ -220,7 +217,7 @@ export const useCheckListsStore = defineStore("checkList", {
       }
       const index = this.checkLists.findIndex((c) => c.id == checkListId);
       const checkList = index !== -1 ? this.checkLists[index]! : await this.refresh(checkListId);
-      transferAttrs(resChecklistPosition, checkList.position);
+      checkList.position = resChecklistPosition;
       return checkList.position;
     },
     async searchChecklists(query: string, labelId: string | null = null) {

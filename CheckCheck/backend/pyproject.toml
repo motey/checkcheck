@@ -23,6 +23,7 @@ dependencies = [
     "sqlmodel",
     "sqlalchemy[asyncio]",
     "aiosqlite",
+    "asyncpg",
     "itsdangerous",
     "pyyaml",
     "pydantic",

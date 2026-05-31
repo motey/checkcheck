@@ -61,7 +61,7 @@ def start():
         f"allow_origins=[{config.CLIENT_URL}, {str(config.get_server_url()).rstrip('/')}]"
     )
 
-    from checkcheckserver.db._init_db import init_db
+    from checkcheckserver.db._init_db import init_schema_and_migrations, init_db
     import uvicorn
     from uvicorn.config import LOGGING_CONFIG
     from checkcheckserver.app import FastApiAppContainer
@@ -76,21 +76,28 @@ def start():
     app_container.dump_open_api_specification(
         Path(Path(__file__).parent, "../../openapi.json")
     )
-    event_loop = asyncio.get_event_loop()
+
+    # Sync phase: create schema + run alembic migrations before the event loop.
+    # This disposes the engine pool so uvicorn's event loop gets clean connections.
+    init_schema_and_migrations()
+
     uvicorn_config = uvicorn.Config(
         app=app_container.app,
         host=config.SERVER_LISTENING_HOST,
         port=config.SERVER_LISTENING_PORT,
         log_level=get_uvicorn_loglevel(),
         log_config=uvicorn_log_config,
-        loop=event_loop,
         proxy_headers=True,
     )
     uvicorn_server = uvicorn.Server(config=uvicorn_config)
 
-    init_db()
+    # Async phase: admin/provisioning + uvicorn all share one event loop so
+    # asyncpg connections are never reused across loop boundaries.
+    async def _run():
+        await init_db()
+        await uvicorn_server.serve()
 
-    event_loop.run_until_complete(uvicorn_server.serve())
+    asyncio.run(_run())
 
 
 if __name__ == "__main__":
