@@ -41,6 +41,8 @@ import requests  # noqa: E402  (must follow sys.path fixup)
 E2E_DB = Path(__file__).parent / "e2e_test.sqlite"
 PROVISIONING = Path(__file__).parent / "provisioning_data" / "test_users.yaml"
 PORT = 8182
+# Absolute path so it works regardless of the process working directory.
+FRONTEND_DIR = Path(__file__).parent.parent.parent / "frontend" / ".output" / "public"
 
 # If an external SQL_DATABASE_URL is provided (e.g. for Postgres), honour it
 # and skip the SQLite file management entirely.
@@ -53,6 +55,7 @@ def _configure_env() -> None:
         os.environ["SQL_DATABASE_URL"] = _EXTERNAL_DB_URL
     else:
         os.environ["SQL_DATABASE_URL"] = f"sqlite+aiosqlite:///{E2E_DB}"
+    os.environ["FRONTEND_FILES_DIR"] = str(FRONTEND_DIR)
     os.environ["ADMIN_USER_NAME"] = "admin3"
     os.environ["ADMIN_USER_PW"] = "password123"
     os.environ["ADMIN_USER_EMAIL"] = "admin@test.de"

@@ -81,4 +81,9 @@ wait_for_pg
 #######################################
 echo "▶  Running E2E tests against Postgres …"
 cd "$(dirname "$0")/CheckCheck/frontend"
-exec bun run test:e2e "$@"
+bun run test:e2e "$@"
+e2e_exit=$?
+echo ""
+echo "To open the HTML report, run:"
+echo "  cd CheckCheck/frontend && bunx playwright show-report"
+exit $e2e_exit

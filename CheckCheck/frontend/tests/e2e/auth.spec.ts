@@ -10,6 +10,13 @@ import { test, expect } from "@playwright/test";
 // Clear any stored auth so these tests always start unauthenticated.
 test.use({ storageState: { cookies: [], origins: [] } });
 
+// Navigate away after every test so any open SSE connection (/api/sync) is
+// aborted before Playwright closes the page.  Without this, tests that end on
+// the board page block the worker indefinitely during page teardown.
+test.afterEach(async ({ page }) => {
+  await page.goto("about:blank").catch(() => {});
+});
+
 test.describe("login page", () => {
   test("is accessible and shows the Login heading", async ({ page }) => {
     await page.goto("/login");

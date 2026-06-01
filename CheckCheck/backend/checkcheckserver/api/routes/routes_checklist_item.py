@@ -134,9 +134,8 @@ async def list_items(
         for checklist_id in checklist_ids:
             if checklist_id not in checklist_ids_with_user_access:
                 raise HTTPException(
-                    status.HTTP_403_FORBIDDEN(
-                        f"Access to checklist with ID {checklist_id} not allowed. TODO: Later we can just remove the id from the query list, for now this helps debugging."
-                    )
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail=f"Access to checklist with ID {checklist_id} not allowed.",
                 )
     else:
         checklist_ids = checklist_ids_with_user_access

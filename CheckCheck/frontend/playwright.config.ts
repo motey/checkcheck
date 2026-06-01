@@ -1,26 +1,21 @@
 import { defineConfig, devices } from "@playwright/test";
 
-// Backend port dedicated to E2E tests (dev=8181, unit-tests=8888, e2e=8182)
+// The E2E backend serves BOTH the API and the static frontend on this port.
+// No separate Nuxt dev server is needed — `nuxt generate` builds a static
+// bundle that the backend serves from CheckCheck/frontend/.output/public/.
 const E2E_BACKEND_PORT = 8182;
-// Frontend port dedicated to E2E tests (dev=3000, e2e=3001)
-const FRONTEND_PORT = 3001;
 
 export default defineConfig({
   testDir: "./tests/e2e",
   timeout: 30_000,
-  // Tests share backend state (checklists created in one test affect others),
-  // so run sequentially to keep assertions predictable.
+  // Tests share backend state; run sequentially to keep assertions predictable.
   fullyParallel: false,
-  // Allow one retry to recover from transient Vite HMR reloads that can
-  // interrupt a test on the first run (page reloads to same URL, cancelling
-  // the navigation the test was waiting for).  By the second attempt the
-  // Vite optimization cycle is complete and the server is stable.
   retries: 1,
   reporter: [["list"], ["html", { open: "never", outputFolder: "playwright-report" }]],
 
   use: {
-    baseURL: `http://localhost:${FRONTEND_PORT}`,
-    trace: "on-first-retry",
+    baseURL: `http://localhost:${E2E_BACKEND_PORT}`,
+    trace: "on",
     screenshot: "only-on-failure",
   },
 
@@ -41,21 +36,7 @@ export default defineConfig({
     },
   ],
 
-  // Starts/stops the dedicated E2E backend server.
+  // Starts/stops the dedicated E2E backend server (which also serves the frontend).
   globalSetup: "./tests/e2e/global-setup.ts",
   globalTeardown: "./tests/e2e/global-teardown.ts",
-
-  // Starts the Nuxt dev server, pointing its /api proxy at the E2E backend.
-  // The Vite disk cache (node_modules/.cache/vite) becomes stale when nuxt.config.ts
-  // changes, causing Vue to silently fail to mount (blank page).  Clearing it before
-  // each run forces a fresh optimisation (~5 s extra) and guarantees a clean state.
-  webServer: {
-    command: `rm -rf node_modules/.cache/vite && API_PROXY_TARGET=http://localhost:${E2E_BACKEND_PORT}/api PORT=${FRONTEND_PORT} CHOKIDAR_USEPOLLING=true bun --bun run dev`,
-    port: FRONTEND_PORT,
-    // Never reuse an existing server – the API_PROXY_TARGET must match the E2E backend.
-    reuseExistingServer: false,
-    timeout: 120_000,
-    stdout: "pipe",
-    stderr: "pipe",
-  },
 });

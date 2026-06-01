@@ -5,6 +5,13 @@
  */
 import { test, expect } from "@playwright/test";
 
+// Navigate away after every test so the board's SSE (/api/sync EventSource) is
+// closed before Playwright tears down the page.  Without this the browser hangs
+// waiting for the stream to settle during browser teardown.
+test.afterEach(async ({ page }) => {
+  await page.goto("about:blank").catch(() => {});
+});
+
 test.describe("checklist board", () => {
   test.beforeEach(async ({ page }) => {
     await page.goto("/");
