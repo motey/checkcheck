@@ -17,7 +17,11 @@ testuser01 / testuserpw_secure1  (via provisioning_data/test_users.yaml)
 
 DB
 --
-tests/e2e_test.sqlite – recreated fresh on every run.
+Default : tests/e2e_test.sqlite – recreated fresh on every run.
+Postgres: set SQL_DATABASE_URL=postgresql+asyncpg://... before calling this
+          script (run_e2e_tests_postgres.sh does this automatically).
+          The database must already exist and be accessible; migrations are
+          run automatically by the backend on startup.
 """
 
 from __future__ import annotations
@@ -38,9 +42,17 @@ E2E_DB = Path(__file__).parent / "e2e_test.sqlite"
 PROVISIONING = Path(__file__).parent / "provisioning_data" / "test_users.yaml"
 PORT = 8182
 
+# If an external SQL_DATABASE_URL is provided (e.g. for Postgres), honour it
+# and skip the SQLite file management entirely.
+_EXTERNAL_DB_URL: str | None = os.environ.get("SQL_DATABASE_URL")
+
 
 def _configure_env() -> None:
-    os.environ["SQL_DATABASE_URL"] = f"sqlite+aiosqlite:///{E2E_DB}"
+    if _EXTERNAL_DB_URL:
+        # Keep the caller-supplied URL; do not overwrite with SQLite.
+        os.environ["SQL_DATABASE_URL"] = _EXTERNAL_DB_URL
+    else:
+        os.environ["SQL_DATABASE_URL"] = f"sqlite+aiosqlite:///{E2E_DB}"
     os.environ["ADMIN_USER_NAME"] = "admin3"
     os.environ["ADMIN_USER_PW"] = "password123"
     os.environ["ADMIN_USER_EMAIL"] = "admin@test.de"
@@ -78,7 +90,10 @@ def _wait_for_ready(timeout: int = 60) -> None:
 
 
 if __name__ == "__main__":
-    if E2E_DB.exists():
+    # Only wipe the SQLite file when we own the database.
+    # For Postgres the caller (run_e2e_tests_postgres.sh) is responsible for
+    # creating a clean database before calling this script.
+    if not _EXTERNAL_DB_URL and E2E_DB.exists():
         E2E_DB.unlink()
 
     _configure_env()

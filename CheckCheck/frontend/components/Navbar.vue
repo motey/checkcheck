@@ -29,7 +29,11 @@ const emit = defineEmits<{ toggleSidebar: [] }>();
 
 const logout = async () => {
   const { $checkapi } = useNuxtApp();
-  await $checkapi("/api/auth/logout", { method: "POST" });
+  try {
+    await $checkapi("/api/auth/logout", { method: "POST" });
+  } catch {
+    // Session may already be invalid; navigate to login regardless.
+  }
   window.location.href = "/login";
 };
 </script>

@@ -1,3 +1,4 @@
+import { chromium } from "@playwright/test";
 import { execSync } from "child_process";
 import { spawn } from "child_process";
 import { writeFile } from "fs/promises";
@@ -78,4 +79,28 @@ export default async function globalSetup(): Promise<void> {
   await writeFile(PID_FILE, String(proc.pid));
   console.log(`✔  E2E backend ready on port ${E2E_BACKEND_PORT} (pid ${proc.pid})`);
 
+  // The webServer command clears the Vite cache before every run, so Vite
+  // always needs ~5 s to re-optimise on the first browser visit.  If a real
+  // test connects before optimisation is done it gets a blank page.
+  // Pre-warm here: load the login page and wait until the form renders.
+  // The retry loop handles the brief window where Nitro is still building.
+  console.log("▶  Warming up Nuxt dev server …");
+  const browser = await chromium.launch();
+  const page = await browser.newPage();
+  const warmupDeadline = Date.now() + 90_000;
+  while (true) {
+    try {
+      await page.goto("http://localhost:3001/login", { waitUntil: "domcontentloaded" });
+      // Wait for the form – this blocks until Vite's full optimisation cycle completes.
+      await page.waitForSelector("form", { timeout: 10_000 });
+      break;
+    } catch {
+      if (Date.now() > warmupDeadline) throw new Error("Nuxt did not become ready within 90 s");
+      await new Promise((r) => setTimeout(r, 1_000));
+    }
+  }
+  // Allow any secondary Vite rebuild triggered by loading the components to settle.
+  await new Promise((r) => setTimeout(r, 2_000));
+  await browser.close();
+  console.log("✔  Nuxt dev server warmed up");
 }

@@ -13,7 +13,9 @@ test.use({ storageState: { cookies: [], origins: [] } });
 test.describe("login page", () => {
   test("is accessible and shows the Login heading", async ({ page }) => {
     await page.goto("/login");
-    await expect(page.getByRole("heading", { name: "Login" })).toBeVisible();
+    // Wait for the page to fully render before asserting (the heading is inside UCard)
+    await page.waitForSelector("form");
+    await expect(page.getByRole("heading", { name: "Login", exact: true })).toBeVisible();
   });
 
   test("shows the basic-auth form after auth methods load", async ({ page }) => {
@@ -32,8 +34,8 @@ test.describe("login page", () => {
     await page.locator("[data-testid=login-password]").fill("wrongpassword");
     await page.locator('form button[type="submit"]').click();
 
-    // The UAlert error banner should appear
-    await expect(page.locator('[role="alert"]')).toBeVisible({ timeout: 5_000 });
+    // UAlert in Nuxt UI 4 renders without role="alert"; target via data-testid
+    await expect(page.locator("[data-testid=login-error]")).toBeVisible({ timeout: 5_000 });
   });
 
   test("redirects to / after a successful login", async ({ page }) => {
@@ -50,11 +52,17 @@ test.describe("login page", () => {
 });
 
 test.describe("logout", () => {
-  // This test needs to start authenticated, so we restore the saved state.
-  test.use({ storageState: "tests/e2e/.auth/state.json" });
-
+  // Log in as testuser01 (not admin3) so this test does not invalidate the
+  // admin3 session that checklist.spec.ts depends on.  Both spec files run
+  // in parallel on separate workers and share the same backend.
   test("logout button signs the user out and redirects to /login", async ({ page }) => {
-    await page.goto("/");
+    await page.goto("/login");
+    await page.waitForSelector("form");
+    await page.locator("[data-testid=login-username]").fill("testuser01");
+    await page.locator("[data-testid=login-password]").fill("testuserpw_secure1");
+    await page.locator('form button[type="submit"]').click();
+    await page.waitForURL("/", { timeout: 10_000 });
+
     await page.getByRole("button", { name: "Logout" }).click();
     await page.waitForURL("/login", { timeout: 10_000 });
     await expect(page).toHaveURL("/login");

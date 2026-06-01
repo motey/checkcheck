@@ -50,7 +50,7 @@ export default defineConfig({
   // changes, causing Vue to silently fail to mount (blank page).  Clearing it before
   // each run forces a fresh optimisation (~5 s extra) and guarantees a clean state.
   webServer: {
-    command: `rm -rf node_modules/.cache/vite && API_PROXY_TARGET=http://localhost:${E2E_BACKEND_PORT}/api PORT=${FRONTEND_PORT} bun --bun run dev`,
+    command: `rm -rf node_modules/.cache/vite && API_PROXY_TARGET=http://localhost:${E2E_BACKEND_PORT}/api PORT=${FRONTEND_PORT} CHOKIDAR_USEPOLLING=true bun --bun run dev`,
     port: FRONTEND_PORT,
     // Never reuse an existing server – the API_PROXY_TARGET must match the E2E backend.
     reuseExistingServer: false,

@@ -1,3 +1,4 @@
+import uuid
 from typing import Optional, Union
 from pydantic import BaseModel, Field
 from fastapi import FastAPI, Request, Depends, Response, HTTPException
@@ -432,9 +433,17 @@ async def logout(
         AllowedAuthSchemeType.oidc,
         AllowedAuthSchemeType.basic,
     ]:
-        user_session = await user_session_crud.get_by_user_auth_id(current_user_auth.id)
-        if user_session:
-            await user_session_crud.delete(user_session.id)
+        # Delete the specific session identified by the request cookie, not all
+        # sessions for this user_auth_id.  Using get_by_user_auth_id would crash
+        # when the same user has multiple active sessions (e.g. two browser tabs).
+        session_id_str = request.cookies.get(SESSION_COOKIE_NAME)
+        if session_id_str:
+            try:
+                user_session = await user_session_crud.get(uuid.UUID(session_id_str))
+            except Exception:
+                user_session = None
+            if user_session:
+                await user_session_crud.delete(user_session.id)
         response.delete_cookie(key=SESSION_COOKIE_NAME)
         log.debug(f"current_user_auth: {current_user_auth}")
         if current_user_auth.auth_source_type == AllowedAuthSchemeType.oidc:

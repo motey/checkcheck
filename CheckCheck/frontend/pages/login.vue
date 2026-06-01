@@ -7,6 +7,7 @@
 
       <UAlert
         v-if="errorMessage"
+        data-testid="login-error"
         color="red"
         icon="i-heroicons-exclamation-triangle"
         class="mb-4"

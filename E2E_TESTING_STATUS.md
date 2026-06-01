@@ -1,9 +1,6 @@
-# E2E Testing — Setup & Status (2026-05-31)
+# E2E Testing — Setup & Status (2026-06-01)
 
-## TL;DR
-
-All infrastructure is in place and wired up. 11 tests are discovered.
-One fix is applied but **not yet verified** — run the suite once to confirm it passes.
+## Status: ✅ Done — 11/11 tests pass in ~23 s
 
 ```bash
 cd CheckCheck/frontend
@@ -11,8 +8,6 @@ fuser -k 8182/tcp 2>/dev/null; fuser -k 3001/tcp 2>/dev/null
 sleep 1
 bunx playwright test
 ```
-
-Expected: **11 tests pass** in ~90 s total.
 
 ---
 
