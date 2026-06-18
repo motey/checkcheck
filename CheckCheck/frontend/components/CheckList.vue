@@ -34,7 +34,7 @@
       @focus="textFocused = true"
       @blur="textFocused = false"
     />
-    <div class="checklist-items-collection max-h-[90vm] overflow-y-scroll">
+    <div class="checklist-items-collection max-h-[90vm]">
       <CheckListItemCollectionSeperated
         v-if="checkList?.checked_items_seperated"
         :parentCheckList="checkList"

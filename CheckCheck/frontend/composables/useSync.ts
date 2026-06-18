@@ -26,10 +26,24 @@ export const useSync = createSharedComposable(() => {
   }
 
   let es: EventSource | null = null;
+  // Track whether we've already had a successful connection. EventSource fires
+  // onopen on the very first connect (board already freshly loaded → nothing to
+  // do) and again on every automatic reconnect (events fired while we were
+  // disconnected are lost → reconcile the store).
+  let hasOpened = false;
 
   function connect() {
     if (es) return;
+    hasOpened = false;
     es = new EventSource("/api/sync");
+    es.onopen = () => {
+      if (!hasOpened) {
+        hasOpened = true;
+        return;
+      }
+      console.info("[sync] SSE reconnected — resyncing store");
+      checkListStore.resync();
+    };
     es.onmessage = (event: MessageEvent) => {
       try {
         handle(JSON.parse(event.data) as SyncNotificationType);
@@ -46,6 +60,7 @@ export const useSync = createSharedComposable(() => {
   function disconnect() {
     es?.close();
     es = null;
+    hasOpened = false;
   }
 
   function handle(noti: SyncNotificationType) {

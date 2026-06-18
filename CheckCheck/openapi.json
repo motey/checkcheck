@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "CheckCheck REST API",
-    "version": "0.1.dev44+g822c5c7.d20260601"
+    "version": "0.1.dev45+gfbfe16b.d20260618"
   },
   "paths": {
     "/api/health": {
@@ -4947,6 +4947,18 @@
       },
       "SyncNotification": {
         "properties": {
+          "id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Id",
+            "description": "Monotonic insertion order; used by the SQLite drain loop"
+          },
           "timestamp": {
             "type": "number",
             "title": "Timestamp",

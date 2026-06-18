@@ -44,7 +44,7 @@ class SyncNotifiationCRUD(
     async def fetch_next_notificaton(self) -> SyncNotificationPackage | None:
         """SQLite only. Fetch and delete the oldest pending notification."""
         res = await self.session.exec(
-            select(SyncNotification).order_by(SyncNotification.timestamp).limit(1)
+            select(SyncNotification).order_by(SyncNotification.id).limit(1)
         )
         noti = res.one_or_none()
         if noti is None:
@@ -53,7 +53,7 @@ class SyncNotifiationCRUD(
         target_ids = await self._resolve_target_user_ids(noti.cl_id)
 
         await self.session.exec(
-            delete(SyncNotification).where(SyncNotification.timestamp == noti.timestamp)
+            delete(SyncNotification).where(SyncNotification.id == noti.id)
         )
         await self.session.commit()
         return SyncNotificationPackage(target_user_ids=target_ids, notification=noti)

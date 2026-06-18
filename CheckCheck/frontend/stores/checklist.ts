@@ -162,6 +162,54 @@ export const useCheckListsStore = defineStore("checkList", {
       this.total_backend_count = resChecklistPage.total_count;
       return resChecklistPage.items;
     },
+    async resync(): Promise<void> {
+      // Called after the SSE stream reconnects: events fired while we were
+      // disconnected are gone (NOTIFY/SSE are fire-and-forget), so reconcile
+      // the whole loaded view against the backend to recover any drift.
+      const { $checkapi } = useNuxtApp();
+      const checkListItemStore = useCheckListsItemStore();
+      const limit = Math.max(this.checkLists.length, 5);
+      let page: CheckListsPageType;
+      try {
+        page = await $checkapi("/api/checklist", {
+          method: "get",
+          query: { offset: 0, limit },
+        });
+      } catch (error) {
+        console.error("Could not resync checklists 'GET /api/checklist'", error);
+        return;
+      }
+      const freshIds = new Set(page.items.map((c) => c.id));
+      // Drop checklists deleted while we were disconnected.
+      this.checkLists = this.checkLists.filter((c) => freshIds.has(c.id));
+      // Update existing / add new.
+      for (const fresh of page.items) {
+        const index = this.checkLists.findIndex((c) => c.id === fresh.id);
+        if (index !== -1) this.checkLists.splice(index, 1, fresh);
+        else this.checkLists.push(fresh);
+      }
+      this.total_backend_count = page.total_count;
+      this._sort();
+      // Reconcile items: drop caches for gone checklists, fully reload the
+      // ones we had fully loaded, refresh previews (and counts) for the rest.
+      const fullyLoaded: string[] = [];
+      const previewOnly: string[] = [];
+      for (const id of Object.keys(checkListItemStore.checkListsItems)) {
+        if (!freshIds.has(id)) {
+          checkListItemStore.dropChecklistItems(id);
+        } else if (checkListItemStore.checklistWasFullLoadedOnce[id]) {
+          fullyLoaded.push(id);
+        } else {
+          previewOnly.push(id);
+        }
+      }
+      await Promise.all(
+        fullyLoaded.map((id) => checkListItemStore.refreshAllCheckListItems(id))
+      );
+      if (previewOnly.length) {
+        await checkListItemStore.fetchMultipleChecklistsItemsPreview(previewOnly, null, true);
+      }
+    },
     async moveCheckListUnderOtherCheckList(
       itemToMove: CheckListType,
       otherItem: CheckListType

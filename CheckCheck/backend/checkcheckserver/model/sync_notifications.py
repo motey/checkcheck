@@ -8,9 +8,14 @@ from checkcheckserver.model._base_model import BaseTable
 
 
 class SyncNotification(BaseTable, table=True):
+    id: Optional[int] = Field(
+        default=None,
+        primary_key=True,
+        description="Monotonic insertion order; used by the SQLite drain loop",
+    )
     timestamp: float = Field(
         description="Creation time of the notification",
-        primary_key=True,
+        index=True,
         default_factory=time.time,
     )
     cl_id: uuid.UUID = Field(

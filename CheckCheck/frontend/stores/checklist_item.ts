@@ -214,7 +214,19 @@ export const useCheckListsItemStore = defineStore("checkListitem", {
       this.checklistWasFullLoadedOnce[checkListId] = true;
       return checkListItems.items;
     },
-    async fetchMultipleChecklistsItemsPreview(checklist_ids: string[] = [], checked: boolean | null = null) {
+    dropChecklistItems(checkListId: string) {
+      // Forget everything cached for a checklist (e.g. it was deleted server-side).
+      delete this.checkListsItems[checkListId];
+      delete this.checklistWasFullLoadedOnce[checkListId];
+      delete this.total_backend_count_per_checklist[checkListId];
+      delete this.total_backend_count_unchecked_per_checklist[checkListId];
+      delete this.total_backend_count_checked_per_checklist[checkListId];
+    },
+    async fetchMultipleChecklistsItemsPreview(
+      checklist_ids: string[] = [],
+      checked: boolean | null = null,
+      force: boolean = false
+    ) {
       const { $checkapi } = useNuxtApp();
       const appConfig = useAppConfig();
       let resChecklistPage: CheckListItemsPreviewType;
@@ -228,7 +240,7 @@ export const useCheckListsItemStore = defineStore("checkListitem", {
         throw error;
       }
       for (const checkListId of Object.keys(resChecklistPage)) {
-        if (!(checkListId in this.checkListsItems) || this.checkListsItems[checkListId]!.length == 0) {
+        if (force || !(checkListId in this.checkListsItems) || this.checkListsItems[checkListId]!.length == 0) {
           this.checkListsItems[checkListId] = resChecklistPage[checkListId]!.items as CheckListItemType[];
         }
         this.total_backend_count_per_checklist[checkListId] = resChecklistPage[checkListId]!.item_count;
