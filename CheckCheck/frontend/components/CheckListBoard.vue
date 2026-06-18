@@ -21,11 +21,12 @@ import { useCheckListsColorSchemeStore } from "@/stores/color";
 import { useCheckListsLabelStore } from "@/stores/label";
 import { useDragAndDrop } from "@formkit/drag-and-drop/vue";
 import { animations } from "@formkit/drag-and-drop";
-import { CheckListEditModal } from "#components";
 import { vElementVisibility } from "@vueuse/components";
 import { useDebounceFn } from "@vueuse/core";
+import { useAppRoute } from "~/composables/useAppRoute";
 
 const route = useRoute();
+const { openCard } = useAppRoute();
 const checkListStore = useCheckListsStore();
 const checkListsColorSchemeStore = useCheckListsColorSchemeStore();
 const checkListsLabelStore = useCheckListsLabelStore();
@@ -33,9 +34,6 @@ const { checkLists, total_backend_count, searchResults } = storeToRefs(checkList
 
 const loadingTriggerIsVisible = ref(false);
 const loadingInProcess = ref(false);
-
-const overlayCheckListEditor = useOverlay();
-const modalCheckListEditor = overlayCheckListEditor.create(CheckListEditModal);
 
 onMounted(async () => {
   await checkListStore.fetchNextPage();
@@ -96,7 +94,7 @@ async function onLoadingTriggerVisibility(state: boolean) {
 }
 
 function openCheckListEditor(checkListId: string) {
-  modalCheckListEditor.open({ checkListId });
+  openCard(checkListId);
 }
 </script>
 <style scoped>

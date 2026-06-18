@@ -18,31 +18,26 @@
 </template>
 
 <script setup lang="ts">
-import { CheckListEditModal } from "#components";
+import { useAppRoute } from "~/composables/useAppRoute";
 
 const checkListsStore = useCheckListsStore();
-const route = useRoute();
-const router = useRouter();
+const { search, setSearch, openCard } = useAppRoute();
 
-const searchQuery = ref((route.query.search as string) || "");
+const searchQuery = ref(search.value ?? "");
 
 watch(searchQuery, (val) => {
-  router.replace({ query: { ...route.query, search: val || undefined } });
+  setSearch(val || null);
 });
 
-watch(() => route.query.search, (val) => {
-  searchQuery.value = (val as string) || "";
+watch(search, (val) => {
+  searchQuery.value = val ?? "";
 });
-
-const overlayCheckListCreate = useOverlay();
-const modalCheckListCreate = overlayCheckListCreate.create(CheckListEditModal);
 
 function openCheckListEditor() {
   (async () => {
-    const checkList = ref(await checkListsStore.create({} as CheckListCreateType));
-    modalCheckListCreate.open({
-      checkListId: checkList.value.id,
-    });
+    const checkList = await checkListsStore.create({} as CheckListCreateType);
+    // Open the freshly created card via the URL so it's shareable too.
+    openCard(checkList.id);
   })();
 }
 </script>

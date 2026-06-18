@@ -5,7 +5,7 @@
       <!-- Home -->
       <UTooltip :text="'Home'" :disabled="!collapsed" side="right">
         <NuxtLink
-          :to="{ query: {} }"
+          :to="{ path: '/', query: {} }"
           class="flex items-center gap-3 px-2 py-1.5 rounded-lg text-sm transition-colors hover:bg-elevated"
           :class="isHome ? 'bg-elevated font-medium' : 'text-muted'"
         >
@@ -29,7 +29,7 @@
           side="right"
         >
           <NuxtLink
-            :to="{ query: { ...route.query, label: label.id } }"
+            :to="{ path: '/', query: { ...route.query, label: label.id } }"
             class="flex items-center gap-3 px-2 py-1.5 rounded-lg text-sm transition-colors hover:bg-elevated"
             :class="route.query.label === label.id ? 'bg-elevated font-medium' : 'text-muted'"
           >
@@ -45,7 +45,7 @@
     <div class="p-2 border-t">
       <UTooltip text="Edit Labels" :disabled="!collapsed" side="right">
         <NuxtLink
-          :to="{ query: { ...route.query, editlabels: 'true' } }"
+          :to="{ path: '/', query: { ...route.query, editlabels: 'true' } }"
           class="flex items-center gap-3 px-2 py-1.5 rounded-lg text-sm transition-colors hover:bg-elevated text-muted"
         >
           <UIcon name="i-lucide-pencil" class="shrink-0 size-5" />
@@ -69,7 +69,9 @@ const colorMode = useColorMode();
 const labelStore = useCheckListsLabelStore();
 const colorStore = useCheckListsColorSchemeStore();
 
-const isHome = computed(() => !route.query.label && !route.query.editlabels && !route.query.search);
+const isHome = computed(
+  () => route.path === "/" && !route.query.label && !route.query.editlabels && !route.query.search
+);
 
 function labelDotStyle(label: LabelType) {
   const color = colorStore.colors.find((c) => c.id === label.color_id);
