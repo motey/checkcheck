@@ -1,0 +1,17 @@
+# Test user provisioning data for CheckCheck integration tests.
+# Loaded at server startup when running the test suite.
+# Passwords are stored in plaintext here and hashed by the UserAuthCRUD on insert.
+items:
+  - checkcheckserver.model.user.UserCreate:
+      - user_name: testuser01
+        id: "11111111-1111-1111-1111-111111111111"
+        email: testuser01@test.de
+        display_name: "Test User 01"
+        roles: []
+        deactivated: false
+        is_email_verified: true
+
+  - checkcheckserver.model.user_auth.UserAuthCreate:
+      - user_id: "11111111-1111-1111-1111-111111111111"
+        auth_source_type: basic
+        basic_password: "testuserpw_secure1"
