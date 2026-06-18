@@ -48,7 +48,7 @@ class CheckListItemStateApiCreate(CheckListItemStateUpdate, table=False):
 
 class CheckListItemStateCreate(CheckListItemStateUpdate, table=False):
     checklist_item_id: uuid.UUID = Field(
-        foreign_key="checklist_item.id", primary_key=True
+        foreign_key="checklist_item.id", primary_key=True, ondelete="CASCADE"
     )
 
 

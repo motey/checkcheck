@@ -18,7 +18,7 @@ bunx playwright test
 | `CheckCheck/frontend/playwright.config.ts` | Main Playwright config |
 | `CheckCheck/frontend/tests/e2e/global-setup.ts` | Starts the E2E backend, kills any stale process on port 8182 |
 | `CheckCheck/frontend/tests/e2e/global-teardown.ts` | Kills the backend process group |
-| `CheckCheck/backend/tests/start_e2e_server.py` | Starts CheckCheck backend with a fresh SQLite DB on port 8182 |
+| `CheckCheck/backend/e2e/start_e2e_server.py` | Starts CheckCheck backend with a fresh SQLite DB on port 8182 |
 | `CheckCheck/frontend/tests/e2e/auth.setup.ts` | Logs in, saves session to `.auth/state.json` |
 | `CheckCheck/frontend/tests/e2e/auth.spec.ts` | Login page, bad-creds error, redirect on success, logout |
 | `CheckCheck/frontend/tests/e2e/checklist.spec.ts` | Board renders, New button, search, modal, URL filter |

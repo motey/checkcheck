@@ -3,13 +3,13 @@ name = "checkcheckserver"
 authors = [{ name = "Tim Bleimehl" }]
 description = "Default template for PDM package"
 readme = "README.md"
-requires-python = "==3.11.*"
+requires-python = "==3.13.*"
 keywords = ["CheckCheck"]
 license = { text = "MIT" }
 classifiers = [
     "Framework :: FastAPI",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.13",
 ]
 dependencies = [
     "uvicorn",
@@ -55,4 +55,16 @@ dev = [
 ]
 test = [
     "requests>=2.32.4",
+    "pytest>=8.0",
 ]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["tests_*.py"]
+python_functions = ["test_*", "tests_*"]
+python_classes = []
+addopts = "-v"
+log_cli = true
+log_cli_level = "INFO"
+log_cli_format = "%(asctime)s  %(levelname)-8s  %(name)s — %(message)s"
+log_cli_date_format = "%H:%M:%S"

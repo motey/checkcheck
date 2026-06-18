@@ -48,6 +48,8 @@ from checkcheckserver.api.auth.security import (
 
 from checkcheckserver.api.access import (
     user_has_checklist_access,
+    require_checklist_permission,
+    ChecklistAccessLevel,
     checklist_ids_with_access,
     UserChecklistAccess,
 )
@@ -172,7 +174,9 @@ async def sort_labels(
     description=f"List all labels of an existing checklist.",
 )
 async def list_labels_of_checklist(
-    checklist_access: UserChecklistAccess = Security(user_has_checklist_access),
+    checklist_access: UserChecklistAccess = Security(
+        require_checklist_permission(ChecklistAccessLevel.view)
+    ),
     label_crud: LabelCRUD = Depends(LabelCRUD.get_crud),
 ) -> List[LabelReadAPI]:
     log.debug(f"checklist_access.checklist.labels: {checklist_access.checklist.labels}")
@@ -188,7 +192,9 @@ async def list_labels_of_checklist(
 )
 async def add_label_to_checklist(
     label_id: uuid.UUID,
-    checklist_access: UserChecklistAccess = Security(user_has_checklist_access),
+    checklist_access: UserChecklistAccess = Security(
+        require_checklist_permission(ChecklistAccessLevel.view)
+    ),
     label_crud: LabelCRUD = Depends(LabelCRUD.get_crud),
     checklist_label_crud: ChecklistLabelCRUD = Depends(ChecklistLabelCRUD.get_crud),
     sync_crud: SyncNotifiationCRUD = Depends(SyncNotifiationCRUD.get_crud),
@@ -223,7 +229,9 @@ async def add_label_to_checklist(
 )
 async def remove_label_from_checklist(
     label_id: uuid.UUID,
-    checklist_access: UserChecklistAccess = Security(user_has_checklist_access),
+    checklist_access: UserChecklistAccess = Security(
+        require_checklist_permission(ChecklistAccessLevel.view)
+    ),
     label_crud: LabelCRUD = Depends(LabelCRUD.get_crud),
     checklist_label_crud: ChecklistLabelCRUD = Depends(ChecklistLabelCRUD.get_crud),
     sync_crud: SyncNotifiationCRUD = Depends(SyncNotifiationCRUD.get_crud),

@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "CheckCheck REST API",
-    "version": "0.1.dev45+gfbfe16b.d20260618"
+    "version": "0.1.dev47+ga91abbb.d20260618"
   },
   "paths": {
     "/api/health": {
@@ -509,6 +509,73 @@
         ]
       }
     },
+    "/api/user/search": {
+      "get": {
+        "tags": [
+          "User"
+        ],
+        "summary": "Search Users",
+        "description": "Search for other users by name to share a card with them. Returns only id / user_name / display_name (never email). Available to any authenticated user when SHARING_USER_SEARCH_ENABLED is on. If the caller logged in via an OIDC provider configured with RESTRICT_USER_SEARCH_TO_OWN_GROUPS, results are limited to users that share at least one OIDC group with the caller.",
+        "operationId": "search_users_api_user_search_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "q",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 2,
+              "description": "Search term matched against user_name and display_name.",
+              "title": "Q"
+            },
+            "description": "Search term matched against user_name and display_name."
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 50,
+              "minimum": 1,
+              "default": 20,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/UserSearchResult"
+                  },
+                  "title": "Response Search Users Api User Search Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/user/me/password": {
       "put": {
         "tags": [
@@ -920,6 +987,7 @@
                 "display_name",
                 "id",
                 "roles",
+                "oidc_groups",
                 "deactivated",
                 "is_email_verified",
                 "user_name"
@@ -1585,6 +1653,237 @@
           },
           "401": {
             "description": "Unauthorized"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/checklist/{checklist_id}/shares": {
+      "get": {
+        "tags": [
+          "Checklist Sharing"
+        ],
+        "summary": "List Shares",
+        "description": "List all collaborators of a checklist and their permission levels. Owner only.",
+        "operationId": "list_shares_api_checklist__checklist_id__shares_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "checklist_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Checklist Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ShareRead"
+                  },
+                  "title": "Response List Shares Api Checklist  Checklist Id  Shares Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/checklist/{checklist_id}/shares/{user_id}": {
+      "put": {
+        "tags": [
+          "Checklist Sharing"
+        ],
+        "summary": "Upsert Share",
+        "description": "Share the checklist with a user, or update an existing collaborator's permission. Owner only.",
+        "operationId": "upsert_share_api_checklist__checklist_id__shares__user_id__put",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "user_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "User Id"
+            }
+          },
+          {
+            "name": "checklist_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Checklist Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ShareUpsertRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ShareRead"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Checklist Sharing"
+        ],
+        "summary": "Delete Share",
+        "description": "Revoke a user's access. The owner may revoke anyone; a collaborator may revoke themselves ('leave list').",
+        "operationId": "delete_share_api_checklist__checklist_id__shares__user_id__delete",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "user_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "User Id"
+            }
+          },
+          {
+            "name": "checklist_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Checklist Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/checklist/{checklist_id}/transfer-ownership": {
+      "post": {
+        "tags": [
+          "Checklist Sharing"
+        ],
+        "summary": "Transfer Ownership",
+        "description": "Transfer ownership to another user. The previous owner is demoted to an 'edit' collaborator and keeps access. Owner only.",
+        "operationId": "transfer_ownership_api_checklist__checklist_id__transfer_ownership_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "checklist_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Checklist Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TransferOwnershipRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TransferOwnershipResult"
+                }
+              }
+            }
           },
           "422": {
             "description": "Validation Error",
@@ -4945,6 +5244,70 @@
         ],
         "title": "PaginatedResponse[User]"
       },
+      "SharePermission": {
+        "type": "string",
+        "enum": [
+          "view",
+          "check",
+          "edit"
+        ],
+        "title": "SharePermission",
+        "description": "A permission level that can be *granted* to a share target (collaborator or\npublic link). Ownership is not grantable via a share \u2014 it is transferred via\nthe dedicated transfer-ownership action \u2014 so it is intentionally absent here.\nSee ``checkcheckserver.api.access.ChecklistAccessLevel`` for the full ladder\n(which adds ``owner``) used for authorization checks."
+      },
+      "ShareRead": {
+        "properties": {
+          "user_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "User Id"
+          },
+          "user_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "User Name"
+          },
+          "display_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Display Name"
+          },
+          "permission": {
+            "$ref": "#/components/schemas/SharePermission"
+          }
+        },
+        "type": "object",
+        "required": [
+          "user_id",
+          "permission"
+        ],
+        "title": "ShareRead",
+        "description": "A single collaborator entry with enough user info to render a share list."
+      },
+      "ShareUpsertRequest": {
+        "properties": {
+          "permission": {
+            "$ref": "#/components/schemas/SharePermission",
+            "description": "Permission level to grant the target user."
+          }
+        },
+        "type": "object",
+        "required": [
+          "permission"
+        ],
+        "title": "ShareUpsertRequest"
+      },
       "SyncNotification": {
         "properties": {
           "id": {
@@ -4995,7 +5358,9 @@
               "checklist_position",
               "checklist_created",
               "checklist_deleted",
-              "checklist_label"
+              "checklist_label",
+              "share_added",
+              "share_removed"
             ],
             "title": "Upd Prop"
           }
@@ -5005,6 +5370,48 @@
           "cl_id"
         ],
         "title": "SyncNotification"
+      },
+      "TransferOwnershipRequest": {
+        "properties": {
+          "new_owner_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "New Owner Id",
+            "description": "The user that should become the new owner. The previous owner is demoted to an 'edit' collaborator."
+          }
+        },
+        "type": "object",
+        "required": [
+          "new_owner_id"
+        ],
+        "title": "TransferOwnershipRequest"
+      },
+      "TransferOwnershipResult": {
+        "properties": {
+          "checklist_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Checklist Id"
+          },
+          "new_owner_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "New Owner Id"
+          },
+          "previous_owner_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Previous Owner Id",
+            "description": "The previous owner, now demoted to an 'edit' collaborator."
+          }
+        },
+        "type": "object",
+        "required": [
+          "checklist_id",
+          "new_owner_id",
+          "previous_owner_id"
+        ],
+        "title": "TransferOwnershipResult"
       },
       "User": {
         "properties": {
@@ -5058,6 +5465,15 @@
             },
             "type": "array",
             "title": "Roles",
+            "default": []
+          },
+          "oidc_groups": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Oidc Groups",
+            "description": "The OIDC groups the user belonged to on their last OIDC login. Empty for local users. Used to optionally restrict user search to shared groups.",
             "default": []
           },
           "deactivated": {
@@ -5230,6 +5646,15 @@
             "title": "Roles",
             "default": []
           },
+          "oidc_groups": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Oidc Groups",
+            "description": "The OIDC groups the user belonged to on their last OIDC login. Empty for local users. Used to optionally restrict user search to shared groups.",
+            "default": []
+          },
           "deactivated": {
             "type": "boolean",
             "title": "Deactivated",
@@ -5257,6 +5682,43 @@
           "user_name"
         ],
         "title": "UserCreate"
+      },
+      "UserSearchResult": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "user_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "User Name"
+          },
+          "display_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Display Name"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id"
+        ],
+        "title": "UserSearchResult",
+        "description": "Minimal, safe-to-expose user info for picking a share target.\nDeliberately excludes email and any auth details."
       },
       "UserSession": {
         "properties": {
@@ -5387,6 +5849,15 @@
             },
             "type": "array",
             "title": "Roles",
+            "default": []
+          },
+          "oidc_groups": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Oidc Groups",
+            "description": "The OIDC groups the user belonged to on their last OIDC login. Empty for local users. Used to optionally restrict user search to shared groups.",
             "default": []
           },
           "deactivated": {

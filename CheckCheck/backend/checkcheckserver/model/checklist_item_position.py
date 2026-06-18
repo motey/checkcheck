@@ -84,7 +84,7 @@ class CheckListItemPosition(CheckListItemPositionCreate, table=True):
         description="To define 'sub'-items you can define an indentation level",
     )
     checklist_item_id: uuid.UUID = Field(
-        foreign_key="checklist_item.id", primary_key=True
+        foreign_key="checklist_item.id", primary_key=True, ondelete="CASCADE"
     )
     checklist_item: "CheckListItem" = Relationship(
         back_populates="position",

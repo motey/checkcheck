@@ -116,6 +116,20 @@ class Config(BaseSettings):
         default=["Work", "Private", "Inspiration"]
     )
 
+    # ── Card / Checklist sharing ──────────────────────────────────────────────
+    SHARING_ENABLED: bool = Field(
+        default=True,
+        description="Master switch for the card sharing feature (collaborators + public links). When false, all sharing endpoints are disabled.",
+    )
+    SHARING_USER_SEARCH_ENABLED: bool = Field(
+        default=True,
+        description="Allow authenticated users to search for other users (by name) when picking a share target. When false, the user-search endpoint is disabled and clients must enter an exact identifier.",
+    )
+    SHARING_PUBLIC_LINKS_ENABLED: bool = Field(
+        default=True,
+        description="Allow owners to create public share URLs that let anonymous visitors open a card. When false, public-link endpoints are disabled.",
+    )
+
     AUTH_BASIC_LOGIN_IS_ENABLED: bool = Field(
         default=True,
         description="Local DB users are enabled to login. You could disable this, when having an external OIDC provider.",
@@ -207,6 +221,10 @@ class Config(BaseSettings):
         ROLE_MAPPING: Dict[str, List[str]] = Field(
             default_factory=dict,
             description="""A JSON to map OIDC groups to DZDMedLog Roles. e.g. `{"oidc_appadmins":["medlog-user-manager"],"admins":["medlog-admins"]}`""",
+        )
+        RESTRICT_USER_SEARCH_TO_OWN_GROUPS: bool = Field(
+            default=False,
+            description="If true, users authenticated via this OIDC provider can only find other users that share at least one OIDC group with them when searching for share targets. Requires the provider to deliver the groups attribute (USER_GROUPS_ATTRIBUTE); the groups are persisted on the user on each login.",
         )
 
     AUTH_OIDC_TOKEN_STORAGE_SECRET: Optional[str] = Field(

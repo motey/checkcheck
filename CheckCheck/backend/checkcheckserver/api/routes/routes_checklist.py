@@ -56,6 +56,8 @@ from checkcheckserver.api.auth.security import (
 
 from checkcheckserver.api.access import (
     user_has_checklist_access,
+    require_checklist_permission,
+    ChecklistAccessLevel,
     UserChecklistAccess,
 )
 from checkcheckserver.api.paginator import (
@@ -179,7 +181,9 @@ async def create_checklist(
 async def get_checklist(
     checklist_id: uuid.UUID,
     checklist_crud: CheckListCRUD = Depends(CheckListCRUD.get_crud),
-    checklist_access: UserChecklistAccess = Security(user_has_checklist_access),
+    checklist_access: UserChecklistAccess = Security(
+        require_checklist_permission(ChecklistAccessLevel.view)
+    ),
 ) -> CheckListApiWithSubObj:
     return await checklist_crud.get(
         id_=checklist_id,
@@ -199,7 +203,9 @@ async def update_checklist(
     checklist_id: uuid.UUID,
     checklist: CheckListUpdate,
     checklist_crud: CheckListCRUD = Depends(CheckListCRUD.get_crud),
-    checklist_access: UserChecklistAccess = Security(user_has_checklist_access),
+    checklist_access: UserChecklistAccess = Security(
+        require_checklist_permission(ChecklistAccessLevel.edit)
+    ),
     sync_crud: SyncNotifiationCRUD = Depends(SyncNotifiationCRUD.get_crud),
 ) -> CheckListApiWithSubObj:
     result = await checklist_crud.update(
@@ -235,7 +241,7 @@ async def delete_checklist(
     checklist_access: UserChecklistAccess = Security(user_has_checklist_access),
     sync_crud: SyncNotifiationCRUD = Depends(SyncNotifiationCRUD.get_crud),
 ):
-    if checklist_access.user_is_collaborator:
+    if checklist_access.user_is_collaborator():
         await checklist_position_crud.delete(
             user_id=checklist_access.user.id, checklist_id=checklist_id
         )
@@ -245,7 +251,7 @@ async def delete_checklist(
         await sync_crud.create(SyncNotification(cl_id=checklist_id, upd_prop="checklist_deleted"))
         return
 
-    if checklist_access.user_is_owner:
+    if checklist_access.user_is_owner():
         await checklist_collaborator_crud.delete(checklist_id=checklist_id)
         await checklist_position_crud.delete(checklist_id=checklist_id)
         await checklist_crud.delete(

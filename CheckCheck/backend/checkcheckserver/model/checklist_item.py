@@ -68,7 +68,9 @@ class CheckListItem(CheckListItemCreate, table=True):
         # sa_column_kwargs={"server_default": text("gen_random_uuid()")},
     )
     text: str = Field(description="The display name of the list")
-    checklist_id: uuid.UUID = Field(foreign_key="checklist.id", exclude=True)
+    checklist_id: uuid.UUID = Field(
+        foreign_key="checklist.id", exclude=True, ondelete="CASCADE"
+    )
     position: CheckListItemPosition = Relationship(
         back_populates="checklist_item",
         cascade_delete=True,

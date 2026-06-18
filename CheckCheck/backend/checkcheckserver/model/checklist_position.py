@@ -73,7 +73,9 @@ class CheckListPositionCreate(CheckListPositionUpdate, table=False):
 
 class CheckListPosition(CheckListPositionCreate, table=True):
     __tablename__ = "checklist_position"
-    checklist_id: uuid.UUID = Field(foreign_key="checklist.id", primary_key=True)
+    checklist_id: uuid.UUID = Field(
+        foreign_key="checklist.id", primary_key=True, ondelete="CASCADE"
+    )
     user_id: uuid.UUID = Field(foreign_key="user.id", primary_key=True, exclude=True)
     checklist: "CheckList" = Relationship(
         back_populates="position", sa_relationship_kwargs={"lazy": "joined"}

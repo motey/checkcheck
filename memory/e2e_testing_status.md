@@ -20,7 +20,7 @@ All E2E infrastructure is in place and wired up correctly:
 | `CheckCheck/frontend/playwright.config.ts` | Main config — 2 projects: auth-setup + chromium |
 | `CheckCheck/frontend/tests/e2e/global-setup.ts` | Starts E2E backend (port 8182), kills stale process on that port |
 | `CheckCheck/frontend/tests/e2e/global-teardown.ts` | Kills backend process group |
-| `CheckCheck/backend/tests/start_e2e_server.py` | Starts CheckCheck backend with a fresh SQLite DB on port 8182 |
+| `CheckCheck/backend/e2e/start_e2e_server.py` | Starts CheckCheck backend with a fresh SQLite DB on port 8182 |
 | `CheckCheck/frontend/tests/e2e/auth.setup.ts` | Logs in as admin3, saves storageState to `.auth/state.json` |
 | `CheckCheck/frontend/tests/e2e/auth.spec.ts` | 5 tests: login page, error on bad creds, redirect on success, logout |
 | `CheckCheck/frontend/tests/e2e/checklist.spec.ts` | 5 tests: board grid, new button, search, modal opens, URL update |

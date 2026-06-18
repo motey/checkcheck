@@ -16,11 +16,6 @@ Covers:
   - Token-based logout (Bearer token invalidated)
 """
 
-from _single_test_file_runner import run_all_tests_if_test_file_called
-
-if __name__ == "__main__":
-    run_all_tests_if_test_file_called()
-
 import os
 import requests as req_lib
 from utils import (
@@ -43,12 +38,10 @@ AUTH_TEST_USER_EMAIL = "auth-test-user@test.com"
 
 _state: dict = {}
 
-
 def _get_user_id(username: str) -> str:
     res = req("api/user", q={"incl_deactivated": True})
     user = find_first_dict_in_list(res["items"], {"user_name": username})
     return user["id"]
-
 
 class _AsUser:
     """Context manager: switch to a user's token, restore admin token on exit."""
@@ -65,9 +58,7 @@ class _AsUser:
         if self._saved is not None:
             os.environ[CHECKCHECK_ACCESS_TOKEN_ENV_NAME] = self._saved
 
-
 # ── Auth scheme listing ───────────────────────────────────────────────────────
-
 
 def test_auth_list_schemes():
     res = req("api/auth/list")
@@ -76,9 +67,7 @@ def test_auth_list_schemes():
         "Expected basic auth scheme in /auth/list"
     )
 
-
 # ── Basic login (token-based) ─────────────────────────────────────────────────
-
 
 def test_basic_login_token_success():
     res = req(
@@ -90,7 +79,6 @@ def test_basic_login_token_success():
     assert res["token_type"] == "Bearer"
     assert len(res["access_token"]) > 20
 
-
 def test_basic_login_token_wrong_password():
     req(
         "api/auth/basic/login/token",
@@ -99,7 +87,6 @@ def test_basic_login_token_wrong_password():
         suppress_auth=True,
         expected_http_code=401,
     )
-
 
 def test_basic_login_token_wrong_username():
     req(
@@ -110,9 +97,7 @@ def test_basic_login_token_wrong_username():
         expected_http_code=401,
     )
 
-
 # ── Session-based login ───────────────────────────────────────────────────────
-
 
 def test_basic_login_session_and_logout():
     """Session cookie is set on login, cookie is cleared and endpoint rejects after logout."""
@@ -129,9 +114,7 @@ def test_basic_login_session_and_logout():
     # Protected endpoint must now reject the session
     req("api/user/me", session=session, expected_http_code=401)
 
-
 # ── Self-registration (disabled by default) ───────────────────────────────────
-
 
 def test_register_disabled_by_default():
     req(
@@ -147,17 +130,13 @@ def test_register_disabled_by_default():
         expected_http_code=403,
     )
 
-
 # ── Test-user setup ───────────────────────────────────────────────────────────
-
 
 def test_create_auth_test_user():
     user = create_test_user(AUTH_TEST_USER_NAME, AUTH_TEST_USER_PW, AUTH_TEST_USER_EMAIL)
     _state["test_user_id"] = user["id"]
 
-
 # ── Password change (self-service) ────────────────────────────────────────────
-
 
 def test_change_own_password_wrong_old():
     with _AsUser(AUTH_TEST_USER_NAME, AUTH_TEST_USER_PW):
@@ -172,7 +151,6 @@ def test_change_own_password_wrong_old():
             expected_http_code=401,
         )
 
-
 def test_change_own_password_mismatch():
     with _AsUser(AUTH_TEST_USER_NAME, AUTH_TEST_USER_PW):
         req(
@@ -185,7 +163,6 @@ def test_change_own_password_mismatch():
             },
             expected_http_code=400,
         )
-
 
 def test_change_own_password_success():
     new_pw = "changed_pw_secure_789"
@@ -222,9 +199,7 @@ def test_change_own_password_success():
         expected_http_code=401,
     )
 
-
 # ── API key management ────────────────────────────────────────────────────────
-
 
 def test_api_key_create():
     with _AsUser(AUTH_TEST_USER_NAME, AUTH_TEST_USER_PW):
@@ -239,13 +214,11 @@ def test_api_key_create():
     _state["api_key_token"] = res["token"]
     _state["api_key_token_id"] = res["api_token_id"]
 
-
 def test_api_key_list():
     with _AsUser(AUTH_TEST_USER_NAME, AUTH_TEST_USER_PW):
         keys = req("api/user/me/api-keys")
     assert isinstance(keys, list)
     list_contains_dict_that_must_contain(keys, {"display_name": "CI pipeline key"})
-
 
 def test_api_key_authenticate():
     saved = os.environ.get(CHECKCHECK_ACCESS_TOKEN_ENV_NAME)
@@ -257,13 +230,11 @@ def test_api_key_authenticate():
         if saved is not None:
             os.environ[CHECKCHECK_ACCESS_TOKEN_ENV_NAME] = saved
 
-
 def test_api_key_last_used_at_is_set():
     with _AsUser(AUTH_TEST_USER_NAME, AUTH_TEST_USER_PW):
         keys = req("api/user/me/api-keys")
     key = find_first_dict_in_list(keys, {"api_token_id": _state["api_key_token_id"]})
     assert key["last_used_at"] is not None, "last_used_at must be set after use"
-
 
 def test_api_key_delete():
     with _AsUser(AUTH_TEST_USER_NAME, AUTH_TEST_USER_PW):
@@ -276,7 +247,6 @@ def test_api_key_delete():
     found = find_first_dict_in_list(keys, {"api_token_id": _state["api_key_token_id"]}, raise_if_not_found=False)
     assert found is False, "Deleted API key must not appear in list"
 
-
 def test_api_key_auth_after_delete_is_rejected():
     saved = os.environ.get(CHECKCHECK_ACCESS_TOKEN_ENV_NAME)
     try:
@@ -285,7 +255,6 @@ def test_api_key_auth_after_delete_is_rejected():
     finally:
         if saved is not None:
             os.environ[CHECKCHECK_ACCESS_TOKEN_ENV_NAME] = saved
-
 
 def test_api_key_cannot_delete_another_users_key():
     admin_key_res = req("api/user/me/api-keys", "post", b={"display_name": "Admin key for cross-user test"})
@@ -297,9 +266,7 @@ def test_api_key_cannot_delete_another_users_key():
 
     req(f"api/user/me/api-keys/{admin_key_id}", "delete", expected_http_code=204)
 
-
 # ── Admin: API key management ─────────────────────────────────────────────────
-
 
 def test_admin_list_user_api_keys():
     with _AsUser(AUTH_TEST_USER_NAME, AUTH_TEST_USER_PW):
@@ -311,7 +278,6 @@ def test_admin_list_user_api_keys():
     assert isinstance(keys, list)
     list_contains_dict_that_must_contain(keys, {"display_name": "Admin-visible key"})
 
-
 def test_admin_delete_user_api_key():
     user_id = _state["test_user_id"]
     key_id = _state["admin_visible_key_id"]
@@ -320,9 +286,7 @@ def test_admin_delete_user_api_key():
     found = find_first_dict_in_list(keys, {"api_token_id": key_id}, raise_if_not_found=False)
     assert found is False, "Admin-deleted key must not appear in list"
 
-
 # ── Session listing and revocation ────────────────────────────────────────────
-
 
 def test_session_list():
     """Create a browser session then list it via a Bearer token."""
@@ -339,7 +303,6 @@ def test_session_list():
     _state["test_session_id"] = sessions[0]["id"]
     _state["test_user_bearer_token"] = user_token
 
-
 def test_session_delete_specific():
     """DELETE /user/me/sessions/{id} removes only that session."""
     user_token = _state.get("test_user_bearer_token")
@@ -354,7 +317,6 @@ def test_session_delete_specific():
     sessions_after = req("api/user/me/sessions", access_token=user_token)
     ids_after = [s["id"] for s in sessions_after]
     assert session_id not in ids_after, "Deleted session must not appear in list"
-
 
 def test_session_delete_all_except_current():
     """Bulk-revoke all browser sessions; API token stays valid."""
@@ -375,9 +337,7 @@ def test_session_delete_all_except_current():
     me = req("api/user/me", access_token=user_token)
     assert me["user_name"] == AUTH_TEST_USER_NAME
 
-
 # ── Admin role update regression ──────────────────────────────────────────────
-
 
 def test_admin_role_update_persists():
     user_id = _state["test_user_id"]
@@ -398,9 +358,7 @@ def test_admin_role_update_persists():
     )
     assert res["roles"] == [], f"Expected empty roles, got {res['roles']}"
 
-
 # ── Deactivated user is blocked ───────────────────────────────────────────────
-
 
 def test_deactivated_user_cannot_get_new_token():
     user_id = _state["test_user_id"]
@@ -413,7 +371,6 @@ def test_deactivated_user_cannot_get_new_token():
         suppress_auth=True,
         expected_http_code=401,
     )
-
 
 def test_deactivated_user_existing_token_rejected():
     user_id = _state["test_user_id"]
@@ -431,9 +388,7 @@ def test_deactivated_user_existing_token_rejected():
     # Re-enable for subsequent tests / re-runs
     req(f"api/user/{user_id}", "patch", b={"deactivated": False, "roles": []})
 
-
 # ── Token-based logout ────────────────────────────────────────────────────────
-
 
 def test_logout_invalidates_token():
     user_token = authorize_for_access_token(AUTH_TEST_USER_NAME, AUTH_TEST_USER_PW)
@@ -446,9 +401,7 @@ def test_logout_invalidates_token():
 
     req("api/user/me", expected_http_code=401, access_token=user_token)
 
-
 # ── API key expiry field ──────────────────────────────────────────────────────
-
 
 def test_api_key_expiry_field_set():
     with _AsUser(AUTH_TEST_USER_NAME, AUTH_TEST_USER_PW):

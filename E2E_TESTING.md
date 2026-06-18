@@ -92,7 +92,7 @@ There is no separate frontend port.
 2. **Kill stale processes** — `fuser -k 8182/tcp` clears orphans from previous
    runs before attempting to bind the port.
 3. **Start the E2E backend** — spawns
-   `CheckCheck/backend/tests/start_e2e_server.py` using the project's own
+   `CheckCheck/backend/e2e/start_e2e_server.py` using the project's own
    Python venv.  The script deletes the previous test SQLite database, creates a
    fresh one, provisions test users, and prints `READY` to stdout when the
    health check passes.  `FRONTEND_FILES_DIR` is set to the absolute path of
@@ -165,8 +165,9 @@ CheckCheck/frontend/
 │   ├── filter-search.spec.ts        # Label filter, search, combined label+search
 │   └── sync.spec.ts                 # Two-client SSE sync (new checklist, item state)
 │
-CheckCheck/backend/tests/
-└── start_e2e_server.py              # Starts backend on port 8182 with fresh DB
+CheckCheck/backend/e2e/
+├── start_e2e_server.py              # Starts backend on port 8182 with fresh DB
+└── provisioning_data/test_users.yaml  # E2E test users (provisioned at startup)
 ```
 
 Generated at runtime (gitignored):

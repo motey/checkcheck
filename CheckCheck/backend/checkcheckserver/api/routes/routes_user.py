@@ -65,6 +65,74 @@ async def get_myself(
     return current_user
 
 
+class UserSearchResult(BaseModel):
+    """Minimal, safe-to-expose user info for picking a share target.
+    Deliberately excludes email and any auth details."""
+
+    id: uuid.UUID
+    user_name: Optional[str] = None
+    display_name: Optional[str] = None
+
+
+@fast_api_user_self_service_router.get(
+    "/user/search",
+    response_model=List[UserSearchResult],
+    description=(
+        "Search for other users by name to share a card with them. Returns only "
+        "id / user_name / display_name (never email). Available to any authenticated "
+        "user when SHARING_USER_SEARCH_ENABLED is on. If the caller logged in via an "
+        "OIDC provider configured with RESTRICT_USER_SEARCH_TO_OWN_GROUPS, results are "
+        "limited to users that share at least one OIDC group with the caller."
+    ),
+)
+async def search_users(
+    q: str = Query(min_length=2, description="Search term matched against user_name and display_name."),
+    limit: int = Query(default=20, ge=1, le=50),
+    current_user: User = Security(get_current_user),
+    current_user_auth: UserAuth = Depends(get_current_user_auth),
+    user_crud: UserCRUD = Depends(UserCRUD.get_crud),
+) -> List[UserSearchResult]:
+    if not (config.SHARING_ENABLED and config.SHARING_USER_SEARCH_ENABLED):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User search is disabled on this server.",
+        )
+
+    # Determine whether this caller's OIDC provider restricts search to own groups.
+    restrict_to_groups = False
+    if (
+        current_user_auth.auth_source_type == AllowedAuthSchemeType.oidc
+        and current_user_auth.oidc_provider_slug
+    ):
+        provider = next(
+            (
+                p
+                for p in config.AUTH_OIDC_PROVIDERS
+                if p.get_provider_name_slug() == current_user_auth.oidc_provider_slug
+            ),
+            None,
+        )
+        if provider is not None and provider.RESTRICT_USER_SEARCH_TO_OWN_GROUPS:
+            restrict_to_groups = True
+
+    candidates = await user_crud.search(
+        query_str=q, exclude_user_id=current_user.id, limit=limit
+    )
+
+    if restrict_to_groups:
+        caller_groups = set(current_user.oidc_groups or [])
+        candidates = [
+            u for u in candidates if caller_groups & set(u.oidc_groups or [])
+        ]
+
+    return [
+        UserSearchResult(
+            id=u.id, user_name=u.user_name, display_name=u.display_name
+        )
+        for u in candidates
+    ]
+
+
 @fast_api_user_self_service_router.patch(
     "/user/me",
     response_model=User,

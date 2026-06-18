@@ -69,6 +69,8 @@ from checkcheckserver.api.auth.security import (
 
 from checkcheckserver.api.access import (
     user_has_checklist_access,
+    require_checklist_permission,
+    ChecklistAccessLevel,
     checklist_ids_with_access,
     UserChecklistAccess,
 )
@@ -98,7 +100,9 @@ fast_api_checklist_item_pos_router: APIRouter = APIRouter()
 )
 async def get_checklist_item_position(
     checklist_item_id: uuid.UUID,
-    checklist_access: UserChecklistAccess = Security(user_has_checklist_access),
+    checklist_access: UserChecklistAccess = Security(
+        require_checklist_permission(ChecklistAccessLevel.view)
+    ),
     checklist_item_pos_crud: CheckListItemPositionCRUD = Depends(
         CheckListItemPositionCRUD.get_crud
     ),
@@ -117,7 +121,9 @@ async def get_checklist_item_position(
 async def update_checklist_item_position(
     position: CheckListItemPositionApiUpdate,
     checklist_item_id: uuid.UUID,
-    checklist_access: UserChecklistAccess = Security(user_has_checklist_access),
+    checklist_access: UserChecklistAccess = Security(
+        require_checklist_permission(ChecklistAccessLevel.edit)
+    ),
     checklist_item_pos_crud: CheckListItemPositionCRUD = Depends(
         CheckListItemPositionCRUD.get_crud
     ),
@@ -147,7 +153,9 @@ async def update_checklist_item_position(
 async def move_item_under_other_item(
     checklist_item_id: uuid.UUID,
     other_checklist_item_id: uuid.UUID,
-    checklist_access: UserChecklistAccess = Security(user_has_checklist_access),
+    checklist_access: UserChecklistAccess = Security(
+        require_checklist_permission(ChecklistAccessLevel.edit)
+    ),
     checklist_item_pos_crud: CheckListItemPositionCRUD = Depends(
         CheckListItemPositionCRUD.get_crud
     ),
@@ -208,7 +216,9 @@ async def move_item_under_other_item(
 async def move_item_above_other_item(
     checklist_item_id: uuid.UUID,
     other_checklist_item_id: uuid.UUID,
-    checklist_access: UserChecklistAccess = Security(user_has_checklist_access),
+    checklist_access: UserChecklistAccess = Security(
+        require_checklist_permission(ChecklistAccessLevel.edit)
+    ),
     checklist_item_pos_crud: CheckListItemPositionCRUD = Depends(
         CheckListItemPositionCRUD.get_crud
     ),
@@ -265,7 +275,9 @@ async def move_item_above_other_item(
 )
 async def move_item_to_bottom_of_checklist(
     checklist_item_id: uuid.UUID,
-    checklist_access: UserChecklistAccess = Security(user_has_checklist_access),
+    checklist_access: UserChecklistAccess = Security(
+        require_checklist_permission(ChecklistAccessLevel.edit)
+    ),
     checklist_item_pos_crud: CheckListItemPositionCRUD = Depends(
         CheckListItemPositionCRUD.get_crud
     ),
@@ -299,7 +311,9 @@ async def move_item_to_bottom_of_checklist(
 )
 async def move_item_to_top_of_checklist(
     checklist_item_id: uuid.UUID,
-    checklist_access: UserChecklistAccess = Security(user_has_checklist_access),
+    checklist_access: UserChecklistAccess = Security(
+        require_checklist_permission(ChecklistAccessLevel.edit)
+    ),
     checklist_item_pos_crud: CheckListItemPositionCRUD = Depends(
         CheckListItemPositionCRUD.get_crud
     ),

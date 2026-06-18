@@ -49,6 +49,40 @@ class CheckListCollaboratorCRUD(
         results = await self.session.exec(statement=query)
         return results.all()
 
+    async def get_one(
+        self,
+        checklist_id: uuid.UUID,
+        user_id: uuid.UUID,
+    ) -> Optional[CheckListCollaborator]:
+        query = select(CheckListCollaborator).where(
+            CheckListCollaborator.checklist_id == checklist_id,
+            CheckListCollaborator.user_id == user_id,
+        )
+        results = await self.session.exec(statement=query)
+        return results.one_or_none()
+
+    async def upsert(
+        self,
+        checklist_id: uuid.UUID,
+        user_id: uuid.UUID,
+        permission,
+    ) -> CheckListCollaborator:
+        """Create the collaborator or, if it already exists, update its permission."""
+        existing = await self.get_one(checklist_id=checklist_id, user_id=user_id)
+        if existing is not None:
+            existing.permission = permission
+            self.session.add(existing)
+            await self.session.commit()
+            await self.session.refresh(existing)
+            return existing
+        return await self.create(
+            CheckListCollaboratorCreate(
+                checklist_id=checklist_id,
+                user_id=user_id,
+                permission=permission,
+            )
+        )
+
     async def delete(
         self,
         checklist_id: UUID,

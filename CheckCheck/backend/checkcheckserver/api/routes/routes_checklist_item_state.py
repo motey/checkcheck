@@ -69,6 +69,8 @@ from checkcheckserver.api.auth.security import (
 
 from checkcheckserver.api.access import (
     user_has_checklist_access,
+    require_checklist_permission,
+    ChecklistAccessLevel,
     checklist_ids_with_access,
     UserChecklistAccess,
 )
@@ -97,7 +99,9 @@ fast_api_checklist_item_state_router: APIRouter = APIRouter()
 )
 async def get_checklist_item_checked_state(
     checklist_item_id: uuid.UUID,
-    checklist_access: UserChecklistAccess = Security(user_has_checklist_access),
+    checklist_access: UserChecklistAccess = Security(
+        require_checklist_permission(ChecklistAccessLevel.view)
+    ),
     checklist_item_state_crud: CheckListItemStateCRUD = Depends(
         CheckListItemStateCRUD.get_crud
     ),
@@ -116,7 +120,9 @@ async def get_checklist_item_checked_state(
 async def set_checklist_item_checked_state(
     val: CheckListItemStateUpdate,
     checklist_item_id: uuid.UUID,
-    checklist_access: UserChecklistAccess = Security(user_has_checklist_access),
+    checklist_access: UserChecklistAccess = Security(
+        require_checklist_permission(ChecklistAccessLevel.check)
+    ),
     checklist_item_state_crud: CheckListItemStateCRUD = Depends(
         CheckListItemStateCRUD.get_crud
     ),

@@ -8,7 +8,7 @@ import { resolve } from "path";
 const FRONTEND_ROOT = resolve(__dirname, "../..");
 const BACKEND_DIR = resolve(FRONTEND_ROOT, "../backend");
 const VENV_PYTHON = resolve(BACKEND_DIR, ".venv/bin/python");
-const SERVER_SCRIPT = resolve(BACKEND_DIR, "tests/start_e2e_server.py");
+const SERVER_SCRIPT = resolve(BACKEND_DIR, "e2e/start_e2e_server.py");
 const PID_FILE = resolve(__dirname, ".e2e-server.pid");
 const E2E_BACKEND_PORT = 8182;
 const FRONTEND_OUT = resolve(FRONTEND_ROOT, ".output/public");

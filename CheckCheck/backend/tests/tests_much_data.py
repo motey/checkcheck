@@ -1,8 +1,3 @@
-from _single_test_file_runner import run_all_tests_if_test_file_called
-
-if __name__ == "__main__":
-    run_all_tests_if_test_file_called()
-
 from typing import List, Dict
 import json
 import time

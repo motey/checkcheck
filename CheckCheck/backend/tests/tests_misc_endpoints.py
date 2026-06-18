@@ -1,14 +1,7 @@
-from _single_test_file_runner import run_all_tests_if_test_file_called
-
-if __name__ == "__main__":
-    run_all_tests_if_test_file_called()
-
 import decimal
 from utils import req, dict_must_contain
 
-
 # ── PATCH /user/me ────────────────────────────────────────────────────────────
-
 
 def test_user_self_update():
     me = req("api/user/me")
@@ -24,9 +17,7 @@ def test_user_self_update():
     # Restore original
     req("api/user/me", "patch", b={"display_name": original_display_name})
 
-
 # ── GET /checklist/{checklist_id} ─────────────────────────────────────────────
-
 
 def test_get_single_checklist():
     created = req(
@@ -42,15 +33,12 @@ def test_get_single_checklist():
 
     req(f"api/checklist/{cl_id}", "delete")
 
-
 def test_get_nonexistent_checklist_returns_404():
     import uuid
     fake_id = str(uuid.uuid4())
     req(f"api/checklist/{fake_id}", expected_http_code=404)
 
-
 # ── PATCH /checklist/{id}/item/{id}/position ─────────────────────────────────
-
 
 def test_item_position_patch():
     checklist = req("api/checklist", "post", b={"name": "Pos Patch List"})

@@ -17,7 +17,7 @@ testuser01 / testuserpw_secure1  (via provisioning_data/test_users.yaml)
 
 DB
 --
-Default : tests/e2e_test.sqlite – recreated fresh on every run.
+Default : e2e/e2e_test.sqlite – recreated fresh on every run.
 Postgres: set SQL_DATABASE_URL=postgresql+asyncpg://... before calling this
           script (run_e2e_tests_postgres.sh does this automatically).
           The database must already exist and be accessible; migrations are

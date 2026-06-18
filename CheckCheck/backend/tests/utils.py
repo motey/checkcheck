@@ -64,13 +64,72 @@ def authorize_for_session(username: str, pw: str) -> requests.Session:
     the *session* keyword argument to make cookie-authenticated requests.
     """
     session = requests.Session()
+    # The endpoint replies with a 303 redirect to "/" and sets the session
+    # cookie on that response. Don't follow the redirect — "/" 500s in the
+    # test setup (no frontend mounted) and the cookie is already captured.
     req(
         "api/auth/basic/login/session",
         "post",
         b={"username": username, "password": pw},
         session=session,
+        allow_redirects=False,
+        expected_http_code=303,
     )
     # Re-set the cookie with the correct domain so requests sends it back
+    for cookie in list(session.cookies):
+        session.cookies.set(
+            cookie.name,
+            cookie.value,
+            domain=server_config.SERVER_LISTENING_HOST,
+            path="/",
+        )
+    return session
+
+
+# ── OIDC login helpers ────────────────────────────────────────────────────────
+
+
+def oidc_login_get_token(provider_slug: str, sub: str) -> str:
+    """Drive the full OIDC authorization-code flow without a browser and return
+    the issued API access token.
+
+    The mock provider's authorize page accepts a ``sub`` form field to directly
+    issue an auth code, simulating a user picking their account.
+    """
+    session = requests.Session()
+    # Step 1: initiate token login — follow redirects to the mock authorize page.
+    resp = session.get(
+        f"{get_server_base_url()}/api/auth/oidc/login/{provider_slug}/token",
+        allow_redirects=True,
+    )
+    resp.raise_for_status()
+    # Step 2: submit the user selection — follow the redirect through the
+    # CheckCheck callback, which returns the access-token JSON.
+    resp = session.post(resp.url, data={"sub": sub}, allow_redirects=True)
+    resp.raise_for_status()
+    return resp.json()["access_token"]
+
+
+def oidc_login_get_session(provider_slug: str, sub: str) -> requests.Session:
+    """Drive the OIDC flow and return a ``requests.Session`` carrying the
+    resulting session cookie (mirrors the browser session-login path)."""
+    session = requests.Session()
+    resp = session.get(
+        f"{get_server_base_url()}/api/auth/oidc/login/{provider_slug}/session",
+        allow_redirects=True,
+    )
+    resp.raise_for_status()
+    # Submit the account selection, then walk the redirect chain manually. The
+    # CheckCheck callback sets the session cookie on its own redirect response;
+    # we must capture that cookie but stop before following its final redirect to
+    # "/", which 500s in the test setup (no frontend mounted).
+    resp = session.post(resp.url, data={"sub": sub}, allow_redirects=False)
+    while resp.is_redirect:
+        if "/api/auth/oidc/callback/" in resp.url:
+            # This response carries the session cookie (captured into the jar
+            # already) — do not follow it to the app root.
+            break
+        resp = session.get(resp.headers["Location"], allow_redirects=False)
     for cookie in list(session.cookies):
         session.cookies.set(
             cookie.name,
@@ -96,6 +155,7 @@ def req(
     tolerated_error_body: List[Dict | str] = None,
     access_token: str = None,
     session: Optional[requests.Session] = None,
+    allow_redirects: bool = True,
 ) -> Dict[str, Any] | str | bytes:
     if tolerated_error_codes is None:
         tolerated_error_codes = []
@@ -117,6 +177,9 @@ def req(
     if f:
         http_method_func_headers["Content-Type"] = "application/x-www-form-urlencoded"
         http_method_func_params["data"] = f
+
+    if not allow_redirects:
+        http_method_func_params["allow_redirects"] = False
 
     if not endpoint.startswith("/"):
         endpoint = f"/{endpoint}"

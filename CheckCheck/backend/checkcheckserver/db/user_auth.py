@@ -203,7 +203,12 @@ class UserAuthCRUD(
     async def touch_last_used_at(self, user_auth_id: uuid.UUID) -> None:
         user_auth = await self.session.get(UserAuth, user_auth_id)
         if user_auth is not None:
-            user_auth.last_used_at = datetime.datetime.now(tz=datetime.timezone.utc)
+            # Store naive UTC to match the project-wide datetime convention
+            # (see model._base_model.created_at). Postgres' TIMESTAMP columns are
+            # naive, and asyncpg rejects tz-aware values written to them.
+            user_auth.last_used_at = datetime.datetime.now(
+                tz=datetime.timezone.utc
+            ).replace(tzinfo=None)
             self.session.add(user_auth)
             await self.session.commit()
 

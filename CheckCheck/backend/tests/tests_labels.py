@@ -1,13 +1,6 @@
-from _single_test_file_runner import run_all_tests_if_test_file_called
-
-if __name__ == "__main__":
-    run_all_tests_if_test_file_called()
-
 from utils import req, dict_must_contain
 
-
 # ── Label CRUD ────────────────────────────────────────────────────────────────
-
 
 def test_label_create_and_list():
     # Create two labels (no color)
@@ -21,7 +14,6 @@ def test_label_create_and_list():
     ids = [l["id"] for l in labels]
     assert a["id"] in ids and b["id"] in ids, "Both labels must appear in list"
 
-
 def test_label_create_with_color():
     colors = req("api/color")
     assert len(colors) > 0, "Need at least one color in the system"
@@ -31,7 +23,6 @@ def test_label_create_with_color():
     dict_must_contain(label, {"display_name": "colored"})
     assert label["color"] is not None
     assert label["color"]["id"] == color_id
-
 
 def test_label_update():
     label = req("api/label", "post", b={"display_name": "old name"})
@@ -45,7 +36,6 @@ def test_label_update():
     assert match is not None
     assert match["display_name"] == "new name"
 
-
 def test_label_delete():
     label = req("api/label", "post", b={"display_name": "to be deleted"})
     label_id = label["id"]
@@ -55,7 +45,6 @@ def test_label_delete():
     labels = req("api/label")
     ids = [l["id"] for l in labels]
     assert label_id not in ids, "Deleted label must not appear in list"
-
 
 def test_label_sort():
     # Create three labels and sort them in reverse order
@@ -70,9 +59,7 @@ def test_label_sort():
         "Labels must appear in the requested sort order"
     )
 
-
 # ── Checklist-label assignment ────────────────────────────────────────────────
-
 
 def test_checklist_label_assign_and_remove():
     label = req("api/label", "post", b={"display_name": "cl-label"})
@@ -100,7 +87,6 @@ def test_checklist_label_assign_and_remove():
     # Clean up
     req(f"api/checklist/{cl_id}", "delete")
     req(f"api/label/{label_id}", "delete")
-
 
 def test_checklist_label_multiple_labels():
     a = req("api/label", "post", b={"display_name": "ml-a"})

@@ -1,10 +1,4 @@
-from _single_test_file_runner import run_all_tests_if_test_file_called
-
-if __name__ == "__main__":
-    run_all_tests_if_test_file_called()
-
 from utils import req, dict_must_contain
-
 
 def test_item_state_check_and_uncheck():
     # Setup: fresh checklist with two items
@@ -40,7 +34,6 @@ def test_item_state_check_and_uncheck():
 
     # Clean up
     req(f"api/checklist/{cl_id}", "delete")
-
 
 def test_item_state_reflected_in_item_list():
     """Checking an item is visible when listing items."""

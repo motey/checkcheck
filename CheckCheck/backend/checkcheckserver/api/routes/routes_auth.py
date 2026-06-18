@@ -364,6 +364,7 @@ async def auth_oidc_callback(
             display_name=synced.display_name,
             email=synced.email,
             roles=synced.roles,
+            oidc_groups=synced.oidc_groups,
         )
         user = await user_crud.update(user_update=update, user_id=user.id)
     user_auth = await user_auth_crud.create(

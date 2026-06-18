@@ -36,6 +36,8 @@ class SyncNotification(BaseTable, table=True):
         "checklist_created",
         "checklist_deleted",
         "checklist_label",
+        "share_added",
+        "share_removed",
     ] = Field(default=None, sa_type=String)
 
 

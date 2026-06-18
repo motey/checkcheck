@@ -90,8 +90,10 @@ class CheckListPositionCRUD(
         raise_exception_if_none: Exception = None,
     ) -> Optional[CheckListPosition]:
         query = select(CheckListPosition).where(
-            CheckListPosition.checklist_id == checklist_id
-            and CheckListPosition.user_id == user_id
+            and_(
+                CheckListPosition.checklist_id == checklist_id,
+                CheckListPosition.user_id == user_id,
+            )
         )
         results = await self.session.exec(statement=query)
         result_item = results.unique().one_or_none()

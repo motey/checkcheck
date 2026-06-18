@@ -78,6 +78,11 @@ class UserUpdate(UserBase, table=False):
 
 class UserUpdateByAdmin(UserUpdate, table=False):
     roles: List[str] = Field(default=[], sa_column=Column(JSON))
+    oidc_groups: List[str] = Field(
+        default=[],
+        sa_column=Column(JSON),
+        description="The OIDC groups the user belonged to on their last OIDC login. Empty for local users. Used to optionally restrict user search to shared groups.",
+    )
     deactivated: bool = Field(default=False)
     is_email_verified: bool = Field(default=False)
 
@@ -153,6 +158,7 @@ class UserCreate(_UserWithName, UserUpdateByAdmin, table=False):
         userdata["display_name"] = oidc_userinfo.name
         userdata["email"] = oidc_userinfo.email
         userdata["roles"] = roles
+        userdata["oidc_groups"] = oidc_userinfo.groups or []
         return cls(**userdata)
 
 

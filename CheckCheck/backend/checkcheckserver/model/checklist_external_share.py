@@ -25,7 +25,9 @@ config = Config()
 
 
 class CheckListExternalShareCreate(TimestampedModel, table=False):
-    checklist_id: uuid.UUID = Field(foreign_key="checklist.id", primary_key=True)
+    checklist_id: uuid.UUID = Field(
+        foreign_key="checklist.id", primary_key=True, ondelete="CASCADE"
+    )
     email: str = Field(foreign_key="user.id", primary_key=True)
     permission: Literal["write", "read"] = Field(
         default="read", description="Should the share allow to write into the checklist"

@@ -44,6 +44,8 @@ from checkcheckserver.api.auth.security import (
 
 from checkcheckserver.api.access import (
     user_has_checklist_access,
+    require_checklist_permission,
+    ChecklistAccessLevel,
     UserChecklistAccess,
 )
 from checkcheckserver.api.paginator import (
@@ -104,11 +106,13 @@ async def list_checklist_positions(
 )
 async def get_checklist_position(
     checklist_pos_crud: CheckListPositionCRUD = Depends(CheckListPositionCRUD.get_crud),
-    checklist_access: UserChecklistAccess = Security(user_has_checklist_access),
+    checklist_access: UserChecklistAccess = Security(
+        require_checklist_permission(ChecklistAccessLevel.view)
+    ),
     current_user: User = Depends(get_current_user),
 ) -> PaginatedResponse[CheckList]:
     result_item = await checklist_pos_crud.get(
-        user_id=current_user.user_name,
+        user_id=current_user.id,
         checklist_id=checklist_access.checklist.id,
     )
     return result_item
@@ -122,7 +126,9 @@ async def get_checklist_position(
 async def update_checklist_position(
     checklist_obj: CheckListPositionUpdate,
     checklist_pos_crud: CheckListPositionCRUD = Depends(CheckListPositionCRUD.get_crud),
-    checklist_access: UserChecklistAccess = Security(user_has_checklist_access),
+    checklist_access: UserChecklistAccess = Security(
+        require_checklist_permission(ChecklistAccessLevel.view)
+    ),
     sync_crud: SyncNotifiationCRUD = Depends(SyncNotifiationCRUD.get_crud),
     current_user: User = Depends(get_current_user),
 ) -> CheckListPosition:

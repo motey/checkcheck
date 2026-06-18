@@ -97,6 +97,31 @@ class UserCRUD(
 
         return user
 
+    async def search(
+        self,
+        query_str: str,
+        exclude_user_id: Optional[UUID] = None,
+        limit: int = 20,
+    ) -> Sequence[User]:
+        """Case-insensitive match on user_name or display_name, for picking a
+        share target. Excludes deactivated users and (optionally) the caller.
+        Deliberately does NOT match on email to avoid address enumeration."""
+        from sqlmodel import col
+
+        needle = f"%{query_str}%"
+        statement = select(User).where(
+            User.deactivated == False,
+            or_(
+                col(User.user_name).ilike(needle),
+                col(User.display_name).ilike(needle),
+            ),
+        )
+        if exclude_user_id is not None:
+            statement = statement.where(User.id != exclude_user_id)
+        statement = statement.limit(limit)
+        results = await self.session.exec(statement=statement)
+        return results.all()
+
     async def get_by_user_name(
         self,
         user_name: str,

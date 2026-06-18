@@ -1,11 +1,5 @@
-from _single_test_file_runner import run_all_tests_if_test_file_called
-
-if __name__ == "__main__":
-    run_all_tests_if_test_file_called()
-
 from typing import List, Dict
 from utils import req, dict_must_contain, list_contains_dict_that_must_contain
-
 
 def test_checklist_item_crud():
     # Create a fresh checklist to work with

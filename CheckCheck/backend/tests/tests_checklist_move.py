@@ -1,11 +1,5 @@
-from _single_test_file_runner import run_all_tests_if_test_file_called
-
-if __name__ == "__main__":
-    run_all_tests_if_test_file_called()
-
 import decimal
 from utils import req, dict_must_contain
-
 
 def test_checklist_move_under_and_above():
     """
@@ -51,7 +45,6 @@ def test_checklist_move_under_and_above():
     # Clean up
     for cl_id in (id1, id2, id3):
         req(f"api/checklist/{cl_id}", "delete")
-
 
 def test_checklist_move_under_places_below_target():
     """move/under always places the moved checklist at a lower index than the target."""

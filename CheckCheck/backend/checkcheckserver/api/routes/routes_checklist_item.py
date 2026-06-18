@@ -69,6 +69,8 @@ from checkcheckserver.api.auth.security import (
 
 from checkcheckserver.api.access import (
     user_has_checklist_access,
+    require_checklist_permission,
+    ChecklistAccessLevel,
     checklist_ids_with_access,
     UserChecklistAccess,
 )
@@ -165,7 +167,9 @@ async def list_items(
 async def list_checklist_items(
     checklist_id: uuid.UUID,
     checked: Optional[bool] = Query(None),
-    checklist_access: UserChecklistAccess = Security(user_has_checklist_access),
+    checklist_access: UserChecklistAccess = Security(
+        require_checklist_permission(ChecklistAccessLevel.view)
+    ),
     checklist_item_crud: CheckListItemCRUD = Depends(CheckListItemCRUD.get_crud),
     pagination: QueryParamsInterface = Depends(CheckListItemQueryParams),
     current_user: User = Depends(get_current_user),
@@ -193,7 +197,9 @@ async def list_checklist_items(
 )
 async def get_checklist_item(
     checklist_item_id: uuid.UUID,
-    checklist_access: UserChecklistAccess = Security(user_has_checklist_access),
+    checklist_access: UserChecklistAccess = Security(
+        require_checklist_permission(ChecklistAccessLevel.view)
+    ),
     checklist_item_crud: CheckListItemCRUD = Depends(CheckListItemCRUD.get_crud),
     current_user: User = Depends(get_current_user),
 ) -> CheckListItemRead:
@@ -213,7 +219,9 @@ async def get_checklist_item(
 )
 async def create_checklist_item(
     checklist_item_create: CheckListItemCreateAPI,
-    checklist_access: UserChecklistAccess = Security(user_has_checklist_access),
+    checklist_access: UserChecklistAccess = Security(
+        require_checklist_permission(ChecklistAccessLevel.edit)
+    ),
     checklist_item_crud: CheckListItemCRUD = Depends(CheckListItemCRUD.get_crud),
     checklist_item_pos_crud: CheckListItemPositionCRUD = Depends(
         CheckListItemPositionCRUD.get_crud
@@ -279,7 +287,9 @@ async def create_checklist_item(
 async def update_checklist_item(
     checklist_item_id: uuid.UUID,
     checklist_item_update: CheckListItemUpdate,
-    checklist_access: UserChecklistAccess = Security(user_has_checklist_access),
+    checklist_access: UserChecklistAccess = Security(
+        require_checklist_permission(ChecklistAccessLevel.edit)
+    ),
     checklist_item_crud: CheckListItemCRUD = Depends(CheckListItemCRUD.get_crud),
     sync_crud: SyncNotifiationCRUD = Depends(SyncNotifiationCRUD.get_crud),
     current_user: User = Depends(get_current_user),
@@ -316,7 +326,9 @@ async def update_checklist_item(
 )
 async def delete_checklist_item(
     checklist_item_id: uuid.UUID,
-    checklist_access: UserChecklistAccess = Security(user_has_checklist_access),
+    checklist_access: UserChecklistAccess = Security(
+        require_checklist_permission(ChecklistAccessLevel.edit)
+    ),
     checklist_item_crud: CheckListItemCRUD = Depends(CheckListItemCRUD.get_crud),
     sync_crud: SyncNotifiationCRUD = Depends(SyncNotifiationCRUD.get_crud),
     current_user: User = Depends(get_current_user),

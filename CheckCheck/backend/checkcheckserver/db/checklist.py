@@ -111,6 +111,24 @@ class CheckListCRUD(
         results = await self.session.exec(statement=query)
         return results.first()
 
+    async def set_owner(
+        self,
+        checklist_id: uuid.UUID,
+        new_owner_id: uuid.UUID,
+        raise_exception_if_none: Exception = None,
+    ) -> CheckList:
+        """Transfer ownership. ``owner_id`` is intentionally not part of
+        ``CheckListUpdate`` (clients must not reassign owners via PATCH), so this
+        is a dedicated method."""
+        checklist = await self.get(
+            id_=checklist_id, raise_exception_if_none=raise_exception_if_none
+        )
+        checklist.owner_id = new_owner_id
+        self.session.add(checklist)
+        await self.session.commit()
+        await self.session.refresh(checklist)
+        return checklist
+
     async def list_access_ids(
         self,
         user_id: uuid.UUID,

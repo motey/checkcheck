@@ -1,8 +1,3 @@
-from _single_test_file_runner import run_all_tests_if_test_file_called
-
-if __name__ == "__main__":
-    run_all_tests_if_test_file_called()
-
 from typing import List, Dict
 from utils import (
     req,
@@ -13,12 +8,10 @@ from utils import (
 )
 from statics import ADMIN_USER_EMAIL, ADMIN_USER_NAME, TEST_USER_NAME, TEST_USER_PW
 
-
 def _get_user_id(username: str) -> str:
     res = req("api/user", q={"incl_deactivated": True})
     user = find_first_dict_in_list(res["items"], {"user_name": username})
     return user["id"]
-
 
 def test_user_me():
     res = req("api/user/me")
@@ -27,7 +20,6 @@ def test_user_me():
         {"email": ADMIN_USER_EMAIL, "user_name": ADMIN_USER_NAME},
         exception_dict_identifier="user/me",
     )
-
 
 def test_user_create_with_no_password():
     res = req(
@@ -43,7 +35,6 @@ def test_user_create_with_no_password():
     if res != {"detail": "User allready exists"}:
         dict_must_contain(res, required_keys=["created_at", "roles", "id"])
 
-
 def test_duplicate_username_rejected():
     import requests as _requests
     try:
@@ -54,7 +45,6 @@ def test_duplicate_username_rejected():
             f"Expected 4xx for duplicate user, got {err.response.status_code}"
         )
 
-
 def test_user_list_includes_admin():
     res = req("api/user", q={"incl_deactivated": True})
     list_contains_dict_that_must_contain(
@@ -62,7 +52,6 @@ def test_user_list_includes_admin():
         {"email": ADMIN_USER_EMAIL, "user_name": ADMIN_USER_NAME},
         exception_dict_identifier="user list (admin)",
     )
-
 
 def test_set_other_user_password_as_admin():
     """Admin can set another user's password via PUT /user/{id}/password."""
@@ -72,7 +61,6 @@ def test_set_other_user_password_as_admin():
         "put",
         f={"new_password": TEST_USER_PW, "new_password_repeated": TEST_USER_PW},
     )
-
 
 def test_role_update_persists():
     """PATCH /user/{id} must actually persist role changes (regression guard)."""

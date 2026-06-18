@@ -1,10 +1,4 @@
-from _single_test_file_runner import run_all_tests_if_test_file_called
-
-if __name__ == "__main__":
-    run_all_tests_if_test_file_called()
-
 from utils import req, dict_must_contain, list_contains_dict_that_must_contain
-
 
 def test_checklist_position_endpoints():
     current_list_count = req("api/checklist")["total_count"]
