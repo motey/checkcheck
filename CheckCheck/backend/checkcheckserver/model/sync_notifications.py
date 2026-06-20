@@ -2,7 +2,7 @@ from typing import List, Optional, Literal
 from pydantic import BaseModel
 import uuid
 import time
-from sqlmodel import Field, String
+from sqlmodel import Field, String, Column, JSON
 
 from checkcheckserver.model._base_model import BaseTable
 
@@ -39,6 +39,17 @@ class SyncNotification(BaseTable, table=True):
         "share_added",
         "share_removed",
     ] = Field(default=None, sa_type=String)
+    target_user_ids: Optional[List[str]] = Field(
+        default=None,
+        sa_column=Column(JSON),
+        description=(
+            "Explicit delivery targets (user ids as strings), captured at emit "
+            "time. Used for events that destroy the rows target resolution relies "
+            "on — deleting a checklist or revoking a collaborator — where resolving "
+            "from live DB state would yield the wrong set (or nobody). When None, "
+            "targets are resolved dynamically from owner + current collaborators."
+        ),
+    )
 
 
 class SyncNotificationPackage(BaseModel):

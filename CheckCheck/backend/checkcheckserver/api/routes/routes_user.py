@@ -115,15 +115,23 @@ async def search_users(
         if provider is not None and provider.RESTRICT_USER_SEARCH_TO_OWN_GROUPS:
             restrict_to_groups = True
 
+    # When restricting to shared groups we filter in Python *after* the query, so
+    # the DB-level limit must not pre-truncate matches that survive the filter —
+    # otherwise non-group users in the first ``limit`` rows can crowd out (or even
+    # zero out) the valid results. Over-fetch, then filter, then truncate.
+    # (The proper fix is a SQL-side JSON intersection, but that is dialect-specific
+    # for the JSON ``oidc_groups`` column; this bounded over-fetch is portable and
+    # is plenty for a search box gated by a 2-char minimum query.)
+    fetch_limit = min(limit * 10, 500) if restrict_to_groups else limit
     candidates = await user_crud.search(
-        query_str=q, exclude_user_id=current_user.id, limit=limit
+        query_str=q, exclude_user_id=current_user.id, limit=fetch_limit
     )
 
     if restrict_to_groups:
         caller_groups = set(current_user.oidc_groups or [])
         candidates = [
             u for u in candidates if caller_groups & set(u.oidc_groups or [])
-        ]
+        ][:limit]
 
     return [
         UserSearchResult(

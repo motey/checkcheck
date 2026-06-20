@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "CheckCheck REST API",
-    "version": "0.1.dev47+ga91abbb.d20260618"
+    "version": "0.1.dev49+g0d7301f.d20260620"
   },
   "paths": {
     "/api/health": {
@@ -5363,6 +5363,21 @@
               "share_removed"
             ],
             "title": "Upd Prop"
+          },
+          "target_user_ids": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target User Ids",
+            "description": "Explicit delivery targets (user ids as strings), captured at emit time. Used for events that destroy the rows target resolution relies on \u2014 deleting a checklist or revoking a collaborator \u2014 where resolving from live DB state would yield the wrong set (or nobody). When None, targets are resolved dynamically from owner + current collaborators."
           }
         },
         "type": "object",

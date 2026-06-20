@@ -178,7 +178,15 @@ async def _sqlite_stream(request: Request, user: User):
     _sqlite_clients.append((queue, user, request))
     try:
         while not await request.is_disconnected():
-            data = await queue.get()
+            try:
+                # Bounded wait so a disconnected client is noticed promptly via
+                # the loop's is_disconnected() check, instead of the coroutine
+                # blocking on queue.get() forever (which keeps the connection
+                # "active" and stalls graceful shutdown). Mirrors the Postgres
+                # path; no keepalive is emitted since SQLite is dev-only.
+                data = await asyncio.wait_for(queue.get(), timeout=5)
+            except asyncio.TimeoutError:
+                continue
             if data is None:  # shutdown signal
                 break
             yield data
@@ -203,7 +211,12 @@ async def _sqlite_drain():
             continue
 
         # Fan out to all connected clients that are in the target set.
-        payload = f"data: {noti.notification.model_dump_json()}\n\n"
+        # target_user_ids is a server-side routing detail (and lists other
+        # users' ids) — never ship it to the client; this also keeps the SSE
+        # payload identical to the Postgres path.
+        payload = (
+            f"data: {noti.notification.model_dump_json(exclude={'target_user_ids'})}\n\n"
+        )
         for queue, user, _ in list(_sqlite_clients):
             if user.id in noti.target_user_ids:
                 await queue.put(payload)

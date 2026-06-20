@@ -25,6 +25,12 @@ class SyncNotifiationCRUD(
     )
 ):
 
+    async def resolve_target_user_ids(self, cl_id: uuid.UUID) -> List[uuid.UUID]:
+        """Public wrapper so callers can capture the target set *before* a
+        delete mutates the rows it is resolved from (see the delete flows in
+        routes_checklist / routes_checklist_share)."""
+        return await self._resolve_target_user_ids(cl_id)
+
     async def _resolve_target_user_ids(self, cl_id: uuid.UUID) -> List[uuid.UUID]:
         owner_res = await self.session.exec(
             select(CheckList.owner_id).where(CheckList.id == cl_id)
@@ -50,7 +56,10 @@ class SyncNotifiationCRUD(
         if noti is None:
             return None
 
-        target_ids = await self._resolve_target_user_ids(noti.cl_id)
+        if noti.target_user_ids is not None:
+            target_ids = [uuid.UUID(uid) for uid in noti.target_user_ids]
+        else:
+            target_ids = await self._resolve_target_user_ids(noti.cl_id)
 
         await self.session.exec(
             delete(SyncNotification).where(SyncNotification.id == noti.id)
@@ -58,9 +67,25 @@ class SyncNotifiationCRUD(
         await self.session.commit()
         return SyncNotificationPackage(target_user_ids=target_ids, notification=noti)
 
-    async def create(self, noti: SyncNotification):
+    async def create(
+        self,
+        noti: SyncNotification,
+        target_user_ids: Optional[List[uuid.UUID]] = None,
+    ):
+        """Emit a sync notification.
+
+        ``target_user_ids`` explicitly pins who should receive it. Pass it for
+        events that delete the rows target resolution relies on (deleting a
+        checklist, revoking/leaving a share) — there the live DB state no longer
+        identifies the right recipients. When omitted, targets are resolved
+        dynamically from the checklist's owner + current collaborators.
+        """
         if config.db_backend == DbBackend.POSTGRES:
-            target_ids = await self._resolve_target_user_ids(noti.cl_id)
+            target_ids = (
+                target_user_ids
+                if target_user_ids is not None
+                else await self._resolve_target_user_ids(noti.cl_id)
+            )
             payload = json.dumps({
                 "timestamp": noti.timestamp,
                 "cl_id": str(noti.cl_id),
@@ -79,5 +104,9 @@ class SyncNotifiationCRUD(
             # A (cl_id, cli_id, upd_prop) upsert would silently drop updates
             # for different items sharing the same upd_prop (e.g. two items
             # moved in rapid succession), so we do a plain INSERT instead.
+            # Explicit targets are persisted on the row because the drain loop
+            # resolves recipients lazily, long after the source rows are gone.
+            if target_user_ids is not None:
+                noti.target_user_ids = [str(uid) for uid in target_user_ids]
             self.session.add(noti)
             await self.session.commit()

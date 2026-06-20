@@ -95,6 +95,32 @@ Route → required level mapping (the audit in Phase 2 makes this concrete):
       which passed `user_name` as `user_id` (only "worked" because of that same bug).
       Covered by `test_checklist_position_is_per_user_on_shared_card`.
 
+### Sync fan-out fixes (found on bug review) ✅ DONE
+The delete flows resolved their notification recipients from *live* DB state via
+`SyncNotifiationCRUD._resolve_target_user_ids`, but they did so **after** deleting the
+rows that identify those recipients — so the wrong users (or nobody) were notified.
+- [x] Added `SyncNotification.target_user_ids` (nullable JSON) + migration `0006`, and an
+      optional `target_user_ids` arg on `SyncNotifiationCRUD.create` (plus public
+      `resolve_target_user_ids`). When set, delivery is pinned to that captured set; the
+      SQLite drain honours the stored targets, Postgres puts them in the `pg_notify` payload.
+      `target_user_ids` is stripped from the SSE payload sent to clients.
+- [x] **Owner deletes a shared checklist** — was notifying *nobody* (checklist +
+      collaborators already gone → empty target set). Now captures `owner + collaborators`
+      before deletion so every client gets `checklist_deleted`.
+- [x] **Collaborator "leaves" a card** — was broadcasting `checklist_deleted` to the owner
+      and remaining collaborators (whose card still exists). Now the leaver gets
+      `checklist_deleted` (pinned) and everyone else gets `share_removed`.
+- [x] **Owner revokes a share** — the removed user was excluded from their own removal.
+      Now the removed user is pinned for `checklist_deleted`; others get `share_removed`.
+- [x] **User search group restriction** applied the DB `limit` *before* the Python
+      `oidc_groups` intersection, so OIDC-restricted callers could get too few / zero
+      results. Now over-fetches (bounded) then filters then truncates.
+- [x] SQLite SSE stream used a bare `await queue.get()` and never re-checked client
+      disconnect; added a bounded `wait_for` so disconnects are noticed promptly (mirrors
+      the Postgres path) — also keeps graceful shutdown fast.
+- [x] Tests in `tests/tests_sharing_sync.py` connect a real SSE client to `/api/sync` and
+      assert who receives which `upd_prop` for each delete flow (all three bugs above).
+
 ### Phase 5 — Public URL share  ⏸️ DEFERRED TO A DEDICATED SESSION
 Public/anonymous sharing is a larger, riskier slice (new anonymous auth surface +
 sync changes) and is intentionally **not** part of this build. Implement it on its own
@@ -112,14 +138,19 @@ See **"Phase 5 design (deferred)"** near the end of this document.
 - [x] Ownership transfer: new owner can manage shares; old owner demoted to `edit` (keeps
       access, loses owner powers).
 - [x] User search finds users, never leaks email, enforces min query length.
+- [x] Share-management authorization guards (added on review): a non-owner editor cannot
+      add shares (no privilege escalation); a non-owner cannot revoke *another*
+      collaborator (only owner-or-self); cannot share with the owner (400) or an unknown
+      user (404); transfer-ownership rejects the current owner (400) and unknown users (404).
 - _(Config-off and public-link tests belong to the deferred Phase 5 / a follow-up.)_
 
-Full suite: **67 passed** on both `./run_backend_tests_with_sqlite.sh` and
-`./run_backend_tests_with_postgres.sh`.
+Full suite: **74 passed** on `./run_backend_tests_with_sqlite.sh`
+(67 baseline + 4 authorization-guard tests + 3 SSE fan-out regression tests).
+Sharing + sync suites also green on `./run_backend_tests_with_postgres.sh`.
 
 ---
 
-## Phase 2 (future ideas — not in the initial build)
+## Stage 2 (future ideas — not in the initial build)
 
 These are deliberately deferred. Documented here so they're not lost.
 

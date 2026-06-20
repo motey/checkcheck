@@ -282,6 +282,100 @@ def test_transfer_ownership_demotes_previous_owner():
     dict_must_contain(entry, {"permission": "edit"})
 
 
+# ── share-management authorization guards ────────────────────────────────────
+
+
+def test_non_owner_cannot_manage_shares():
+    """Only the owner may add/update shares. An 'edit' collaborator is not an
+    owner and must be rejected when trying to share the card with someone else —
+    otherwise any editor could grant access (privilege escalation)."""
+    editor_token = _make_user_token("share-editor-noescalate")
+    editor_id = _user_id(editor_token)
+    target_token = _make_user_token("share-escalation-target")
+    target_id = _user_id(target_token)
+
+    checklist_id = _create_checklist("NoEscalation")
+    _share(checklist_id, editor_id, "edit")
+
+    # editor tries to share the card with a third user -> 403 (owner-only)
+    req(
+        f"api/checklist/{checklist_id}/shares/{target_id}",
+        "put",
+        b={"permission": "edit"},
+        access_token=editor_token,
+        expected_http_code=403,
+    )
+    # the third user genuinely got no access
+    req(f"api/checklist/{checklist_id}", access_token=target_token, expected_http_code=401)
+
+
+def test_collaborator_cannot_revoke_another_collaborator():
+    """delete_share lets the owner revoke anyone and lets a user revoke
+    *themselves*, but a non-owner must not be able to remove a *different*
+    collaborator's access."""
+    collab_a_token = _make_user_token("share-revoke-a")
+    collab_a_id = _user_id(collab_a_token)
+    collab_b_token = _make_user_token("share-revoke-b")
+    collab_b_id = _user_id(collab_b_token)
+
+    checklist_id = _create_checklist("RevokeGuard")
+    _share(checklist_id, collab_a_id, "edit")
+    _share(checklist_id, collab_b_id, "edit")
+
+    # A tries to kick B -> 403, and B still has access afterwards
+    req(
+        f"api/checklist/{checklist_id}/shares/{collab_b_id}",
+        "delete",
+        access_token=collab_a_token,
+        expected_http_code=403,
+    )
+    req(f"api/checklist/{checklist_id}", access_token=collab_b_token, expected_http_code=200)
+
+
+def test_cannot_share_with_owner_or_unknown_user():
+    """upsert_share rejects adding the owner as a collaborator (400) and adding a
+    user that does not exist (404)."""
+    checklist_id = _create_checklist("UpsertValidation")
+    owner_id = req("api/user/me")["id"]
+
+    # owner already has full access -> 400
+    req(
+        f"api/checklist/{checklist_id}/shares/{owner_id}",
+        "put",
+        b={"permission": "edit"},
+        expected_http_code=400,
+    )
+    # unknown user id -> 404
+    req(
+        f"api/checklist/{checklist_id}/shares/00000000-0000-0000-0000-000000000000",
+        "put",
+        b={"permission": "edit"},
+        expected_http_code=404,
+    )
+
+
+def test_transfer_ownership_validation():
+    """transfer-ownership rejects transferring to the current owner (400) and to
+    a non-existent user (404)."""
+    checklist_id = _create_checklist("TransferValidation")
+    owner_id = req("api/user/me")["id"]
+
+    # transferring to the current owner is a no-op error
+    req(
+        f"api/checklist/{checklist_id}/transfer-ownership",
+        "post",
+        b={"new_owner_id": owner_id},
+        expected_http_code=400,
+    )
+    # transferring to a user that does not exist
+    req(
+        f"api/checklist/{checklist_id}/transfer-ownership",
+        "post",
+        b={"new_owner_id": "00000000-0000-0000-0000-000000000000"},
+        expected_http_code=404,
+    )
+
+
 # ── user search ──────────────────────────────────────────────────────────────
 
 

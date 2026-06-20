@@ -235,6 +235,14 @@ async def delete_share(
         checklist_id=checklist_id, user_id=user_id
     )
     await checklist_position_crud.delete(checklist_id=checklist_id, user_id=user_id)
+    # The removed user must drop the card from their view. Their collaborator row
+    # is already gone, so pin them explicitly — dynamic resolution would skip the
+    # one person who most needs to hear about it.
+    await sync_crud.create(
+        SyncNotification(cl_id=checklist_id, upd_prop="checklist_deleted"),
+        target_user_ids=[user_id],
+    )
+    # Owner + remaining collaborators just see the share set change.
     await sync_crud.create(
         SyncNotification(cl_id=checklist_id, upd_prop="share_removed")
     )

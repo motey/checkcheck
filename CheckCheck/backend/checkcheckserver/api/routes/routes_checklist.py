@@ -242,16 +242,31 @@ async def delete_checklist(
     sync_crud: SyncNotifiationCRUD = Depends(SyncNotifiationCRUD.get_crud),
 ):
     if checklist_access.user_is_collaborator():
+        leaver_id = checklist_access.user.id
         await checklist_position_crud.delete(
-            user_id=checklist_access.user.id, checklist_id=checklist_id
+            user_id=leaver_id, checklist_id=checklist_id
         )
         await checklist_collaborator_crud.delete(
-            user_id=checklist_access.user.id, checklist_id=checklist_id
+            user_id=leaver_id, checklist_id=checklist_id
         )
-        await sync_crud.create(SyncNotification(cl_id=checklist_id, upd_prop="checklist_deleted"))
+        # Only the leaver should drop the card from their view. Pin the target
+        # explicitly: by now their collaborator row is gone, so dynamic
+        # resolution would exclude them and notify everyone *else* instead.
+        await sync_crud.create(
+            SyncNotification(cl_id=checklist_id, upd_prop="checklist_deleted"),
+            target_user_ids=[leaver_id],
+        )
+        # Everyone still on the card sees the collaborator set changed.
+        await sync_crud.create(
+            SyncNotification(cl_id=checklist_id, upd_prop="share_removed")
+        )
         return
 
     if checklist_access.user_is_owner():
+        # Capture who to notify *before* deleting the rows that identify them —
+        # afterwards the checklist and its collaborators are gone and the target
+        # set would resolve to nobody.
+        target_user_ids = await sync_crud.resolve_target_user_ids(checklist_id)
         await checklist_collaborator_crud.delete(checklist_id=checklist_id)
         await checklist_position_crud.delete(checklist_id=checklist_id)
         await checklist_crud.delete(
@@ -261,4 +276,7 @@ async def delete_checklist(
                 detail=f"No checklist with id '{checklist_id}'",
             ),
         )
-        await sync_crud.create(SyncNotification(cl_id=checklist_id, upd_prop="checklist_deleted"))
+        await sync_crud.create(
+            SyncNotification(cl_id=checklist_id, upd_prop="checklist_deleted"),
+            target_user_ids=target_user_ids,
+        )
