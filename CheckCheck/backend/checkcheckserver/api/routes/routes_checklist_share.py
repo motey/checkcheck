@@ -6,12 +6,13 @@ ownership. Public/anonymous URL sharing is a separate, deferred effort (see
 CARD_SHARING_PLAN.md, "Phase 5 design (deferred)").
 """
 
+import datetime
 import uuid
 import decimal
 from typing import List, Optional, Annotated
 
 from fastapi import APIRouter, Depends, Security, HTTPException, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from checkcheckserver.config import Config
 from checkcheckserver.log import get_logger
@@ -34,6 +35,11 @@ from checkcheckserver.db.checklist_position import (
     CheckListPositionCRUD,
     CheckListPositionCreate,
 )
+from checkcheckserver.model.checklist_public_share import (
+    CheckListPublicShare,
+    CheckListPublicShareCreate,
+)
+from checkcheckserver.db.checklist_public_share import CheckListPublicShareCRUD
 from checkcheckserver.db.sync_notification import SyncNotifiationCRUD
 from checkcheckserver.model.sync_notifications import SyncNotification
 
@@ -52,6 +58,16 @@ async def require_sharing_enabled() -> None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Card sharing is disabled on this server.",
+        )
+
+
+async def require_public_links_enabled() -> None:
+    """Disable the public-link endpoints when either the master sharing switch or
+    the public-links switch is off."""
+    if not (config.SHARING_ENABLED and config.SHARING_PUBLIC_LINKS_ENABLED):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Public share links are disabled on this server.",
         )
 
 
@@ -313,3 +329,198 @@ async def transfer_ownership(
         new_owner_id=new_owner_id,
         previous_owner_id=old_owner_id,
     )
+
+
+# ── Public URL links (Phase 5) ───────────────────────────────────────────────
+#
+# Owner-only management of anonymous share links. The anonymous *consumption*
+# surface lives in routes_checklist_public.py. The token is a capability — it is
+# returned exactly once (on create) and never echoed by the list endpoint.
+
+
+def _to_naive_utc(
+    value: Optional[datetime.datetime],
+) -> Optional[datetime.datetime]:
+    """Normalise an incoming ``expires_at`` to naive UTC.
+
+    The model stores expiry as a naive-UTC ``TIMESTAMP WITHOUT TIME ZONE`` and the
+    resolver compares it against a naive ``utcnow()``. A client (e.g. JS
+    ``Date.toISOString()``) typically sends a tz-aware value like
+    ``"2999-01-01T00:00:00Z"``; left as-is that both fails the asyncpg insert on
+    Postgres (tz-aware into a tz-naive column → 500) and would make the resolver's
+    naive/aware comparison raise. Convert to UTC and drop the tzinfo so storage
+    and comparison stay consistent across backends.
+    """
+    if value is not None and value.tzinfo is not None:
+        return value.astimezone(datetime.timezone.utc).replace(tzinfo=None)
+    return value
+
+
+class PublicLinkCreateRequest(BaseModel):
+    permission: SharePermission = Field(
+        default=SharePermission.view,
+        description="What an anonymous visitor holding this link may do.",
+    )
+    expires_at: Optional[datetime.datetime] = Field(
+        default=None,
+        description="Optional naive-UTC expiry. Null = never expires.",
+    )
+
+    _normalize_expires_at = field_validator("expires_at")(
+        staticmethod(_to_naive_utc)
+    )
+
+
+class PublicLinkUpdateRequest(BaseModel):
+    permission: Optional[SharePermission] = None
+    enabled: Optional[bool] = None
+    expires_at: Optional[datetime.datetime] = Field(
+        default=None,
+        description="Set to null explicitly to clear the expiry.",
+    )
+
+    _normalize_expires_at = field_validator("expires_at")(
+        staticmethod(_to_naive_utc)
+    )
+
+
+class PublicLinkRead(BaseModel):
+    """A public link *without* its token (safe to list)."""
+
+    id: uuid.UUID
+    checklist_id: uuid.UUID
+    permission: SharePermission
+    enabled: bool
+    expires_at: Optional[datetime.datetime] = None
+    created_at: datetime.datetime
+
+
+class PublicLinkCreateResult(PublicLinkRead):
+    """Returned only by create — the one and only time the token is exposed."""
+
+    token: str = Field(
+        description="The secret capability. Shown once; store it now — it is never returned again.",
+    )
+
+
+def _to_public_link_read(link: CheckListPublicShare) -> PublicLinkRead:
+    return PublicLinkRead(
+        id=link.id,
+        checklist_id=link.checklist_id,
+        permission=link.permission,
+        enabled=link.enabled,
+        expires_at=link.expires_at,
+        created_at=link.created_at,
+    )
+
+
+async def _get_owned_link_or_404(
+    link_id: uuid.UUID,
+    checklist_id: uuid.UUID,
+    public_share_crud: CheckListPublicShareCRUD,
+) -> CheckListPublicShare:
+    """Load a link and confirm it belongs to the checklist in the path. 404 if
+    the link does not exist or belongs to a different card (no cross-card leak)."""
+    link = await public_share_crud.get(id_=link_id)
+    if link is None or link.checklist_id != checklist_id:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"No public link '{link_id}' on this checklist.",
+        )
+    return link
+
+
+@fast_api_checklist_share_router.post(
+    "/checklist/{checklist_id}/public-links",
+    response_model=PublicLinkCreateResult,
+    dependencies=[Depends(require_public_links_enabled)],
+    description="Create a public share link for the checklist. Returns the secret token once. Owner only.",
+)
+async def create_public_link(
+    body: PublicLinkCreateRequest,
+    checklist_access: UserChecklistAccess = Security(
+        require_checklist_permission(ChecklistAccessLevel.owner)
+    ),
+    public_share_crud: CheckListPublicShareCRUD = Depends(
+        CheckListPublicShareCRUD.get_crud
+    ),
+) -> PublicLinkCreateResult:
+    link = await public_share_crud.create(
+        CheckListPublicShareCreate(
+            checklist_id=checklist_access.checklist.id,
+            permission=body.permission,
+            expires_at=body.expires_at,
+            created_by=checklist_access.user.id,
+        )
+    )
+    return PublicLinkCreateResult(
+        token=link.token,
+        **_to_public_link_read(link).model_dump(),
+    )
+
+
+@fast_api_checklist_share_router.get(
+    "/checklist/{checklist_id}/public-links",
+    response_model=List[PublicLinkRead],
+    dependencies=[Depends(require_public_links_enabled)],
+    description="List the checklist's public share links. Tokens are NOT included. Owner only.",
+)
+async def list_public_links(
+    checklist_access: UserChecklistAccess = Security(
+        require_checklist_permission(ChecklistAccessLevel.owner)
+    ),
+    public_share_crud: CheckListPublicShareCRUD = Depends(
+        CheckListPublicShareCRUD.get_crud
+    ),
+) -> List[PublicLinkRead]:
+    links = await public_share_crud.list_for_checklist(
+        checklist_id=checklist_access.checklist.id
+    )
+    return [_to_public_link_read(link) for link in links]
+
+
+@fast_api_checklist_share_router.patch(
+    "/checklist/{checklist_id}/public-links/{link_id}",
+    response_model=PublicLinkRead,
+    dependencies=[Depends(require_public_links_enabled)],
+    description="Update a public link (enable/disable, change level or expiry). Owner only.",
+)
+async def update_public_link(
+    link_id: uuid.UUID,
+    body: PublicLinkUpdateRequest,
+    checklist_access: UserChecklistAccess = Security(
+        require_checklist_permission(ChecklistAccessLevel.owner)
+    ),
+    public_share_crud: CheckListPublicShareCRUD = Depends(
+        CheckListPublicShareCRUD.get_crud
+    ),
+) -> PublicLinkRead:
+    link = await _get_owned_link_or_404(
+        link_id, checklist_access.checklist.id, public_share_crud
+    )
+    # The base update applies model_dump(exclude_unset=True), which distinguishes
+    # "not provided" from an explicit null (e.g. clearing expires_at), so only the
+    # fields the client actually sent are applied.
+    updated = await public_share_crud.update(update_obj=body, id_=link.id)
+    return _to_public_link_read(updated)
+
+
+@fast_api_checklist_share_router.delete(
+    "/checklist/{checklist_id}/public-links/{link_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[Depends(require_public_links_enabled)],
+    description="Revoke (delete) a public link. Owner only.",
+)
+async def delete_public_link(
+    link_id: uuid.UUID,
+    checklist_access: UserChecklistAccess = Security(
+        require_checklist_permission(ChecklistAccessLevel.owner)
+    ),
+    public_share_crud: CheckListPublicShareCRUD = Depends(
+        CheckListPublicShareCRUD.get_crud
+    ),
+):
+    link = await _get_owned_link_or_404(
+        link_id, checklist_access.checklist.id, public_share_crud
+    )
+    await public_share_crud.delete(id_=link.id)

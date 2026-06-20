@@ -144,11 +144,83 @@ label dimension.
       per caller in all three routes. Covered by
       `test_labels_are_per_user_on_shared_card` in `tests/tests_sharing.py`.
 
-### Phase 5 — Public URL share  ⏸️ DEFERRED TO A DEDICATED SESSION
-Public/anonymous sharing is a larger, riskier slice (new anonymous auth surface +
-sync changes) and is intentionally **not** part of this build. Implement it on its own
-branch in a focused session. The full design is captured below so no context is lost.
-See **"Phase 5 design (deferred)"** near the end of this document.
+### Phase 5 — Public URL share  ✅ IMPLEMENTED (automated tests deferred to a follow-up session)
+Built on its own in a focused session. Behaviour confirmed by a throwaway smoke run
+(deleted) + both existing suites green (80 passed on SQLite and Postgres). The
+**automated** Phase 5 tests (`tests/tests_sharing_public.py`) are written in a
+separate session — the cases are captured in `CARD_SHARING_PHASE5_TEST_NOTES.md`.
+
+Delivered:
+- [x] `CheckListPublicShare` model + CRUD (replaces the dead `CheckListExternalShare`
+      scaffold, which was never wired into the schema). Token = `secrets.token_urlsafe(32)`,
+      unique+indexed; never logged.
+- [x] Migration `0007`: create `checklist_public_share` + add `syncnotification.target_tokens`
+      (`sa.Uuid()` matches `create_all` on both backends; chains 0006 → single head 0007).
+- [x] Anonymous auth path in `api/access.py`: `AnonymousPrincipal` (id=None), an optional
+      `public_level` on `UserChecklistAccess`, `resolve_public_checklist_access(token)`
+      (404 on missing/disabled/expired/off — no card-existence leak),
+      `require_public_checklist_permission(level)`, and
+      `verify_item_belongs_to_public_checklist` (token-based IDOR guard).
+- [x] Owner-only link management in `routes_checklist_share.py` (gated by
+      `require_public_links_enabled`): `POST` (token returned once), `GET` (token redacted),
+      `PATCH`, `DELETE`.
+- [x] Anonymous data surface `routes_checklist_public.py` under `/public/checklist/{token}/...`
+      (registered in `routers_map.py`): GET card (owner's per-user position+labels), GET items,
+      PATCH state (check), POST/PATCH/DELETE item (edit). Existing authed routes untouched.
+- [x] Token-keyed sync: `target_tokens` on `SyncNotification`; `_resolve_target_tokens`
+      (active links); `create()` resolves tokens dynamically (so ordinary edits reach
+      anonymous viewers); `/sync?token=` registers an anonymous SSE client; both Postgres and
+      SQLite matchers deliver by `user.id` **or** token via `_principal_is_target`;
+      `target_tokens` stripped from the client payload.
+
+Known limitation (note for the test session): delete/revoke flows pin recipients by
+captured **user ids** only; active **tokens** are resolved dynamically, so after a cascade
+delete an anonymous viewer is not pushed `checklist_deleted` (their SSE just goes quiet).
+Acceptable for v1; revisit if anonymous delete-notification is desired.
+
+The original design is preserved below under **"Phase 5 design (deferred)"**.
+
+### Phase 6 — Join via public link (self-service collaborator)  📋 PLANNED
+A logged-in user who opens a public link can add the **same live card** to their own deck
+as a real collaborator at the link's level. This is **not** a copy/fork — User 2 ends up on
+the identical card, checking the same items as everyone else; the public link doubles as a
+**self-service invite**. (Replaces the abandoned "Copy to my account" Stage-2 idea — that
+forked the data, which is the opposite of what's wanted.)
+
+**Decisions (locked):**
+- Every active link is joinable at **its own level** (a `view` link → join as viewer). No
+  separate "invite" flag in v1 — any leaked link is a leaked seat at that level (acceptable
+  for the "drop it in the chat group" use case; an `allow_join` flag is the natural later
+  refinement if read-only-but-not-joinable links are ever needed).
+- **Idempotent**: if the caller is already the owner or a collaborator → no-op, and **never
+  downgrade** (joining a `view` link while already an `edit` collaborator keeps `edit`).
+
+**Endpoint:** `POST /api/public/checklist/{token}/join`
+- Lives in `routes_checklist_public.py` for URL grouping — but it is the **one authenticated
+  route** in that otherwise-anonymous file: `get_current_user` is **required** (you need an
+  account to own a deck slot). Logged-out → **401** ("log in to add this card").
+- Gated by `require_public_links_enabled` (same switch as the rest of public links).
+- Resolve the `token` → enabled, non-expired link → `checklist_id` + level (404 on
+  missing/disabled/expired, same as the read path — no card-existence leak).
+- Then reuse the existing `upsert_share` machinery: `CheckListCollaboratorCRUD.upsert(
+  checklist_id, current_user.id, permission=link.permission)` → `_ensure_position(...)` so the
+  card lands in their grid → emit `share_added` sync (reaches owner + collaborators + the new
+  joiner, so the owner sees the share list grow and the joiner's other devices update).
+- Returns the `CheckListApiWithSubObj` for the new collaborator (labels scoped to
+  `current_user` → empty until they add their own; position = the freshly-created one), so the
+  frontend drops it straight into the deck.
+
+**Reuse (no new table, no copy logic):** `_ensure_position`, `CheckListCollaboratorCRUD.upsert`,
+`CheckListPositionCRUD`, the `share_added` sync path, the token lookup
+(`CheckListPublicShareCRUD.get_by_token` + the enabled/expiry check from
+`resolve_public_checklist_access`). The only genuinely new behaviour is *a user granting
+themselves access via a capability* — which is exactly the invite-link model.
+
+Cleanly dissolves the earlier "logged-in user on a public link gets no SSE" wrinkle: once they
+join they're a real collaborator and sync by `user.id`, so they never need the token stream.
+
+Test cases captured in `CARD_SHARING_PHASE5_TEST_NOTES.md` (written in the same follow-up
+session as the Phase 5 tests).
 
 ### Tests — `tests/tests_sharing.py` (pytest, runs on SQLite + Postgres) ✅ DONE
 - [x] Permission enforcement: view cannot check/edit, check can toggle but not edit text,
@@ -183,8 +255,10 @@ These are deliberately deferred. Documented here so they're not lost.
   simpler); this is the natural upgrade for less-trusted multi-tenant deployments.
 - **Expiring + password-protected public links** — `expires_at` is already in the model;
   add an optional bcrypt-hashed passphrase prompt before a public link resolves.
-- **"Copy to my account" for public viewers** — let an anonymous/other user clone a public
-  card into their own account (deep copy of checklist + items) instead of collaborating.
+- **A real "copy / duplicate card"** (distinct from join) — a deep-copy primitive
+  (`deep_copy_checklist`) for genuinely *forking* a card into an independent owned copy
+  (templates, "duplicate my card"). Deliberately **not** the public-link flow — that is
+  Phase 6 "join via link" (same live card), which is what the chat-group use case wants.
 - **Share audit trail** — `created_by` + `created_at` on every share (collaborator and
   public), plus an optional activity log of who changed what level when.
 - **Notifications on share** — notify a user (in-app / email) when a card is shared with

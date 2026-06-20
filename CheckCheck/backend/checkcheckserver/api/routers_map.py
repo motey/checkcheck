@@ -64,6 +64,16 @@ def mount_fast_api_routers(fastapi_app: FastAPI):
         fast_api_checklist_share_router, tags=["Checklist Sharing"], prefix="/api"
     )
 
+    from checkcheckserver.api.routes.routes_checklist_public import (
+        fast_api_checklist_public_router,
+    )
+
+    fastapi_app.include_router(
+        fast_api_checklist_public_router,
+        tags=["Checklist Public Share"],
+        prefix="/api",
+    )
+
     from checkcheckserver.api.routes.routes_checklist_position import (
         fast_api_checklist_position_router,
     )

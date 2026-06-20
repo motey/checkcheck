@@ -50,8 +50,19 @@ class SyncNotification(BaseTable, table=True):
             "targets are resolved dynamically from owner + current collaborators."
         ),
     )
+    target_tokens: Optional[List[str]] = Field(
+        default=None,
+        sa_column=Column(JSON),
+        description=(
+            "Public-share tokens of connected anonymous SSE clients to deliver "
+            "this notification to (in addition to target_user_ids). Lets live "
+            "updates reach logged-out viewers. When None, resolved dynamically "
+            "from the checklist's currently-active public links."
+        ),
+    )
 
 
 class SyncNotificationPackage(BaseModel):
     target_user_ids: List[uuid.UUID]
+    target_tokens: List[str] = []
     notification: SyncNotification

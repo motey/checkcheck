@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "CheckCheck REST API",
-    "version": "0.1.dev50+g79c30fd.d20260620"
+    "version": "0.1.dev51+g06295a7.d20260620"
   },
   "paths": {
     "/api/health": {
@@ -1898,6 +1898,636 @@
         }
       }
     },
+    "/api/checklist/{checklist_id}/public-links": {
+      "post": {
+        "tags": [
+          "Checklist Sharing"
+        ],
+        "summary": "Create Public Link",
+        "description": "Create a public share link for the checklist. Returns the secret token once. Owner only.",
+        "operationId": "create_public_link_api_checklist__checklist_id__public_links_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "checklist_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Checklist Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PublicLinkCreateRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicLinkCreateResult"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "Checklist Sharing"
+        ],
+        "summary": "List Public Links",
+        "description": "List the checklist's public share links. Tokens are NOT included. Owner only.",
+        "operationId": "list_public_links_api_checklist__checklist_id__public_links_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "checklist_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Checklist Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/PublicLinkRead"
+                  },
+                  "title": "Response List Public Links Api Checklist  Checklist Id  Public Links Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/checklist/{checklist_id}/public-links/{link_id}": {
+      "patch": {
+        "tags": [
+          "Checklist Sharing"
+        ],
+        "summary": "Update Public Link",
+        "description": "Update a public link (enable/disable, change level or expiry). Owner only.",
+        "operationId": "update_public_link_api_checklist__checklist_id__public_links__link_id__patch",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "link_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Link Id"
+            }
+          },
+          {
+            "name": "checklist_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Checklist Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PublicLinkUpdateRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicLinkRead"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Checklist Sharing"
+        ],
+        "summary": "Delete Public Link",
+        "description": "Revoke (delete) a public link. Owner only.",
+        "operationId": "delete_public_link_api_checklist__checklist_id__public_links__link_id__delete",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "link_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Link Id"
+            }
+          },
+          {
+            "name": "checklist_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Checklist Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/public/checklist/{token}": {
+      "get": {
+        "tags": [
+          "Checklist Public Share"
+        ],
+        "summary": "Get Public Checklist",
+        "description": "Open a publicly shared checklist (anonymous). Renders with the owner's per-user settings.",
+        "operationId": "get_public_checklist_api_public_checklist__token__get",
+        "parameters": [
+          {
+            "name": "token",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Token"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CheckListApiWithSubObj"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/public/checklist/{token}/join": {
+      "post": {
+        "tags": [
+          "Checklist Public Share"
+        ],
+        "summary": "Join Public Checklist",
+        "description": "Add a publicly shared card to your own deck as a real collaborator at the link's level (the same live card \u2014 not a copy). Requires being logged in.",
+        "operationId": "join_public_checklist_api_public_checklist__token__join_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "token",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Token"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CheckListApiWithSubObj"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/public/checklist/{token}/item": {
+      "get": {
+        "tags": [
+          "Checklist Public Share"
+        ],
+        "summary": "List Public Checklist Items",
+        "description": "List the items of a publicly shared checklist (anonymous, view).",
+        "operationId": "list_public_checklist_items_api_public_checklist__token__item_get",
+        "parameters": [
+          {
+            "name": "token",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Token"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Specify the starting point for result sets/list",
+              "default": 0,
+              "title": "Offset"
+            },
+            "description": "Specify the starting point for result sets/list"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Specify the max amount of result items",
+              "default": 100,
+              "title": "Limit"
+            },
+            "description": "Specify the max amount of result items"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaginatedResponse_CheckListItemRead_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Checklist Public Share"
+        ],
+        "summary": "Create Public Checklist Item",
+        "description": "Create an item on a publicly shared checklist (anonymous, edit).",
+        "operationId": "create_public_checklist_item_api_public_checklist__token__item_post",
+        "parameters": [
+          {
+            "name": "token",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Token"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CheckListItemCreateAPI"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CheckListItemRead"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/public/checklist/{token}/item/{checklist_item_id}/state": {
+      "patch": {
+        "tags": [
+          "Checklist Public Share"
+        ],
+        "summary": "Set Public Checklist Item State",
+        "description": "Toggle an item's checked state on a publicly shared checklist (anonymous, check).",
+        "operationId": "set_public_checklist_item_state_api_public_checklist__token__item__checklist_item_id__state_patch",
+        "parameters": [
+          {
+            "name": "checklist_item_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Checklist Item Id"
+            }
+          },
+          {
+            "name": "token",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Token"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CheckListItemStateUpdate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CheckListItemStateWithoutChecklistID"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/public/checklist/{token}/item/{checklist_item_id}": {
+      "patch": {
+        "tags": [
+          "Checklist Public Share"
+        ],
+        "summary": "Update Public Checklist Item",
+        "description": "Edit an item's text on a publicly shared checklist (anonymous, edit).",
+        "operationId": "update_public_checklist_item_api_public_checklist__token__item__checklist_item_id__patch",
+        "parameters": [
+          {
+            "name": "checklist_item_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Checklist Item Id"
+            }
+          },
+          {
+            "name": "token",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Token"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CheckListItemUpdate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CheckListItemRead"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Checklist Public Share"
+        ],
+        "summary": "Delete Public Checklist Item",
+        "description": "Delete an item from a publicly shared checklist (anonymous, edit).",
+        "operationId": "delete_public_checklist_item_api_public_checklist__token__item__checklist_item_id__delete",
+        "parameters": [
+          {
+            "name": "checklist_item_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Checklist Item Id"
+            }
+          },
+          {
+            "name": "token",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Token"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "boolean",
+                  "title": "Response Delete Public Checklist Item Api Public Checklist  Token  Item  Checklist Item Id  Delete"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/position": {
       "get": {
         "tags": [
@@ -3606,6 +4236,31 @@
         "summary": "Sync Via Server Send Events",
         "description": "SSE stream that pushes sync notifications to the client.",
         "operationId": "sync_via_server_send_events_api_sync_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "token",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Public-share token for an anonymous (logged-out) subscriber.",
+              "title": "Token"
+            },
+            "description": "Public-share token for an anonymous (logged-out) subscriber."
+          }
+        ],
         "responses": {
           "200": {
             "description": "Each SSE message is a serialised SyncNotification.",
@@ -3616,13 +4271,18 @@
                 }
               }
             }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
           }
-        },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ]
+        }
       }
     },
     "/": {
@@ -5244,6 +5904,172 @@
         ],
         "title": "PaginatedResponse[User]"
       },
+      "PublicLinkCreateRequest": {
+        "properties": {
+          "permission": {
+            "$ref": "#/components/schemas/SharePermission",
+            "description": "What an anonymous visitor holding this link may do.",
+            "default": "view"
+          },
+          "expires_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expires At",
+            "description": "Optional naive-UTC expiry. Null = never expires."
+          }
+        },
+        "type": "object",
+        "title": "PublicLinkCreateRequest"
+      },
+      "PublicLinkCreateResult": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "checklist_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Checklist Id"
+          },
+          "permission": {
+            "$ref": "#/components/schemas/SharePermission"
+          },
+          "enabled": {
+            "type": "boolean",
+            "title": "Enabled"
+          },
+          "expires_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expires At"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "token": {
+            "type": "string",
+            "title": "Token",
+            "description": "The secret capability. Shown once; store it now \u2014 it is never returned again."
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "checklist_id",
+          "permission",
+          "enabled",
+          "created_at",
+          "token"
+        ],
+        "title": "PublicLinkCreateResult",
+        "description": "Returned only by create \u2014 the one and only time the token is exposed."
+      },
+      "PublicLinkRead": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "checklist_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Checklist Id"
+          },
+          "permission": {
+            "$ref": "#/components/schemas/SharePermission"
+          },
+          "enabled": {
+            "type": "boolean",
+            "title": "Enabled"
+          },
+          "expires_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expires At"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "checklist_id",
+          "permission",
+          "enabled",
+          "created_at"
+        ],
+        "title": "PublicLinkRead",
+        "description": "A public link *without* its token (safe to list)."
+      },
+      "PublicLinkUpdateRequest": {
+        "properties": {
+          "permission": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SharePermission"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "enabled": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Enabled"
+          },
+          "expires_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expires At",
+            "description": "Set to null explicitly to clear the expiry."
+          }
+        },
+        "type": "object",
+        "title": "PublicLinkUpdateRequest"
+      },
       "SharePermission": {
         "type": "string",
         "enum": [
@@ -5378,6 +6204,21 @@
             ],
             "title": "Target User Ids",
             "description": "Explicit delivery targets (user ids as strings), captured at emit time. Used for events that destroy the rows target resolution relies on \u2014 deleting a checklist or revoking a collaborator \u2014 where resolving from live DB state would yield the wrong set (or nobody). When None, targets are resolved dynamically from owner + current collaborators."
+          },
+          "target_tokens": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target Tokens",
+            "description": "Public-share tokens of connected anonymous SSE clients to deliver this notification to (in addition to target_user_ids). Lets live updates reach logged-out viewers. When None, resolved dynamically from the checklist's currently-active public links."
           }
         },
         "type": "object",

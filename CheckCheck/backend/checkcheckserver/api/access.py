@@ -1,3 +1,4 @@
+import datetime
 import uuid
 import enum
 from typing import List, Literal, Annotated
@@ -18,6 +19,8 @@ from checkcheckserver.model.checklist_collaborator import CheckListCollaborator
 from checkcheckserver.db.checklist_collaborator import CheckListCollaboratorCRUD
 from checkcheckserver.model.checklist import CheckList
 from checkcheckserver.db.checklist import CheckListCRUD
+from checkcheckserver.model.checklist_public_share import CheckListPublicShare
+from checkcheckserver.db.checklist_public_share import CheckListPublicShareCRUD
 
 from checkcheckserver.model.checklist_item import CheckListItem
 from checkcheckserver.db.checklist_item import CheckListItemCRUD
@@ -51,17 +54,34 @@ _PERMISSION_RANK: dict[ChecklistAccessLevel, int] = {
 }
 
 
+class AnonymousPrincipal:
+    """Stand-in 'user' for a visitor who arrived via a public share link. It has
+    no DB ``id`` (it is not a ``User``); its authority comes entirely from the
+    capability token it carries, captured here for sync routing. Using it as the
+    ``UserChecklistAccess.user`` lets the existing permission guards run unchanged
+    — an id-based owner/collaborator comparison simply never matches."""
+
+    id = None  # never equals a real owner_id / collaborator user_id
+
+    def __init__(self, token: str):
+        self.token = token
+
+
 class UserChecklistAccess:
 
     def __init__(
         self,
-        user: User,
+        user: User | AnonymousPrincipal,
         checklist: CheckList,
         collaborators: List[CheckListCollaborator] = [],
+        public_level: "ChecklistAccessLevel | None" = None,
     ):
         self.user = user
         self.checklist = checklist
         self.collaborators = collaborators
+        # When set, access is granted by a public link at this level (capped at
+        # 'edit' — never 'owner'); it overrides id-based resolution below.
+        self.public_level = public_level
 
     def user_has_access(
         self,
@@ -69,14 +89,19 @@ class UserChecklistAccess:
         return self.permission_level() is not None
 
     def user_is_owner(self) -> bool:
-        return self.user.id == self.checklist.owner_id
+        # An anonymous principal (id is None) can never be the owner.
+        return self.user.id is not None and self.user.id == self.checklist.owner_id
 
     def user_is_collaborator(self) -> bool:
-        return self.user.id in [collab.user_id for collab in self.collaborators]
+        return self.user.id is not None and self.user.id in [
+            collab.user_id for collab in self.collaborators
+        ]
 
     def permission_level(self) -> ChecklistAccessLevel | None:
         """The effective permission of ``self.user`` on this checklist, or None
         if the user has no access at all."""
+        if self.public_level is not None:
+            return self.public_level
         if self.user_is_owner():
             return ChecklistAccessLevel.owner
         for collab in self.collaborators:
@@ -159,6 +184,80 @@ def require_checklist_permission(min_level: ChecklistAccessLevel):
     return _require
 
 
+def _utcnow() -> datetime.datetime:
+    return datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None)
+
+
+async def resolve_public_checklist_access(
+    token: Annotated[str, Path()],
+    checklist_public_share_crud: Annotated[
+        CheckListPublicShareCRUD, Depends(CheckListPublicShareCRUD.get_crud)
+    ],
+    checklist_collaborator_crud: Annotated[
+        CheckListCollaboratorCRUD, Depends(CheckListCollaboratorCRUD.get_crud)
+    ],
+    checklist_crud: Annotated[CheckListCRUD, Depends(CheckListCRUD.get_crud)],
+) -> UserChecklistAccess:
+    """Resolve a public-share ``token`` into a ``UserChecklistAccess`` for an
+    anonymous visitor.
+
+    Every failure path returns **404** (never 401/403) so the response cannot be
+    used to tell "no such link" apart from "link disabled/expired" apart from "card
+    exists" — i.e. it never leaks the existence of a card or a token. The token is
+    a capability, so it is never logged here.
+    """
+    not_found = HTTPException(
+        status_code=status.HTTP_404_NOT_FOUND,
+        detail="This public link is not available.",
+    )
+    if not (config.SHARING_ENABLED and config.SHARING_PUBLIC_LINKS_ENABLED):
+        raise not_found
+
+    link = await checklist_public_share_crud.get_by_token(token)
+    if link is None or not link.enabled:
+        raise not_found
+    if link.expires_at is not None and link.expires_at <= _utcnow():
+        raise not_found
+
+    checklist = await checklist_crud.get(id_=link.checklist_id)
+    if checklist is None:
+        raise not_found
+    collaborators = await checklist_collaborator_crud.list(
+        checklist_id=link.checklist_id
+    )
+    return UserChecklistAccess(
+        user=AnonymousPrincipal(token=token),
+        checklist=checklist,
+        collaborators=collaborators,
+        # SharePermission values are a subset of ChecklistAccessLevel values; a
+        # public link can never grant 'owner'.
+        public_level=ChecklistAccessLevel(link.permission),
+    )
+
+
+def require_public_checklist_permission(min_level: ChecklistAccessLevel):
+    """Public-surface twin of ``require_checklist_permission``: yields the
+    anonymous ``UserChecklistAccess`` only if the link grants at least
+    ``min_level``, else 403. ``min_level`` should never be ``owner`` (public links
+    top out at ``edit``)."""
+
+    async def _require(
+        checklist_access: Annotated[
+            UserChecklistAccess, Depends(resolve_public_checklist_access)
+        ],
+    ) -> UserChecklistAccess:
+        if not checklist_access.has_at_least(min_level):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=(
+                    f"This public link does not grant '{min_level}' permission."
+                ),
+            )
+        return checklist_access
+
+    return _require
+
+
 async def verify_item_belongs_to_checklist(
     checklist_id: uuid.UUID,
     checklist_item_id: uuid.UUID,
@@ -184,6 +283,29 @@ async def verify_item_belongs_to_checklist(
                 f"Item '{checklist_item_id}' does not exist in checklist "
                 f"'{checklist_id}'."
             ),
+        )
+    return item
+
+
+async def verify_item_belongs_to_public_checklist(
+    checklist_item_id: uuid.UUID,
+    checklist_access: Annotated[
+        UserChecklistAccess, Depends(resolve_public_checklist_access)
+    ],
+    checklist_item_crud: Annotated[
+        CheckListItemCRUD, Depends(CheckListItemCRUD.get_crud)
+    ],
+) -> CheckListItem:
+    """Public-surface twin of ``verify_item_belongs_to_checklist``. The checklist
+    is identified by the share *token* (resolved into ``checklist_access``), not a
+    path ``checklist_id``, so the cross-card IDOR guard compares the item's
+    ``checklist_id`` against the token's checklist. 404 to avoid revealing the
+    foreign item."""
+    item = await checklist_item_crud.get(id_=checklist_item_id)
+    if item is None or item.checklist_id != checklist_access.checklist.id:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Item '{checklist_item_id}' is not part of this shared card.",
         )
     return item
 

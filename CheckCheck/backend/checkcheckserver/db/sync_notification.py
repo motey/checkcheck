@@ -1,8 +1,9 @@
 from typing import List, Optional
 import uuid
 import json
+import datetime
 
-from sqlmodel import select, delete
+from sqlmodel import select, delete, and_, or_, col
 from sqlalchemy import text
 
 from checkcheckserver.config import Config, DbBackend
@@ -10,10 +11,15 @@ from checkcheckserver.log import get_logger
 from checkcheckserver.db._base_crud import create_crud_base
 from checkcheckserver.model.checklist import CheckList
 from checkcheckserver.model.checklist_collaborator import CheckListCollaborator
+from checkcheckserver.model.checklist_public_share import CheckListPublicShare
 from checkcheckserver.model.sync_notifications import SyncNotification, SyncNotificationPackage
 
 log = get_logger()
 config = Config()
+
+
+def _utcnow() -> datetime.datetime:
+    return datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None)
 
 
 class SyncNotifiationCRUD(
@@ -30,6 +36,25 @@ class SyncNotifiationCRUD(
         delete mutates the rows it is resolved from (see the delete flows in
         routes_checklist / routes_checklist_share)."""
         return await self._resolve_target_user_ids(cl_id)
+
+    async def _resolve_target_tokens(self, cl_id: uuid.UUID) -> List[str]:
+        """Tokens of the checklist's currently-active public links (enabled +
+        not expired). Connected anonymous SSE clients are addressed by token, so
+        this is the anonymous analogue of _resolve_target_user_ids."""
+        now = _utcnow()
+        res = await self.session.exec(
+            select(CheckListPublicShare.token).where(
+                and_(
+                    CheckListPublicShare.checklist_id == cl_id,
+                    CheckListPublicShare.enabled == True,  # noqa: E712
+                    or_(
+                        col(CheckListPublicShare.expires_at).is_(None),
+                        CheckListPublicShare.expires_at > now,
+                    ),
+                )
+            )
+        )
+        return list(res.all())
 
     async def _resolve_target_user_ids(self, cl_id: uuid.UUID) -> List[uuid.UUID]:
         owner_res = await self.session.exec(
@@ -61,16 +86,26 @@ class SyncNotifiationCRUD(
         else:
             target_ids = await self._resolve_target_user_ids(noti.cl_id)
 
+        if noti.target_tokens is not None:
+            target_tokens = list(noti.target_tokens)
+        else:
+            target_tokens = await self._resolve_target_tokens(noti.cl_id)
+
         await self.session.exec(
             delete(SyncNotification).where(SyncNotification.id == noti.id)
         )
         await self.session.commit()
-        return SyncNotificationPackage(target_user_ids=target_ids, notification=noti)
+        return SyncNotificationPackage(
+            target_user_ids=target_ids,
+            target_tokens=target_tokens,
+            notification=noti,
+        )
 
     async def create(
         self,
         noti: SyncNotification,
         target_user_ids: Optional[List[uuid.UUID]] = None,
+        target_tokens: Optional[List[str]] = None,
     ):
         """Emit a sync notification.
 
@@ -79,6 +114,11 @@ class SyncNotifiationCRUD(
         checklist, revoking/leaving a share) — there the live DB state no longer
         identifies the right recipients. When omitted, targets are resolved
         dynamically from the checklist's owner + current collaborators.
+
+        ``target_tokens`` is the anonymous analogue: public-share tokens of
+        connected logged-out viewers. When omitted it is resolved dynamically
+        from the checklist's currently-active public links, so ordinary edits
+        reach anonymous viewers live without any extra plumbing at the call site.
         """
         if config.db_backend == DbBackend.POSTGRES:
             target_ids = (
@@ -86,12 +126,18 @@ class SyncNotifiationCRUD(
                 if target_user_ids is not None
                 else await self._resolve_target_user_ids(noti.cl_id)
             )
+            target_tok = (
+                target_tokens
+                if target_tokens is not None
+                else await self._resolve_target_tokens(noti.cl_id)
+            )
             payload = json.dumps({
                 "timestamp": noti.timestamp,
                 "cl_id": str(noti.cl_id),
                 "cli_id": str(noti.cli_id) if noti.cli_id else None,
                 "upd_prop": noti.upd_prop,
                 "target_user_ids": [str(uid) for uid in target_ids],
+                "target_tokens": list(target_tok),
             })
             await self.session.execute(
                 text("SELECT pg_notify('checkcheck_sync', :payload)"),
@@ -108,5 +154,7 @@ class SyncNotifiationCRUD(
             # resolves recipients lazily, long after the source rows are gone.
             if target_user_ids is not None:
                 noti.target_user_ids = [str(uid) for uid in target_user_ids]
+            if target_tokens is not None:
+                noti.target_tokens = list(target_tokens)
             self.session.add(noti)
             await self.session.commit()
