@@ -56,6 +56,13 @@ class CheckListPublicShareCreate(TimestampedModel, table=False):
         default=None,
         description="Naive UTC expiry. Null = never expires.",
     )
+    password_hash: str | None = Field(
+        default=None,
+        description=(
+            "Optional bcrypt hash of a passphrase guarding this link. Null = no "
+            "passphrase (the default). Never store or log the plaintext."
+        ),
+    )
     created_by: uuid.UUID = Field(foreign_key="user.id")
 
 

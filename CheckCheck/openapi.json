@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "CheckCheck REST API",
-    "version": "0.1.dev51+g06295a7.d20260620"
+    "version": "0.1.dev52+g5f6db70.d20260620"
   },
   "paths": {
     "/api/health": {
@@ -2144,6 +2144,38 @@
               "type": "string",
               "title": "Token"
             }
+          },
+          {
+            "name": "share_grant",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Share Grant"
+            }
+          },
+          {
+            "name": "x-share-grant",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Share-Grant"
+            }
           }
         ],
         "responses": {
@@ -2153,6 +2185,59 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/CheckListApiWithSubObj"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/public/checklist/{token}/unlock": {
+      "post": {
+        "tags": [
+          "Checklist Public Share"
+        ],
+        "summary": "Unlock Public Checklist",
+        "description": "Exchange a protected link's passphrase for a short-lived grant the client replays on subsequent calls (so the passphrase never travels again).",
+        "operationId": "unlock_public_checklist_api_public_checklist__token__unlock_post",
+        "parameters": [
+          {
+            "name": "token",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Token"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UnlockRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnlockResult"
                 }
               }
             }
@@ -2191,6 +2276,38 @@
             "schema": {
               "type": "string",
               "title": "Token"
+            }
+          },
+          {
+            "name": "share_grant",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Share Grant"
+            }
+          },
+          {
+            "name": "x-share-grant",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Share-Grant"
             }
           }
         ],
@@ -2237,6 +2354,22 @@
             }
           },
           {
+            "name": "share_grant",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Share Grant"
+            }
+          },
+          {
             "name": "offset",
             "in": "query",
             "required": false,
@@ -2273,6 +2406,22 @@
               "title": "Limit"
             },
             "description": "Specify the max amount of result items"
+          },
+          {
+            "name": "x-share-grant",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Share-Grant"
+            }
           }
         ],
         "responses": {
@@ -2313,6 +2462,38 @@
             "schema": {
               "type": "string",
               "title": "Token"
+            }
+          },
+          {
+            "name": "share_grant",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Share Grant"
+            }
+          },
+          {
+            "name": "x-share-grant",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Share-Grant"
             }
           }
         ],
@@ -2377,6 +2558,38 @@
               "type": "string",
               "title": "Token"
             }
+          },
+          {
+            "name": "share_grant",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Share Grant"
+            }
+          },
+          {
+            "name": "x-share-grant",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Share-Grant"
+            }
           }
         ],
         "requestBody": {
@@ -2440,6 +2653,38 @@
               "type": "string",
               "title": "Token"
             }
+          },
+          {
+            "name": "share_grant",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Share Grant"
+            }
+          },
+          {
+            "name": "x-share-grant",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Share-Grant"
+            }
           }
         ],
         "requestBody": {
@@ -2500,6 +2745,38 @@
             "schema": {
               "type": "string",
               "title": "Token"
+            }
+          },
+          {
+            "name": "share_grant",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Share Grant"
+            }
+          },
+          {
+            "name": "x-share-grant",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Share-Grant"
             }
           }
         ],
@@ -4259,6 +4536,40 @@
               "title": "Token"
             },
             "description": "Public-share token for an anonymous (logged-out) subscriber."
+          },
+          {
+            "name": "share_grant",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Grant proving the passphrase of a protected public link (see /unlock).",
+              "title": "Share Grant"
+            },
+            "description": "Grant proving the passphrase of a protected public link (see /unlock)."
+          },
+          {
+            "name": "x-share-grant",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Share-Grant"
+            }
           }
         ],
         "responses": {
@@ -5923,6 +6234,18 @@
             ],
             "title": "Expires At",
             "description": "Optional naive-UTC expiry. Null = never expires."
+          },
+          "password": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Password",
+            "description": "Optional passphrase guarding this link. When set, a visitor must unlock it before the link resolves. Null = no passphrase. Never echoed back \u2014 only 'password_protected' is exposed."
           }
         },
         "type": "object",
@@ -5959,6 +6282,11 @@
             ],
             "title": "Expires At"
           },
+          "password_protected": {
+            "type": "boolean",
+            "title": "Password Protected",
+            "description": "Whether a passphrase must be supplied before this link resolves."
+          },
           "created_at": {
             "type": "string",
             "format": "date-time",
@@ -5976,6 +6304,7 @@
           "checklist_id",
           "permission",
           "enabled",
+          "password_protected",
           "created_at",
           "token"
         ],
@@ -6013,6 +6342,11 @@
             ],
             "title": "Expires At"
           },
+          "password_protected": {
+            "type": "boolean",
+            "title": "Password Protected",
+            "description": "Whether a passphrase must be supplied before this link resolves."
+          },
           "created_at": {
             "type": "string",
             "format": "date-time",
@@ -6025,10 +6359,11 @@
           "checklist_id",
           "permission",
           "enabled",
+          "password_protected",
           "created_at"
         ],
         "title": "PublicLinkRead",
-        "description": "A public link *without* its token (safe to list)."
+        "description": "A public link *without* its token or passphrase (safe to list)."
       },
       "PublicLinkUpdateRequest": {
         "properties": {
@@ -6065,6 +6400,18 @@
             ],
             "title": "Expires At",
             "description": "Set to null explicitly to clear the expiry."
+          },
+          "password": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Password",
+            "description": "Set a string to (re)protect the link with a passphrase; send an explicit null to clear protection. Omit to leave it unchanged."
           }
         },
         "type": "object",
@@ -6268,6 +6615,40 @@
           "previous_owner_id"
         ],
         "title": "TransferOwnershipResult"
+      },
+      "UnlockRequest": {
+        "properties": {
+          "password": {
+            "type": "string",
+            "title": "Password",
+            "description": "The link's passphrase."
+          }
+        },
+        "type": "object",
+        "required": [
+          "password"
+        ],
+        "title": "UnlockRequest"
+      },
+      "UnlockResult": {
+        "properties": {
+          "grant": {
+            "type": "string",
+            "title": "Grant",
+            "description": "Short-lived signed grant. Replay it on subsequent calls via the 'X-Share-Grant' header or '?share_grant=' query so you don't resend the passphrase."
+          },
+          "expires_in": {
+            "type": "integer",
+            "title": "Expires In",
+            "description": "Grant lifetime in seconds."
+          }
+        },
+        "type": "object",
+        "required": [
+          "grant",
+          "expires_in"
+        ],
+        "title": "UnlockResult"
       },
       "User": {
         "properties": {

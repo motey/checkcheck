@@ -247,30 +247,229 @@ Sharing + sync suites also green on `./run_backend_tests_with_postgres.sh`.
 
 ## Stage 2 (future ideas — not in the initial build)
 
-These are deliberately deferred. Documented here so they're not lost.
+These are deliberately deferred. Documented here so they're not lost. The four marked
+**(→ Phase N)** are scheduled in **"Stage 2 — Implementation phases"** below.
 
-- **Invite / accept flow** — instead of instantly adding a collaborator, send an invite the
-  target must accept. Adds a `status: pending|accepted|declined` to the share row and an
-  inbox endpoint. The initial build uses instant-add (matches the current model and is
-  simpler); this is the natural upgrade for less-trusted multi-tenant deployments.
-- **Expiring + password-protected public links** — `expires_at` is already in the model;
-  add an optional bcrypt-hashed passphrase prompt before a public link resolves.
+- **Invite / accept flow** *(→ Phase 8)* — instead of instantly adding a collaborator, send
+  an invite the target must accept. Adds a `status: pending|accepted|declined` to the share
+  row and an inbox endpoint. The initial build uses instant-add (matches the current model
+  and is simpler); this is the natural upgrade for less-trusted multi-tenant deployments.
+- **Expiring + password-protected public links** *(→ Phase 7)* — `expires_at` is already in
+  the model (and enforced by the Phase 5 resolver); add an optional bcrypt-hashed passphrase
+  prompt before a public link resolves.
 - **A real "copy / duplicate card"** (distinct from join) — a deep-copy primitive
   (`deep_copy_checklist`) for genuinely *forking* a card into an independent owned copy
   (templates, "duplicate my card"). Deliberately **not** the public-link flow — that is
   Phase 6 "join via link" (same live card), which is what the chat-group use case wants.
 - **Share audit trail** — `created_by` + `created_at` on every share (collaborator and
   public), plus an optional activity log of who changed what level when.
-- **Notifications on share** — notify a user (in-app / email) when a card is shared with
-  them, and the owner when a public link is first opened.
+- **Notifications on share** *(→ Phase 9)* — notify a user (in-app) when a card is shared
+  with them, and the owner when a public link is first opened. Email delivery is explicitly
+  **out of scope** for Phase 9 and tracked as its own later sub-project (see the note in
+  Phase 9).
 - **Search hardening** — per-IP/per-user rate limiting on `/user/search`, enforced minimum
   query length, and opt-in "discoverable" flag per user so people can hide from search.
 - **Revoke-all / bulk share management** — owner can clear all shares or all public links
   for a card in one call; "leave all shared cards" for a user.
 - **Granular public-link scopes** — e.g. a public link that exposes only specific items, or
   a read-only "presentation" mode that hides checked-item separation.
-- **Org/group sharing** — share a card with an entire OIDC group at once (requires the
-  persisted `oidc_groups` from Phase 1 plus a group→members resolver).
+- **Org/group sharing** *(→ Phase 10)* — share a card with an entire OIDC group at once
+  (requires the persisted `oidc_groups` from Phase 1 plus a group→members resolver).
+
+---
+
+## Stage 2 — Implementation phases
+
+Four Stage-2 ideas, each packed into a **single focused session**. Recommended order is
+7 → 8 → 9 → 10: Phase 7 is the smallest and builds straight on the freshly-landed Phase 5;
+Phase 9 (notifications) can lean on the invite events from Phase 8; Phase 10 is independent
+and can move earlier if needed.
+
+The current head migration is `0008` (Phase 7); each phase that needs schema changes takes the
+next number in sequence. Both backends (Postgres prod, SQLite dev — see `[[db-targets]]`) must
+stay green via `./run_backend_tests_with_postgres.sh` and `./run_backend_tests_with_sqlite.sh`.
+
+### Phase 7 — Password-protected public links  ✅ DONE
+**Goal:** an owner can put an optional passphrase on a public link; an anonymous visitor
+must supply it before the link resolves. Expiry already worked (the Phase 5 resolver checks
+`expires_at`), so this phase was **only** the passphrase half of the Stage-2 idea.
+
+**Decision (locked in-session):** the passphrase reaches the resolver via the recommended
+**unlock + signed grant** path, not a raw header on every call. `POST
+/public/checklist/{token}/unlock` verifies the passphrase once and returns a short-lived
+signed **grant** (itsdangerous `URLSafeTimedSerializer`, 1 h TTL, bound to the token **and** a
+fingerprint of the current `password_hash` so rotating/clearing the passphrase invalidates
+outstanding grants). The grant — never the raw passphrase — is replayed on subsequent calls via
+the `X-Share-Grant` header or `?share_grant=` query param (the query form is what the SSE path
+and the test harness use). The raw passphrase only ever travels in the `/unlock` POST body, so
+it stays out of URLs / SSE query strings / access logs.
+
+Delivered:
+- [x] `password_hash: str | None` (default `None`) on `CheckListPublicShare` /
+      `CheckListPublicShareCreate`. Null = no passphrase. Plaintext never stored or logged.
+- [x] New `api/share_password.py` owning its **own** bcrypt `CryptContext` (one-way dep — it
+      does *not* import `model/user_auth.py`): `hash_share_password` / `verify_share_password`
+      plus the grant mint/verify (`make_share_grant` / `verify_share_grant`, `GRANT_TTL_SECONDS`).
+- [x] Migration `0008` adds the nullable column (backfills existing links to `NULL`); chains
+      `0007 → 0008` (verified single head; up/down checked on a 0007-era DB).
+- [x] `routes_checklist_share.py`: `PublicLinkCreateRequest` / `PublicLinkUpdateRequest` gain
+      optional `password`; create hashes it; PATCH sets/rotates it, and an explicit `null` clears
+      protection (via a dedicated `CheckListPublicShareCRUD.set_password_hash`, so plaintext is
+      never written through the generic update). `PublicLinkRead` exposes only a derived
+      `password_protected: bool`; token *and* hash are never echoed.
+- [x] `resolve_public_checklist_access` (`api/access.py`): when `link.password_hash` is set,
+      requires a valid grant; missing/expired/mismatched → the **same 404** as
+      missing/disabled/expired (no existence leak). Extracted `link_is_resolvable(...)` shared
+      by the resolver, the join route, and the SSE path.
+- [x] `POST /public/checklist/{token}/unlock` in `routes_checklist_public.py` (gated by
+      `require_public_links_enabled`): wrong passphrase → same 404 as a missing link (no oracle);
+      unlocking an unprotected link → 400 (only visible to a caller already holding a working
+      token, so leaks nothing new).
+- [x] SSE `/sync?token=` (`resolve_sync_principal`) is gated the same way — a protected link
+      cannot subscribe without a valid grant (falls through → 401).
+- [x] The Phase-6 `join` route is gated too, so a logged-in holder of the URL cannot bypass the
+      passphrase (404 without a grant).
+
+**Tests (`tests/tests_sharing_public.py`, 8 new — green on SQLite + Postgres):**
+- [x] Protected link: resolve without grant / wrong passphrase → 404; unlock → grant → 200.
+- [x] Grant bound to its own link (a grant for A does not resolve B).
+- [x] Unlock on an unprotected link → 400; unknown token → 404.
+- [x] PATCH to add / rotate / clear (`password: null`) a passphrase; unrelated PATCH leaves it
+      intact; rotation invalidates the old grant.
+- [x] Plaintext + `password_hash` never appear in create/list/read (only `password_protected`).
+- [x] Permission level still enforced with a valid grant (protected `check` link can't edit).
+- [x] `join` on a protected link needs a grant.
+- [x] Token-keyed SSE refuses a protected link without a grant (401) and streams with one.
+
+### Phase 8 — Invite / accept flow  📋 PLANNED
+**Goal:** optionally turn instant-add sharing into an invite the target must accept. Default
+stays instant-add (current model); the flow is gated so less-trusted deployments can opt in.
+
+**Config:** `SHARING_REQUIRE_INVITE_ACCEPT: bool = False` in `config.py` (when off, sharing
+behaves exactly as today — no behavioural change for existing deployments).
+
+**Data model / migration `0009`:**
+- Add a `ShareStatus(str, enum)` = `pending | accepted | declined` and a
+  `status: ShareStatus` column (default `accepted`) to `CheckListCollaborator` /
+  `CheckListCollaboratorCreate` in `model/checklist_collaborator.py`. Enum-as-string so it
+  surfaces in OpenAPI (mirrors how `SharePermission` is done).
+- Migration `0009` adds the column and **backfills every existing collaborator row to
+  `accepted`** (they already have live access — must not regress to pending). Chains the head.
+
+**Authorization (`api/access.py`) — the careful part:**
+- `UserChecklistAccess.permission_level()` and `user_is_collaborator()` must only count rows
+  with `status == accepted`. A `pending`/`declined` row grants **no** access. (Add the filter
+  in both places; a missed spot is a silent access leak — cover with a test.)
+- `_resolve_target_user_ids` in `db/sync_notification.py` should likewise only fan out to
+  **accepted** collaborators (a pending invitee isn't a live viewer yet) — except the invite
+  notification itself, which is pinned to the invitee.
+
+**API:**
+- `upsert_share` (in `routes_checklist_share.py`): when `SHARING_REQUIRE_INVITE_ACCEPT` is on,
+  create the collaborator row as `pending` (and **do not** create their `CheckListPosition`
+  yet — the card must not appear in their grid until they accept). Emit a new sync
+  `upd_prop="share_invited"` pinned to the invitee. When the flag is off, behave exactly as
+  today (`accepted` + position created + `share_added`).
+- Inbox + actions (new, authenticated as the invitee):
+  - `GET /user/me/invites` — the caller's `pending` collaborator rows joined with card name +
+    inviter, enough to render an inbox.
+  - `POST /checklist/{checklist_id}/invites/accept` — flip the caller's row to `accepted`,
+    create their position (`_ensure_position`), emit `share_added`.
+  - `POST /checklist/{checklist_id}/invites/decline` — flip to `declined` (or delete the row —
+    **decide in-session**; keeping `declined` enables "you previously declined" UX and blocks
+    re-invite spam, deleting is cleaner). No position created.
+- Re-inviting a `declined`/`pending` user re-arms the invite rather than erroring.
+
+**Relationship to Phase 9:** this phase ships a **minimal** invite inbox (a query over
+collaborator rows). Phase 9's general notification feed can additionally emit a notification on
+`share_invited`; the two inboxes stay distinct (invites are actionable rows on the
+collaborator table; notifications are an append-only feed).
+
+**Tests (`tests/tests_sharing.py` or a new `tests/tests_sharing_invites.py`):**
+- Flag **off**: sharing still instant-adds (no regression) — guard with an explicit test.
+- Flag **on**: `upsert_share` creates a pending row; the invitee has **no access** and the
+  card is **not** in their grid; invite appears in their `/user/me/invites`.
+- Accept → access granted, card in grid, owner sees `share_added`. Decline → still no access.
+- A pending invitee is not fanned out ordinary edit notifications.
+
+### Phase 9 — In-app share notifications  📋 PLANNED
+**Goal:** a persistent in-app notification feed: tell a user when a card is shared with /
+invited to them, and tell an owner the first time one of their public links is opened.
+**Email is explicitly out of scope here** (see note at the end of this phase).
+
+**Data model / migration `0010`:**
+- New `Notification` table: `id` (uuid PK), `user_id` (FK → `user.id`, `ondelete=CASCADE`,
+  indexed), `type` (str/enum: `card_shared | card_invited | public_link_opened`),
+  `cl_id` (uuid, nullable — the card it refers to), `payload` (JSON, nullable — e.g. actor
+  name/id), `read_at` (datetime, nullable), timestamps from `TimestampedModel`.
+- For "public link first opened": add `first_opened_at: datetime | None` to
+  `CheckListPublicShare` (set once, on the first successful anonymous resolve in
+  `resolve_public_checklist_access`); when it transitions null→set, enqueue a
+  `public_link_opened` notification to `link.created_by`. (Naive UTC datetime — see
+  `[[backend-test-harness]]`.) Migration `0010` creates `notification` + adds the column.
+
+**API (new `routes_notification.py`, authenticated, registered in `routers_map.py`):**
+- `GET /user/me/notifications?unread_only=` — the caller's feed, newest first, bounded limit.
+- `POST /user/me/notifications/{id}/read` (or `PATCH`) — mark one read; and a
+  `POST /user/me/notifications/read-all` convenience.
+- Optional `GET /user/me/notifications/unread-count` for a badge.
+
+**Delivery / sync:** persist the row, then push a lightweight `upd_prop="notification"` over
+the **existing** SSE so a connected client refreshes its feed/badge live (reuse
+`SyncNotifiationCRUD.create` pinned to the recipient `user_id`). Emit a notification at the
+existing share events: `upsert_share`/`share_added`, the Phase 8 `share_invited`, and the new
+`public_link_opened` hook.
+
+**Email note (deferred sub-project):** wiring email/SMTP transport (config block, an async
+sender, templates, per-user opt-in) is intentionally **not** in this phase. Phase 9 leaves a
+single internal seam — the place where a `Notification` row is created — so a later
+"notification transports" sub-project can fan the same event out to email without touching
+callers.
+
+**Tests (`tests/tests_sharing_notifications.py`):**
+- Sharing a card creates a `card_shared` notification for the target; listing returns it;
+  mark-read flips `read_at`; unread filter/count works.
+- First anonymous open of a public link creates exactly **one** `public_link_opened`
+  notification for the owner (idempotent on subsequent opens via `first_opened_at`).
+- Recipient gets the `notification` SSE push live.
+
+### Phase 10 — Org / group (OIDC group) sharing  📋 PLANNED
+**Goal:** share a card with everyone in an OIDC group in one call. Builds on the persisted
+`User.oidc_groups` from Phase 1.
+
+**Decision (locked recommendation):** **snapshot** membership at share time — expand the group
+to the matching users and create an ordinary `CheckListCollaborator` row per member at the
+chosen level. This needs **no new table or migration**, reuses all of Phase 3's machinery
+(and Phase 8's invite gate applies automatically), and matches the existing per-user model.
+The alternative (a persistent "group share" row resolved dynamically on every access — so new
+group members auto-gain access) is more powerful but adds a resolver to the hot authorization
+path and a re-sync story for membership changes; defer it as a later refinement.
+
+**Group → members resolver (new method on `UserCRUD`):** find users whose `oidc_groups` JSON
+list contains a given group. The two backends differ and there is no such query yet:
+- Postgres: a JSON containment / `json_array_elements` predicate.
+- SQLite (dev only): `json_each(...)` or an over-fetch + Python filter — keep correct, don't
+  harden (`[[db-targets]]`).
+Reuse the same group-scoping rule as user search: when the caller authed via an OIDC provider
+with `RESTRICT_USER_SEARCH_TO_OWN_GROUPS`, they may only target groups they themselves belong
+to (and only see co-members), intersecting on `oidc_groups`.
+
+**API (`routes_checklist_share.py`, owner-only, under `require_sharing_enabled`):**
+- `GET /user/me/groups` — the caller's own `oidc_groups` (for a group picker; empty for local
+  users).
+- `PUT /checklist/{checklist_id}/shares/group/{group}` with `{permission}` — resolve members,
+  then for each (excluding the owner and anyone already at an equal/higher level — never
+  downgrade, mirroring Phase 6's idempotent join) call the existing
+  `CheckListCollaboratorCRUD.upsert` + `_ensure_position`, and emit `share_added` once.
+  Returns a summary (added / skipped / total). Honour `SHARING_REQUIRE_INVITE_ACCEPT` — group
+  shares go out as invites too when that flag is on.
+
+**Tests (`tests/tests_sharing_groups.py`):**
+- Sharing with a group adds every member as a collaborator at the level; the owner and
+  existing higher-level collaborators are skipped (no downgrade).
+- A local user (no `oidc_groups`) / unknown group → empty resolve, no error.
+- `RESTRICT_USER_SEARCH_TO_OWN_GROUPS`: a caller cannot share to a group they don't belong to.
+- Backend parity: the containment resolver returns the same members on Postgres and SQLite.
 
 ---
 

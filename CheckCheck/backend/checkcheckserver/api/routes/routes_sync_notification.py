@@ -5,7 +5,16 @@ import datetime
 from contextlib import asynccontextmanager
 from typing import List, Optional, Tuple
 
-from fastapi import Depends, APIRouter, FastAPI, Request, Query, HTTPException, status
+from fastapi import (
+    Depends,
+    APIRouter,
+    FastAPI,
+    Request,
+    Query,
+    Header,
+    HTTPException,
+    status,
+)
 from fastapi.responses import StreamingResponse
 from fastapi.security import HTTPAuthorizationCredentials
 
@@ -18,7 +27,8 @@ from checkcheckserver.api.auth.security import (
     api_token_security,
     SESSION_COOKIE_NAME,
 )
-from checkcheckserver.api.access import AnonymousPrincipal
+from checkcheckserver.api.access import AnonymousPrincipal, link_is_resolvable
+from checkcheckserver.api.share_password import verify_share_grant
 from checkcheckserver.db.checklist_public_share import CheckListPublicShareCRUD
 from checkcheckserver.log import get_logger
 from checkcheckserver.config import Config, DbBackend
@@ -76,6 +86,11 @@ async def resolve_sync_principal(
         default=None,
         description="Public-share token for an anonymous (logged-out) subscriber.",
     ),
+    share_grant: Optional[str] = Query(
+        default=None,
+        description="Grant proving the passphrase of a protected public link (see /unlock).",
+    ),
+    x_share_grant: Optional[str] = Header(default=None),
     user_session_crud: UserSessionCRUD = Depends(UserSessionCRUD.get_crud),
     user_auth_crud: UserAuthCRUD = Depends(UserAuthCRUD.get_crud),
     user_crud: UserCRUD = Depends(UserCRUD.get_crud),
@@ -96,14 +111,19 @@ async def resolve_sync_principal(
     """
     if token and config.SHARING_ENABLED and config.SHARING_PUBLIC_LINKS_ENABLED:
         link = await public_share_crud.get_by_token(token)
-        if (
-            link is not None
-            and link.enabled
-            and (link.expires_at is None or link.expires_at > _utcnow())
-        ):
+        # A passphrase-protected link must carry a valid grant to subscribe — the
+        # stream is the same capability as the read surface, so it is gated the
+        # same way (see /unlock).
+        passphrase_ok = link is not None and (
+            link.password_hash is None
+            or verify_share_grant(
+                x_share_grant or share_grant, token, link.password_hash
+            )
+        )
+        if link_is_resolvable(link) and passphrase_ok:
             return AnonymousPrincipal(token=token)
-        # An invalid/expired token falls through to normal session auth below,
-        # so a logged-in user with a stale token still gets their own stream.
+        # An invalid/expired/locked token falls through to normal session auth
+        # below, so a logged-in user with a stale token still gets their own stream.
 
     has_creds = (
         api_token is not None

@@ -1,8 +1,8 @@
 import datetime
 import uuid
 import enum
-from typing import List, Literal, Annotated
-from fastapi import HTTPException, status, Security, Depends, Path
+from typing import List, Literal, Annotated, Optional
+from fastapi import HTTPException, status, Security, Depends, Path, Query, Header
 
 # internal imports
 from checkcheckserver.config import Config
@@ -21,6 +21,7 @@ from checkcheckserver.model.checklist import CheckList
 from checkcheckserver.db.checklist import CheckListCRUD
 from checkcheckserver.model.checklist_public_share import CheckListPublicShare
 from checkcheckserver.db.checklist_public_share import CheckListPublicShareCRUD
+from checkcheckserver.api.share_password import verify_share_grant
 
 from checkcheckserver.model.checklist_item import CheckListItem
 from checkcheckserver.db.checklist_item import CheckListItemCRUD
@@ -188,6 +189,16 @@ def _utcnow() -> datetime.datetime:
     return datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None)
 
 
+def link_is_resolvable(link: CheckListPublicShare | None) -> bool:
+    """A link can resolve when it exists, is enabled, and is not past its expiry.
+    (Passphrase protection, if any, is a *separate* gate — see the resolver.)"""
+    if link is None or not link.enabled:
+        return False
+    if link.expires_at is not None and link.expires_at <= _utcnow():
+        return False
+    return True
+
+
 async def resolve_public_checklist_access(
     token: Annotated[str, Path()],
     checklist_public_share_crud: Annotated[
@@ -197,14 +208,21 @@ async def resolve_public_checklist_access(
         CheckListCollaboratorCRUD, Depends(CheckListCollaboratorCRUD.get_crud)
     ],
     checklist_crud: Annotated[CheckListCRUD, Depends(CheckListCRUD.get_crud)],
+    share_grant: Annotated[Optional[str], Query()] = None,
+    x_share_grant: Annotated[Optional[str], Header()] = None,
 ) -> UserChecklistAccess:
     """Resolve a public-share ``token`` into a ``UserChecklistAccess`` for an
     anonymous visitor.
 
     Every failure path returns **404** (never 401/403) so the response cannot be
     used to tell "no such link" apart from "link disabled/expired" apart from "card
-    exists" — i.e. it never leaks the existence of a card or a token. The token is
-    a capability, so it is never logged here.
+    exists" apart from "wrong passphrase" — i.e. it never leaks the existence of a
+    card or a token. The token is a capability, so it is never logged here.
+
+    For a passphrase-protected link the caller must also carry a valid grant
+    (``X-Share-Grant`` header or ``?share_grant=`` query), obtained from
+    ``POST /public/checklist/{token}/unlock``. A missing/expired/mismatched grant
+    is the *same* 404 as a missing link, so it never confirms the link exists.
     """
     not_found = HTTPException(
         status_code=status.HTTP_404_NOT_FOUND,
@@ -214,10 +232,12 @@ async def resolve_public_checklist_access(
         raise not_found
 
     link = await checklist_public_share_crud.get_by_token(token)
-    if link is None or not link.enabled:
+    if not link_is_resolvable(link):
         raise not_found
-    if link.expires_at is not None and link.expires_at <= _utcnow():
-        raise not_found
+    if link.password_hash is not None:
+        grant = x_share_grant or share_grant
+        if not verify_share_grant(grant, token, link.password_hash):
+            raise not_found
 
     checklist = await checklist_crud.get(id_=link.checklist_id)
     if checklist is None:

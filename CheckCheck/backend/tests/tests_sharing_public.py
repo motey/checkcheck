@@ -69,17 +69,30 @@ def _create_public_link(
     checklist_id: str,
     permission: str = "view",
     expires_at: Optional[str] = None,
+    password: Optional[str] = None,
     access_token: str = None,
     expected_http_code: int = None,
 ) -> Dict:
     body: Dict = {"permission": permission}
     if expires_at is not None:
         body["expires_at"] = expires_at
+    if password is not None:
+        body["password"] = password
     return req(
         f"api/checklist/{checklist_id}/public-links",
         "post",
         b=body,
         access_token=access_token,
+        expected_http_code=expected_http_code,
+    )
+
+
+def _unlock(token: str, password: str, expected_http_code: int = None) -> Dict:
+    return req(
+        f"api/public/checklist/{token}/unlock",
+        "post",
+        b={"password": password},
+        suppress_auth=True,
         expected_http_code=expected_http_code,
     )
 
@@ -102,10 +115,11 @@ class _SSECollector:
     to this subscriber on a background thread. Pass ``bearer=`` for a logged-in
     user or ``public_token=`` for an anonymous public-link subscriber."""
 
-    def __init__(self, *, bearer: str = None, public_token: str = None):
+    def __init__(self, *, bearer: str = None, public_token: str = None, public_grant: str = None):
         assert bool(bearer) ^ bool(public_token), "pass exactly one of bearer/public_token"
         self._bearer = bearer
         self._public_token = public_token
+        self._public_grant = public_grant
         self.events: List[Dict] = []
         self._resp: Optional[requests.Response] = None
         self._ready = threading.Event()
@@ -130,6 +144,8 @@ class _SSECollector:
                 headers["Authorization"] = f"Bearer {self._bearer}"
             else:
                 params["token"] = self._public_token
+                if self._public_grant:
+                    params["share_grant"] = self._public_grant
             self._resp = requests.get(
                 url,
                 headers=headers,
@@ -848,6 +864,260 @@ def test_join_switches_user_to_id_keyed_collaborator_sync():
         assert owner_sse.received(
             cl_id=checklist_id, upd_prop="item_text"
         ), "owner did not receive the joiner's edit"
+
+
+# ── Phase 7: password-protected public links ──────────────────────────────────
+
+
+def test_protected_link_resolve_requires_grant():
+    """A protected link 404s until unlocked: no grant → 404, wrong passphrase →
+    404 (no existence leak), correct passphrase → grant → resolves 200; a garbage
+    grant → 404."""
+    checklist_id = _create_checklist("PwResolve")
+    _create_item(checklist_id, "milk")
+    created = _create_public_link(checklist_id, "view", password="hunter2")
+    token = created["token"]
+    assert created["password_protected"] is True
+
+    # no grant -> 404
+    req(f"api/public/checklist/{token}", suppress_auth=True, expected_http_code=404)
+
+    # wrong passphrase at /unlock -> same 404 as a missing link (no oracle)
+    _unlock(token, "wrong-pass", expected_http_code=404)
+
+    # correct passphrase -> grant; resolving with it works
+    unlocked = _unlock(token, "hunter2", expected_http_code=200)
+    grant = unlocked["grant"]
+    assert grant and unlocked["expires_in"] > 0
+    card = req(
+        f"api/public/checklist/{token}",
+        q={"share_grant": grant},
+        suppress_auth=True,
+        expected_http_code=200,
+    )
+    dict_must_contain(card, {"id": checklist_id, "name": "PwResolve"})
+
+    # items are reachable with the grant too
+    items = req(
+        f"api/public/checklist/{token}/item",
+        q={"share_grant": grant},
+        suppress_auth=True,
+        expected_http_code=200,
+    )
+    assert items["total_count"] == 1
+
+    # a garbage grant is rejected like no grant
+    req(
+        f"api/public/checklist/{token}",
+        q={"share_grant": "not-a-real-grant"},
+        suppress_auth=True,
+        expected_http_code=404,
+    )
+
+
+def test_grant_is_bound_to_its_own_link():
+    """A grant minted for one protected link must not unlock a different one."""
+    card_a = _create_checklist("PwBindA")
+    card_b = _create_checklist("PwBindB")
+    token_a = _create_public_link(card_a, "view", password="secretA")["token"]
+    token_b = _create_public_link(card_b, "view", password="secretB")["token"]
+
+    grant_a = _unlock(token_a, "secretA", expected_http_code=200)["grant"]
+
+    # grant for A does not resolve B
+    req(
+        f"api/public/checklist/{token_b}",
+        q={"share_grant": grant_a},
+        suppress_auth=True,
+        expected_http_code=404,
+    )
+    # but it does resolve A
+    req(
+        f"api/public/checklist/{token_a}",
+        q={"share_grant": grant_a},
+        suppress_auth=True,
+        expected_http_code=200,
+    )
+
+
+def test_unlock_on_unprotected_link_is_400():
+    """Unlocking a link that has no passphrase is a 400 (nothing to unlock); only a
+    caller already holding a working token sees it, so no new info leaks."""
+    checklist_id = _create_checklist("PwUnprotected")
+    token = _create_public_link(checklist_id, "view")["token"]
+    _unlock(token, "anything", expected_http_code=400)
+    # and an unknown token unlocks to 404, not 400
+    _unlock("no-such-token", "anything", expected_http_code=404)
+
+
+def test_patch_add_then_clear_password():
+    """An owner can add a passphrase to an existing link and later clear it with an
+    explicit null; an unrelated PATCH must not disturb the passphrase."""
+    checklist_id = _create_checklist("PwPatch")
+    link = _create_public_link(checklist_id, "view")
+    token, link_id = link["token"], link["id"]
+
+    # unprotected: resolves with no grant
+    req(f"api/public/checklist/{token}", suppress_auth=True, expected_http_code=200)
+
+    # add a passphrase -> now gated
+    patched = req(
+        f"api/checklist/{checklist_id}/public-links/{link_id}",
+        "patch",
+        b={"password": "letmein"},
+        expected_http_code=200,
+    )
+    assert patched["password_protected"] is True
+    req(f"api/public/checklist/{token}", suppress_auth=True, expected_http_code=404)
+
+    grant = _unlock(token, "letmein", expected_http_code=200)["grant"]
+    req(
+        f"api/public/checklist/{token}",
+        q={"share_grant": grant},
+        suppress_auth=True,
+        expected_http_code=200,
+    )
+
+    # an unrelated PATCH (permission) must NOT clear the passphrase
+    req(
+        f"api/checklist/{checklist_id}/public-links/{link_id}",
+        "patch",
+        b={"permission": "check"},
+        expected_http_code=200,
+    )
+    req(f"api/public/checklist/{token}", suppress_auth=True, expected_http_code=404)
+
+    # rotating the passphrase invalidates the old grant
+    req(
+        f"api/checklist/{checklist_id}/public-links/{link_id}",
+        "patch",
+        b={"password": "newsecret"},
+        expected_http_code=200,
+    )
+    req(
+        f"api/public/checklist/{token}",
+        q={"share_grant": grant},
+        suppress_auth=True,
+        expected_http_code=404,
+    )
+    new_grant = _unlock(token, "newsecret", expected_http_code=200)["grant"]
+    req(
+        f"api/public/checklist/{token}",
+        q={"share_grant": new_grant},
+        suppress_auth=True,
+        expected_http_code=200,
+    )
+
+    # clear protection with an explicit null -> resolves again with no grant
+    cleared = req(
+        f"api/checklist/{checklist_id}/public-links/{link_id}",
+        "patch",
+        b={"password": None},
+        expected_http_code=200,
+    )
+    assert cleared["password_protected"] is False
+    req(f"api/public/checklist/{token}", suppress_auth=True, expected_http_code=200)
+
+
+def test_password_never_appears_in_create_list_or_read():
+    """The plaintext and the hash must never be echoed; only the derived
+    ``password_protected`` flag is exposed."""
+    checklist_id = _create_checklist("PwRedact")
+    created = _create_public_link(checklist_id, "view", password="topsecret")
+
+    assert "password" not in created
+    assert "password_hash" not in created
+    assert "topsecret" not in json.dumps(created)
+    assert created["password_protected"] is True
+
+    links = req(f"api/checklist/{checklist_id}/public-links")
+    entry = find_first_dict_in_list(links, {"id": created["id"]})
+    assert "password" not in entry
+    assert "password_hash" not in entry
+    assert "topsecret" not in json.dumps(entry)
+    assert entry["password_protected"] is True
+
+
+def test_protected_link_write_levels_enforced_with_grant():
+    """With a valid grant the link's permission level is still enforced: a protected
+    ``check`` link can toggle state but cannot edit text."""
+    checklist_id = _create_checklist("PwLevels")
+    item_id = _create_item(checklist_id, "milk")
+    token = _create_public_link(checklist_id, "check", password="pw12345")["token"]
+    grant = _unlock(token, "pw12345", expected_http_code=200)["grant"]
+
+    req(
+        f"api/public/checklist/{token}/item/{item_id}/state",
+        "patch",
+        b={"checked": True},
+        q={"share_grant": grant},
+        suppress_auth=True,
+        expected_http_code=200,
+    )
+    req(
+        f"api/public/checklist/{token}/item/{item_id}",
+        "patch",
+        b={"text": "nope"},
+        q={"share_grant": grant},
+        suppress_auth=True,
+        expected_http_code=403,
+    )
+
+
+def test_join_protected_link_requires_grant():
+    """A logged-in user cannot bypass the passphrase via join: no grant → 404, valid
+    grant → joins as a collaborator."""
+    joiner_token = _make_user_token("join-protected")
+    joiner_id = _user_id(joiner_token)
+    checklist_id = _create_checklist("PwJoin")
+    token = _create_public_link(checklist_id, "edit", password="joinpass")["token"]
+
+    # logged in but no grant -> 404 (passphrase not bypassable)
+    req(
+        f"api/public/checklist/{token}/join",
+        "post",
+        access_token=joiner_token,
+        expected_http_code=404,
+    )
+
+    grant = _unlock(token, "joinpass", expected_http_code=200)["grant"]
+    card = req(
+        f"api/public/checklist/{token}/join",
+        "post",
+        q={"share_grant": grant},
+        access_token=joiner_token,
+        expected_http_code=200,
+    )
+    dict_must_contain(card, {"id": checklist_id})
+    shares = req(f"api/checklist/{checklist_id}/shares")
+    entry = find_first_dict_in_list(shares, {"user_id": joiner_id})
+    dict_must_contain(entry, {"permission": "edit"})
+
+
+def test_protected_link_sse_requires_grant():
+    """The token-keyed SSE stream is the same capability as the read surface: a
+    protected link cannot subscribe without a grant (401), but can with one — and
+    then receives an authed editor's live change."""
+    checklist_id = _create_checklist("PwSSE")
+    item_id = _create_item(checklist_id, "milk")
+    token = _create_public_link(checklist_id, "view", password="ssepass")["token"]
+
+    # no grant -> /sync?token= rejected
+    req("api/sync", q={"token": token}, suppress_auth=True, expected_http_code=401)
+    # wrong/garbage grant -> rejected too
+    req(
+        "api/sync",
+        q={"token": token, "share_grant": "nope"},
+        suppress_auth=True,
+        expected_http_code=401,
+    )
+
+    grant = _unlock(token, "ssepass", expected_http_code=200)["grant"]
+    with _SSECollector(public_token=token, public_grant=grant) as anon_sse:
+        req(f"api/checklist/{checklist_id}/item/{item_id}/state", "patch", b={"checked": True})
+        assert anon_sse.received(
+            cl_id=checklist_id, upd_prop="item_state"
+        ), "unlocked anonymous viewer did not receive the authed editor's change"
 
 
 # ── config-off (deferred: needs a server booted with the flag off) ────────────

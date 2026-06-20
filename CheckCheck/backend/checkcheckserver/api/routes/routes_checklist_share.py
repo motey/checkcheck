@@ -40,6 +40,7 @@ from checkcheckserver.model.checklist_public_share import (
     CheckListPublicShareCreate,
 )
 from checkcheckserver.db.checklist_public_share import CheckListPublicShareCRUD
+from checkcheckserver.api.share_password import hash_share_password
 from checkcheckserver.db.sync_notification import SyncNotifiationCRUD
 from checkcheckserver.model.sync_notifications import SyncNotification
 
@@ -365,6 +366,14 @@ class PublicLinkCreateRequest(BaseModel):
         default=None,
         description="Optional naive-UTC expiry. Null = never expires.",
     )
+    password: Optional[str] = Field(
+        default=None,
+        description=(
+            "Optional passphrase guarding this link. When set, a visitor must "
+            "unlock it before the link resolves. Null = no passphrase. Never "
+            "echoed back — only 'password_protected' is exposed."
+        ),
+    )
 
     _normalize_expires_at = field_validator("expires_at")(
         staticmethod(_to_naive_utc)
@@ -378,6 +387,13 @@ class PublicLinkUpdateRequest(BaseModel):
         default=None,
         description="Set to null explicitly to clear the expiry.",
     )
+    password: Optional[str] = Field(
+        default=None,
+        description=(
+            "Set a string to (re)protect the link with a passphrase; send an "
+            "explicit null to clear protection. Omit to leave it unchanged."
+        ),
+    )
 
     _normalize_expires_at = field_validator("expires_at")(
         staticmethod(_to_naive_utc)
@@ -385,13 +401,16 @@ class PublicLinkUpdateRequest(BaseModel):
 
 
 class PublicLinkRead(BaseModel):
-    """A public link *without* its token (safe to list)."""
+    """A public link *without* its token or passphrase (safe to list)."""
 
     id: uuid.UUID
     checklist_id: uuid.UUID
     permission: SharePermission
     enabled: bool
     expires_at: Optional[datetime.datetime] = None
+    password_protected: bool = Field(
+        description="Whether a passphrase must be supplied before this link resolves.",
+    )
     created_at: datetime.datetime
 
 
@@ -410,6 +429,7 @@ def _to_public_link_read(link: CheckListPublicShare) -> PublicLinkRead:
         permission=link.permission,
         enabled=link.enabled,
         expires_at=link.expires_at,
+        password_protected=link.password_hash is not None,
         created_at=link.created_at,
     )
 
@@ -450,6 +470,11 @@ async def create_public_link(
             checklist_id=checklist_access.checklist.id,
             permission=body.permission,
             expires_at=body.expires_at,
+            password_hash=(
+                hash_share_password(body.password)
+                if body.password
+                else None
+            ),
             created_by=checklist_access.user.id,
         )
     )
@@ -500,8 +525,16 @@ async def update_public_link(
     )
     # The base update applies model_dump(exclude_unset=True), which distinguishes
     # "not provided" from an explicit null (e.g. clearing expires_at), so only the
-    # fields the client actually sent are applied.
+    # fields the client actually sent are applied. ``password`` is not a column on
+    # the model, so the base update ignores it — it is handled separately below so
+    # the plaintext is hashed (and never written through verbatim).
     updated = await public_share_crud.update(update_obj=body, id_=link.id)
+    if "password" in body.model_fields_set:
+        # Explicit string -> (re)protect; explicit null -> clear protection.
+        new_hash = (
+            hash_share_password(body.password) if body.password else None
+        )
+        updated = await public_share_crud.set_password_hash(link.id, new_hash)
     return _to_public_link_read(updated)
 
 

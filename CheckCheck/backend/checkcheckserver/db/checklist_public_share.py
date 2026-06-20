@@ -71,6 +71,20 @@ class CheckListPublicShareCRUD(
         results = await self.session.exec(query)
         return list(results.all())
 
+    async def set_password_hash(
+        self, link_id: uuid.UUID, password_hash: Optional[str]
+    ) -> CheckListPublicShare:
+        """Set (or clear, with ``None``) the passphrase hash on a link.
+
+        Kept off the generic ``update`` path because the API carries a *plaintext*
+        passphrase that must be hashed here, never written through verbatim."""
+        link = await self._get(link_id)
+        link.password_hash = password_hash
+        self.session.add(link)
+        await self.session.commit()
+        await self.session.refresh(link)
+        return link
+
     async def delete_for_checklist(self, checklist_id: uuid.UUID) -> None:
         await self.session.exec(
             delete(CheckListPublicShare).where(

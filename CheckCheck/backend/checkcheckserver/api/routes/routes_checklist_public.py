@@ -17,9 +17,10 @@ viewers all see the change live.
 import datetime
 import uuid
 import decimal
-from typing import Type
+from typing import Type, Optional
 
-from fastapi import APIRouter, Depends, Security, HTTPException, status
+from fastapi import APIRouter, Depends, Security, HTTPException, status, Query, Header
+from pydantic import BaseModel, Field
 
 from checkcheckserver.config import Config
 from checkcheckserver.log import get_logger
@@ -30,8 +31,15 @@ from checkcheckserver.api.access import (
     resolve_public_checklist_access,
     require_public_checklist_permission,
     verify_item_belongs_to_public_checklist,
+    link_is_resolvable,
     ChecklistAccessLevel,
     UserChecklistAccess,
+)
+from checkcheckserver.api.share_password import (
+    verify_share_password,
+    verify_share_grant,
+    make_share_grant,
+    GRANT_TTL_SECONDS,
 )
 from checkcheckserver.api.routes.routes_checklist_share import (
     require_public_links_enabled,
@@ -85,6 +93,21 @@ def _utcnow() -> datetime.datetime:
     return datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None)
 
 
+class UnlockRequest(BaseModel):
+    password: str = Field(description="The link's passphrase.")
+
+
+class UnlockResult(BaseModel):
+    grant: str = Field(
+        description=(
+            "Short-lived signed grant. Replay it on subsequent calls via the "
+            "'X-Share-Grant' header or '?share_grant=' query so you don't resend "
+            "the passphrase."
+        ),
+    )
+    expires_in: int = Field(description="Grant lifetime in seconds.")
+
+
 @fast_api_checklist_public_router.get(
     "/public/checklist/{token}",
     response_model=CheckListApiWithSubObj,
@@ -121,6 +144,51 @@ async def get_public_checklist(
 
 
 @fast_api_checklist_public_router.post(
+    "/public/checklist/{token}/unlock",
+    response_model=UnlockResult,
+    dependencies=[Depends(require_public_links_enabled)],
+    description=(
+        "Exchange a protected link's passphrase for a short-lived grant the client "
+        "replays on subsequent calls (so the passphrase never travels again)."
+    ),
+)
+async def unlock_public_checklist(
+    token: str,
+    body: UnlockRequest,
+    public_share_crud: CheckListPublicShareCRUD = Depends(
+        CheckListPublicShareCRUD.get_crud
+    ),
+) -> UnlockResult:
+    """Verify a passphrase and mint a grant.
+
+    A wrong passphrase returns the **same 404** as a missing/disabled/expired link,
+    so a guesser cannot use this endpoint as an oracle to confirm a link exists.
+    The plaintext is read only here (POST body) and is never logged.
+    """
+    not_found = HTTPException(
+        status_code=status.HTTP_404_NOT_FOUND,
+        detail="This public link is not available.",
+    )
+    link = await public_share_crud.get_by_token(token)
+    if not link_is_resolvable(link):
+        raise not_found
+    if link.password_hash is None:
+        # Nothing to unlock. Distinguishable from the 404 paths, but only to a
+        # caller who already holds a working unprotected token (which already
+        # grants full access), so this leaks nothing new.
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="This public link is not password protected.",
+        )
+    if not verify_share_password(body.password, link.password_hash):
+        raise not_found
+    return UnlockResult(
+        grant=make_share_grant(token, link.password_hash),
+        expires_in=GRANT_TTL_SECONDS,
+    )
+
+
+@fast_api_checklist_public_router.post(
     "/public/checklist/{token}/join",
     response_model=CheckListApiWithSubObj,
     dependencies=[Depends(require_public_links_enabled)],
@@ -132,6 +200,8 @@ async def get_public_checklist(
 async def join_public_checklist(
     token: str,
     current_user: User = Depends(get_current_user),
+    share_grant: Optional[str] = Query(default=None),
+    x_share_grant: Optional[str] = Header(default=None),
     public_share_crud: CheckListPublicShareCRUD = Depends(
         CheckListPublicShareCRUD.get_crud
     ),
@@ -153,15 +223,21 @@ async def join_public_checklist(
     is resolved here (not via ``resolve_public_checklist_access``, which yields an
     anonymous principal) so the joining user's identity drives the new
     collaborator row.
+
+    A passphrase-protected link must still be unlocked first: joining without a
+    valid grant 404s exactly like resolving would, so the passphrase cannot be
+    bypassed by a logged-in user who merely holds the URL.
     """
     not_found = HTTPException(
         status_code=status.HTTP_404_NOT_FOUND,
         detail="This public link is not available.",
     )
     link = await public_share_crud.get_by_token(token)
-    if link is None or not link.enabled:
+    if not link_is_resolvable(link):
         raise not_found
-    if link.expires_at is not None and link.expires_at <= _utcnow():
+    if link.password_hash is not None and not verify_share_grant(
+        x_share_grant or share_grant, token, link.password_hash
+    ):
         raise not_found
 
     checklist_id = link.checklist_id
