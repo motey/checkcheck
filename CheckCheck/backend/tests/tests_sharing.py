@@ -376,6 +376,47 @@ def test_transfer_ownership_validation():
     )
 
 
+def test_labels_are_per_user_on_shared_card():
+    """Labels are a per-user organisational layer (each CheckListLabel carries a
+    user_id, and a user may only attach labels they own). On a shared card every
+    collaborator keeps their *own* labels — one user must never see another user's
+    private labels, via the single GET, the /label endpoint, or the grid list."""
+    viewer_token = _make_user_token("share-label-viewer")
+    viewer_id = _user_id(viewer_token)
+    checklist_id = _create_checklist("LabelScope")
+    _share(checklist_id, viewer_id, "view")
+
+    owner_label = req("api/label", "post", b={"display_name": "owner-only-label"})
+    req(f"api/checklist/{checklist_id}/label/{owner_label['id']}", "put")
+
+    viewer_label = req(
+        "api/label",
+        "post",
+        b={"display_name": "viewer-only-label"},
+        access_token=viewer_token,
+    )
+    req(
+        f"api/checklist/{checklist_id}/label/{viewer_label['id']}",
+        "put",
+        access_token=viewer_token,
+    )
+
+    # viewer sees only their own label everywhere
+    via_get = req(f"api/checklist/{checklist_id}", access_token=viewer_token)
+    assert [l["display_name"] for l in via_get["labels"]] == ["viewer-only-label"]
+
+    via_label_ep = req(f"api/checklist/{checklist_id}/label", access_token=viewer_token)
+    assert [l["display_name"] for l in via_label_ep] == ["viewer-only-label"]
+
+    listing = req("api/checklist", access_token=viewer_token)
+    entry = find_first_dict_in_list(listing["items"], {"id": checklist_id})
+    assert [l["display_name"] for l in entry["labels"]] == ["viewer-only-label"]
+
+    # and the owner sees only their own
+    owner_get = req(f"api/checklist/{checklist_id}")
+    assert [l["display_name"] for l in owner_get["labels"]] == ["owner-only-label"]
+
+
 # ── user search ──────────────────────────────────────────────────────────────
 
 

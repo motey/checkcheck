@@ -73,6 +73,7 @@ from checkcheckserver.api.access import (
     ChecklistAccessLevel,
     checklist_ids_with_access,
     UserChecklistAccess,
+    verify_item_belongs_to_checklist,
 )
 from checkcheckserver.api.paginator import (
     PaginatedResponse,
@@ -96,6 +97,7 @@ fast_api_checklist_item_state_router: APIRouter = APIRouter()
     "/checklist/{checklist_id}/item/{checklist_item_id}/state",
     response_model=CheckListItemStateWithoutChecklistID,
     description=f"Get the checked value for a specific checklist item",
+    dependencies=[Depends(verify_item_belongs_to_checklist)],
 )
 async def get_checklist_item_checked_state(
     checklist_item_id: uuid.UUID,
@@ -116,6 +118,7 @@ async def get_checklist_item_checked_state(
     "/checklist/{checklist_id}/item/{checklist_item_id}/state",
     response_model=CheckListItemStateWithoutChecklistID,
     description=f"Set the chacked value for a specific checklist item",
+    dependencies=[Depends(verify_item_belongs_to_checklist)],
 )
 async def set_checklist_item_checked_state(
     val: CheckListItemStateUpdate,

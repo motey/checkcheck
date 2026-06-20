@@ -177,11 +177,14 @@ async def list_labels_of_checklist(
     checklist_access: UserChecklistAccess = Security(
         require_checklist_permission(ChecklistAccessLevel.view)
     ),
-    label_crud: LabelCRUD = Depends(LabelCRUD.get_crud),
+    checklist_label_crud: ChecklistLabelCRUD = Depends(ChecklistLabelCRUD.get_crud),
+    current_user: User = Depends(get_current_user),
 ) -> List[LabelReadAPI]:
-    log.debug(f"checklist_access.checklist.labels: {checklist_access.checklist.labels}")
-    return await label_crud.get_multiple(
-        ids=[l.id for l in checklist_access.checklist.labels]
+    # Labels are per-user: return only the caller's labels on this card, never
+    # those another collaborator attached (see list_labels_for_user).
+    return await checklist_label_crud.list_labels_for_user(
+        checklist_id=checklist_access.checklist.id,
+        user_id=current_user.id,
     )
 
 

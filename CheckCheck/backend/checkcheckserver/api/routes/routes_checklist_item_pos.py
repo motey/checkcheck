@@ -73,6 +73,7 @@ from checkcheckserver.api.access import (
     ChecklistAccessLevel,
     checklist_ids_with_access,
     UserChecklistAccess,
+    verify_item_belongs_to_checklist,
 )
 from checkcheckserver.api.paginator import (
     PaginatedResponse,
@@ -97,6 +98,7 @@ fast_api_checklist_item_pos_router: APIRouter = APIRouter()
     "/checklist/{checklist_id}/item/{checklist_item_id}/position",
     response_model=CheckListItemPositionPublicWithoutChecklistID,
     description=f"Get the position for a specific checklist item",
+    dependencies=[Depends(verify_item_belongs_to_checklist)],
 )
 async def get_checklist_item_position(
     checklist_item_id: uuid.UUID,
@@ -117,6 +119,7 @@ async def get_checklist_item_position(
     "/checklist/{checklist_id}/item/{checklist_item_id}/position",
     response_model=CheckListItemPosition,
     description=f"Get the position for a specific checklist item",
+    dependencies=[Depends(verify_item_belongs_to_checklist)],
 )
 async def update_checklist_item_position(
     position: CheckListItemPositionApiUpdate,
@@ -149,6 +152,7 @@ async def update_checklist_item_position(
     "/checklist/{checklist_id}/item/{checklist_item_id}/move/under/{other_checklist_item_id}",
     response_model=CheckListItemPosition,
     description=f"Move a checklist item under another checklist item in the positon index (the new checklist-position-index-value will be higher compared to the other checklist-position-index-value)",
+    dependencies=[Depends(verify_item_belongs_to_checklist)],
 )
 async def move_item_under_other_item(
     checklist_item_id: uuid.UUID,
@@ -212,6 +216,7 @@ async def move_item_under_other_item(
     "/checklist/{checklist_id}/item/{checklist_item_id}/move/above/{other_checklist_item_id}",
     response_model=CheckListItemPosition,
     description=f"Move a checklist item above another checklist item in the positon index (the new checklist-position-index-value will be lower compared to the other checklist-position-index-value)",
+    dependencies=[Depends(verify_item_belongs_to_checklist)],
 )
 async def move_item_above_other_item(
     checklist_item_id: uuid.UUID,
@@ -272,6 +277,7 @@ async def move_item_above_other_item(
     "/checklist/{checklist_id}/item/{checklist_item_id}/move/bottom",
     response_model=CheckListItemPosition,
     description=f"",
+    dependencies=[Depends(verify_item_belongs_to_checklist)],
 )
 async def move_item_to_bottom_of_checklist(
     checklist_item_id: uuid.UUID,
@@ -308,6 +314,7 @@ async def move_item_to_bottom_of_checklist(
     "/checklist/{checklist_id}/item/{checklist_item_id}/move/top",
     response_model=CheckListItemPosition,
     description=f"Get the position for a specific checklist item",
+    dependencies=[Depends(verify_item_belongs_to_checklist)],
 )
 async def move_item_to_top_of_checklist(
     checklist_item_id: uuid.UUID,

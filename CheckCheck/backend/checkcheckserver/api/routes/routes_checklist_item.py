@@ -73,6 +73,7 @@ from checkcheckserver.api.access import (
     ChecklistAccessLevel,
     checklist_ids_with_access,
     UserChecklistAccess,
+    verify_item_belongs_to_checklist,
 )
 from checkcheckserver.api.paginator import (
     PaginatedResponse,
@@ -194,6 +195,7 @@ async def list_checklist_items(
     "/checklist/{checklist_id}/item/{checklist_item_id}",
     response_model=CheckListItemRead,
     description=f"Get a certain checklist.",
+    dependencies=[Depends(verify_item_belongs_to_checklist)],
 )
 async def get_checklist_item(
     checklist_item_id: uuid.UUID,

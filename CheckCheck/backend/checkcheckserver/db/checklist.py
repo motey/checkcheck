@@ -191,20 +191,14 @@ class CheckListCRUD(
         if include_sub_obj:
             query = query.options(selectinload(CheckList.position))
             query = query.options(selectinload(CheckList.color))
-            query = query.options(
-                selectinload(CheckList.labels),
-                with_loader_criteria(CheckListLabel, CheckListLabel.user_id == user_id),
-            )
-
-            """
-            query = query.join(
-                CheckListLabel,
-                onclause=and_(
-                    CheckListLabel.checklist_id == CheckList.id,
-                    CheckListLabel.user_id == user_id,
-                ),
-            ).join(Label)
-            """
+            # Eager-load labels so the per-user reassignment in the route does
+            # not trigger an async lazy-load. They are loaded UNSCOPED here (the
+            # CheckList.labels relationship spans the link table without its
+            # per-user dimension, so it cannot be user-scoped at load time —
+            # with_loader_criteria does not reach a m2m secondary). The caller
+            # (list_checklists route) replaces them with the per-user set via
+            # ChecklistLabelCRUD.list_labels_for_user_by_checklist.
+            query = query.options(selectinload(CheckList.labels))
         # log.debug(f"list.checklist.query: {query}")
         results = await self.session.exec(statement=query)
         objs = results.all()

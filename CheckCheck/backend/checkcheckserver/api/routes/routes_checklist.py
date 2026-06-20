@@ -47,6 +47,7 @@ from checkcheckserver.db.checklist_position import (
 )
 from checkcheckserver.db.checklist_collaborator import CheckListCollaboratorCRUD
 from checkcheckserver.model.checklist_collaborator import CheckListCollaborator
+from checkcheckserver.db.checklist_label import ChecklistLabelCRUD
 from checkcheckserver.config import Config
 from checkcheckserver.api.auth.security import (
     user_is_admin,
@@ -96,6 +97,7 @@ async def list_checklists(
     label_id: Optional[uuid.UUID] = None,
     search: Optional[str] = Query(None),
     checklist_crud: CheckListCRUD = Depends(CheckListCRUD.get_crud),
+    checklist_label_crud: ChecklistLabelCRUD = Depends(ChecklistLabelCRUD.get_crud),
     pagination: QueryParamsInterface = Depends(CheckListQueryParams),
     current_user: User = Depends(get_current_user),
 ) -> PaginatedResponse[CheckListApiWithSubObj]:
@@ -107,13 +109,23 @@ async def list_checklists(
         label_id=label_id,
         search=search,
     )
-    # log.debug(f"result_checklist_items {result_checklist_items}")
+    total_count = await checklist_crud.count(
+        user_id=current_user.id,
+        archived=archived,
+        search=search,
+    )
+    # Labels are per-user; the ORM relationship returns every collaborator's
+    # labels on a shared card, so scope each card's labels to the caller. Done
+    # after every query above so the in-memory reassignment never triggers an
+    # autoflush (it is never committed).
+    labels_by_checklist = await checklist_label_crud.list_labels_for_user_by_checklist(
+        checklist_ids=[cl.id for cl in result_checklist_items],
+        user_id=current_user.id,
+    )
+    for checklist in result_checklist_items:
+        checklist.labels = labels_by_checklist.get(checklist.id, [])
     return PaginatedResponse(
-        total_count=await checklist_crud.count(
-            user_id=current_user.id,
-            archived=archived,
-            search=search,
-        ),
+        total_count=total_count,
         offset=pagination.offset,
         count=len(result_checklist_items),
         items=result_checklist_items,
@@ -184,14 +196,23 @@ async def get_checklist(
     checklist_access: UserChecklistAccess = Security(
         require_checklist_permission(ChecklistAccessLevel.view)
     ),
+    checklist_label_crud: ChecklistLabelCRUD = Depends(ChecklistLabelCRUD.get_crud),
+    current_user: User = Depends(get_current_user),
 ) -> CheckListApiWithSubObj:
-    return await checklist_crud.get(
+    checklist = await checklist_crud.get(
         id_=checklist_id,
         raise_exception_if_none=HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"No checklist with id '{checklist_id}'",
         ),
     )
+    # Labels are per-user; the ORM relationship returns every collaborator's
+    # labels, so scope them to the caller before returning. Done last so no
+    # query runs after the in-memory reassignment (which is never committed).
+    checklist.labels = await checklist_label_crud.list_labels_for_user(
+        checklist_id=checklist_id, user_id=current_user.id
+    )
+    return checklist
 
 
 @fast_api_checklist_router.patch(

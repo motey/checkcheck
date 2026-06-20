@@ -121,6 +121,29 @@ rows that identify those recipients — so the wrong users (or nobody) were noti
 - [x] Tests in `tests/tests_sharing_sync.py` connect a real SSE client to `/api/sync` and
       assert who receives which `upd_prop` for each delete flow (all three bugs above).
 
+### Authorization / data-scoping fixes (found on second bug hunt) ✅ DONE
+These surfaced once cards can be shared (multiple users + multiple item/label/position
+rows per card). Both are cross-user leaks the Phase 2 audit missed because it gated on
+the *checklist* in the path but not on the *item* addressed by id, nor on the per-user
+label dimension.
+- [x] **Cross-checklist item IDOR.** `require_checklist_permission(...)` authorizes the
+      checklist named in the path, but the item / item-state / item-position routes address
+      the item by its own id and never checked it belonged to that checklist. A user with
+      any access to checklist A could read or mutate an item in checklist B via
+      `/checklist/{A}/item/{item_in_B}/...` (`update`/`delete` item already checked this;
+      GET item, GET/PATCH state, GET/PATCH position and the move endpoints did not). Added
+      `verify_item_belongs_to_checklist` dependency in `api/access.py` and wired it into every
+      affected route (404 to avoid revealing the foreign item). Covered by
+      `tests/tests_cross_checklist_access.py`.
+- [x] **Per-user labels leaked across a shared card.** Labels are a per-user layer (each
+      `CheckListLabel` carries `user_id`), but `GET /checklist/{id}`, `GET /checklist/{id}/label`
+      and the grid `GET /checklist` all read the unscoped `CheckList.labels` relationship, so a
+      collaborator saw every other user's private labels. (The `list` CRUD *tried* to scope via
+      `with_loader_criteria`, but that does not reach a m2m secondary, so it silently did
+      nothing.) Added `ChecklistLabelCRUD.list_labels_for_user[_by_checklist]` and scope labels
+      per caller in all three routes. Covered by
+      `test_labels_are_per_user_on_shared_card` in `tests/tests_sharing.py`.
+
 ### Phase 5 — Public URL share  ⏸️ DEFERRED TO A DEDICATED SESSION
 Public/anonymous sharing is a larger, riskier slice (new anonymous auth surface +
 sync changes) and is intentionally **not** part of this build. Implement it on its own

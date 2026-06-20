@@ -159,6 +159,35 @@ def require_checklist_permission(min_level: ChecklistAccessLevel):
     return _require
 
 
+async def verify_item_belongs_to_checklist(
+    checklist_id: uuid.UUID,
+    checklist_item_id: uuid.UUID,
+    checklist_item_crud: Annotated[
+        CheckListItemCRUD, Depends(CheckListItemCRUD.get_crud)
+    ],
+) -> CheckListItem:
+    """Ensure the item addressed in the path actually belongs to the checklist in
+    the path.
+
+    ``require_checklist_permission`` authorizes the *checklist* named in the path,
+    but item / item-state / item-position routes address the item by its own id.
+    Without this check a user with access to checklist A could read or mutate an
+    item that lives in checklist B (which they have no access to) by calling
+    ``/checklist/{A}/item/{item_in_B}/...`` — a cross-checklist IDOR. Returns 404
+    (rather than 400) so the existence of the foreign item is not revealed.
+    """
+    item = await checklist_item_crud.get(id_=checklist_item_id)
+    if item is None or item.checklist_id != checklist_id:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=(
+                f"Item '{checklist_item_id}' does not exist in checklist "
+                f"'{checklist_id}'."
+            ),
+        )
+    return item
+
+
 async def checklist_ids_with_access(
     user: Annotated[User, Security(get_current_user)],
     checklist_crud: Annotated[CheckListCRUD, Depends(CheckListCRUD.get_crud)],
