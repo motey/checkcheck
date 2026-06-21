@@ -1,0 +1,338 @@
+# Card Sharing — Frontend Implementation Plan & Tracker
+
+Companion to `CARD_SHARING_PLAN.md`. The **backend is complete** (Phases 1–10: per-user
+shares, user/group search, public URL links with password + expiry, public-link join,
+invite/accept flow, and an in-app notification feed). This document plans the **Nuxt 4
+frontend** that surfaces all of it.
+
+Stack recap (so future sessions don't re-derive it):
+- **Nuxt 4** (`compatibilityVersion: 4`), **SSR off**, **Pinia** stores, **@nuxt/ui** v3
+  components, **nuxt-open-fetch** typed client.
+- The typed API client is `$checkapi` (`useNuxtApp().$checkapi`) / `useCheckapi()`, generated
+  from `CheckCheck/openapi.json` (already regenerated — it contains every sharing endpoint).
+  Path params go in `path: {...}`, query in `query: {...}`, body in `body`.
+- Global response/body types are aliased in `types/index.ts` from `components["schemas"][...]`.
+- URL-reflected app state lives in `composables/useAppRoute.ts` (opened card = `/card/:cardId`,
+  label editor = `?editlabels`, search = `?search`, filter = `?label`).
+- Live updates: `composables/useSync.ts` is a single shared `EventSource("/api/sync")`; it
+  dispatches `SyncNotificationType.upd_prop` into store mutations.
+- Modals use `useOverlay()` + `overlay.create(Component)` (see `pages/index.vue`).
+- 401 handling is centralised in `plugins/api.ts` (redirect to `/login`).
+
+> **Convention for this tracker:** mark phases `📋 PLANNED` / `🚧 IN PROGRESS` / `✅ DONE` as
+> the backend file did. Keep both the dev server (`./run_dev_frontend.sh`) and the Playwright
+> E2E suite green (see `E2E_TESTING.md`).
+
+---
+
+## Backend prerequisites (do these FIRST — the UI cannot be permission-aware without them)
+
+These are the **only** backend changes the frontend needs. They are small and additive.
+
+### P0.1 — Expose ownership + the caller's effective permission on the card read model ⚠️ REQUIRED
+`CheckListApiWithSubObj` (the `CheckListType` every card in the grid is rendered from) currently
+exposes **only** `name, text, color_id, checked_items_seperated, checked_items_collapsed, id,
+color, position, labels`. It does **not** include `owner_id`, and there is no field telling the
+client what the **current user may do** with the card. Without this the frontend cannot decide
+whether to show owner-only controls (manage shares, transfer, public links, delete) vs a
+collaborator's "leave list", nor whether to disable check/edit affordances for a `view`/`check`
+collaborator.
+
+Add to the card read serialisation (in `routes_checklist.py` GET `/checklist` and
+`/checklist/{id}`, and anywhere a `CheckListApiWithSubObj` is returned — accept-invite,
+join, etc.):
+- `owner_id: uuid.UUID`
+- `my_permission: Literal["view","check","edit","owner"]` — derived from the same
+  `UserChecklistAccess.permission_level()` the route guards already compute (owner → `"owner"`).
+  For the **anonymous public** card read, set this to the public link's level.
+
+This is the single source of truth the whole UI gates on. Everything below assumes it exists.
+
+### P0.2 — Expose the relevant server feature flags ⚠️ REQUIRED (small)
+The sharing endpoints return **404** when a feature is switched off server-side
+(`SHARING_ENABLED`, `SHARING_PUBLIC_LINKS_ENABLED`, `SHARING_USER_SEARCH_ENABLED`,
+`SHARING_REQUIRE_INVITE_ACCEPT`). The frontend should hide the corresponding UI rather than
+render a button that 404s. Add a tiny **unauthenticated** `GET /public-config` (or extend an
+existing bootstrap endpoint) returning those four booleans. If this is rejected, fall back to
+**feature-detection**: attempt the call, hide the section on 404 (uglier, more flicker — prefer
+the config endpoint).
+
+> If P0.1/P0.2 land in the same session, regenerate `CheckCheck/openapi.json` and run
+> `bunx nuxi prepare` so the open-fetch types pick up the new fields. **Every frontend phase
+> below assumes the schema types are current.**
+
+---
+
+## Cross-cutting foundations (Phase F0) — 📋 PLANNED
+
+Shared plumbing every feature phase builds on. Land this first.
+
+### F0.1 — Current-user store
+There is **no** current-user state today (only `login.vue` calls `/api/auth/list`). Add
+`stores/user.ts`:
+- `me: User | null`, `fetchMe()` → `GET /api/user/me`, a `isOwnerOf(card)` / id getter.
+- Loaded once on app mount (in `pages/index.vue` `onMounted`, alongside `useSync().connect()`).
+- Needed by: notification/invite payloads, "is this my card" checks (belt-and-suspenders next to
+  `my_permission`), and the share list (don't offer to share with yourself).
+
+### F0.2 — Global types
+Extend `types/index.ts` with the new schemas (all already in `openapi.json`):
+```ts
+type ShareReadType        = components["schemas"]["ShareRead"]
+type ShareUpsertType      = components["schemas"]["ShareUpsertRequest"]
+type SharePermission      = components["schemas"]["SharePermission"]   // "view"|"check"|"edit"
+type ShareStatus          = components["schemas"]["ShareStatus"]        // pending|accepted|declined
+type PublicLinkReadType   = components["schemas"]["PublicLinkRead"]
+type PublicLinkCreateRes  = components["schemas"]["PublicLinkCreateResult"]  // carries token ONCE
+type PublicLinkCreateReq  = components["schemas"]["PublicLinkCreateRequest"]
+type PublicLinkUpdateReq  = components["schemas"]["PublicLinkUpdateRequest"]
+type GroupShareResult     = components["schemas"]["GroupShareResult"]
+type InviteReadType       = components["schemas"]["InviteRead"]
+type NotificationReadType = components["schemas"]["NotificationRead"]
+type UserSearchResult     = components["schemas"]["UserSearchResult"]
+type UserType             = components["schemas"]["User"]
+```
+Extend the hand-maintained sync union — the backend now emits these too:
+```ts
+type SyncNotificationUpdateProp =
+  | "item_state" | "item_text" | "item_position" | "item_created" | "item_deleted"
+  | "checklist" | "checklist_position" | "checklist_created" | "checklist_deleted"
+  | "checklist_label"
+  | "share_added" | "share_removed" | "share_invited" | "notification"   // ← new
+```
+
+### F0.3 — Permission helper
+A small composable `composables/usePermissions.ts` (or a getter on the checklist store):
+- `can(card, "check"|"edit") => boolean` and `isOwner(card)`, reading `card.my_permission`
+  against the `view < check < edit < owner` ladder. One place so gating never drifts.
+- Use everywhere an affordance must be disabled (Phase F1).
+
+### F0.4 — Extend `useSync` for the new events
+In `composables/useSync.ts::handle`, add cases:
+- `share_added` / `share_removed` → `checkListStore.refresh(clId)` (the card's `my_permission`,
+  and for the owner the share list, may have changed; a collaborator who was just added gets
+  `checklist_created` separately, an existing one just re-reads). If a Share modal is open for
+  `clId`, refresh its collaborator list too.
+- `share_invited` → bump the **invite** store (Phase 4): `inviteStore.refresh()`.
+- `notification` → bump the **notification** store (Phase 5): `notificationStore.refreshUnread()`
+  (and the list if the dropdown is open).
+- `checklist_deleted` is **already** handled and correctly covers revoke / leave / owner-delete
+  (the backend pins `checklist_deleted` to the removed user).
+
+---
+
+## Phase F1 — Permission-aware card UI gating — 📋 PLANNED
+**Goal:** a `view`/`check` collaborator (or anonymous viewer) sees the card but cannot perform
+actions above their level. Driven entirely by `card.my_permission` (P0.1) via `usePermissions`.
+
+Audit and gate (disable + hide-on-no-permission, with a tooltip "read-only"/"view only"):
+- **Item checkbox** (`components/CheckListItem.vue`): toggling requires `check`. Disable for `view`.
+- **Item text edit / add-new** (`CheckListItem.vue`, `CheckListItemCollection/AddNewButton.vue`):
+  require `edit`. Disable text inputs + hide the add button for `view`/`check`.
+- **Item delete / drag-reorder**: require `edit`.
+- **Card name / text / color edits** (`CheckListEditModal.vue`, footer `Color`): require `edit`.
+- **Per-user controls stay enabled at any level** — archive (`Button/Archive.vue`), pin,
+  collapse/separate-checked (`MoreOptionsMenu.vue`), labels (the whole `CheckListFooter/Labels/*`),
+  and card position/drag in the grid. These are the *viewer's own* layer (backend allows them with
+  any access). Do **not** gate these on `edit`.
+- **Footer Share button** (`Button/Share.vue`): visible to everyone with access, but the dialog it
+  opens is permission-scoped (Phase 2). Owner sees full management; non-owner sees read-only
+  collaborators + their own "Leave list".
+
+Acceptance: log in as a `view` collaborator → checkboxes and text are read-only, archive/labels
+still work; as `edit` → everything but share-management/transfer works.
+
+---
+
+## Phase F2 — Share-management dialog (backend Phases 3, 4, 10) — 📋 PLANNED
+**Goal:** wire the currently-stubbed `Button/Share.vue` (`console.log("NOT IMPLEMENTED")`) to a
+real dialog. Owner-only management; collaborators get a reduced view.
+
+### Store: `stores/share.ts`
+Keyed by checklist id. Actions:
+- `listShares(clId)` → `GET /api/checklist/{checklist_id}/shares` → `ShareReadType[]`.
+- `upsertShare(clId, userId, permission)` → `PUT /api/checklist/{checklist_id}/shares/{user_id}`.
+- `revokeShare(clId, userId)` → `DELETE .../shares/{user_id}` (also self = "leave list").
+- `transferOwnership(clId, newOwnerId)` → `POST /api/checklist/{checklist_id}/transfer-ownership`.
+- `searchUsers(q)` → `GET /api/user/search?q=` (min 2 chars; debounce ~300 ms).
+- `listMyGroups()` → `GET /api/user/me/groups` (empty for local users → hide group UI).
+- `shareWithGroup(clId, group, permission)` → `PUT .../shares/group/{group}` → `GroupShareResult`
+  (toast the `added/skipped/total` summary).
+
+### Component: `components/ShareModal/*` (opened via `useOverlay`)
+Sections, gated by `my_permission === "owner"`:
+1. **Add people** — a `UInputMenu`/search field hitting `searchUsers`; pick a user + a level
+   (`view`/`check`/`edit` segmented control) → `upsertShare`. Never list the current user or the
+   owner.
+2. **People with access** — list from `listShares`. Each row: name + a level dropdown (changes via
+   `upsertShare`) + a revoke (✕) button. Show a `status` badge when `pending`/`declined`
+   (invite mode). The owner row is labelled "Owner".
+3. **Transfer ownership** — a guarded action (confirm dialog) → `transferOwnership`; on success the
+   current user becomes an `edit` collaborator (refresh card → `my_permission` flips to `edit`,
+   owner controls disappear).
+4. **Share with a group** — only when `listMyGroups()` is non-empty: pick a group + level →
+   `shareWithGroup`.
+5. **Public links** — Phase 3 (sub-section in the same modal).
+
+**Non-owner view:** read-only "People with access" + a prominent **Leave list** button
+(`revokeShare(clId, myId)`); on success the backend pins `checklist_deleted`, so `useSync` already
+removes the card from the grid — just close the modal.
+
+Feature-gating: if `SHARING_ENABLED` is false (P0.2), hide the Share button entirely. If
+`SHARING_USER_SEARCH_ENABLED` is false, hide the "Add people" search (but still allow group share /
+public links). Refresh the share list on the `share_added`/`share_removed` SSE while open.
+
+---
+
+## Phase F3 — Public URL links: owner management (backend Phases 5, 7) — 📋 PLANNED
+**Goal:** owner creates/manages anonymous share links from within the Share modal.
+Gated by `SHARING_PUBLIC_LINKS_ENABLED` (hide section when off).
+
+### Store additions (`stores/share.ts` or a `stores/public_link.ts`)
+- `listLinks(clId)` → `GET /api/checklist/{checklist_id}/public-links` → `PublicLinkReadType[]`
+  (tokens are **redacted** here — by design).
+- `createLink(clId, {permission, expires_at?, password?})` →
+  `POST .../public-links` → `PublicLinkCreateResult`. **The `token` is returned exactly once.**
+- `updateLink(clId, linkId, patch)` → `PATCH .../public-links/{link_id}` (toggle `enabled`, change
+  `permission`/`expires_at`; `password: string` to (re)protect, `password: null` to clear).
+- `deleteLink(clId, linkId)` → `DELETE .../public-links/{link_id}`.
+
+### UI (`components/ShareModal/PublicLinks.vue`)
+- "Create link" form: level (`view`/`check`/`edit`), optional expiry (date picker → ISO string —
+  backend normalises tz to naive UTC), optional password.
+- On create, surface the full shareable URL **once** with a copy-to-clipboard button:
+  `https://<host>/p/<token>` (the public viewer route, Phase 4). Make clear it won't be shown again.
+- List existing links: show `permission`, `enabled` toggle, `expires_at`, a
+  `password_protected` 🔒 indicator (never the token), and delete. Because the token is redacted
+  on list, the only place to copy the URL is right after create — note this in the UI ("links are
+  write-only after creation; delete & recreate to get a fresh URL").
+
+---
+
+## Phase F4 — Public/anonymous viewer page (backend Phases 5, 6, 7) — 📋 PLANNED
+**Goal:** a logged-out visitor opens `/p/<token>` and sees the card at the link's level, with live
+updates, optional passphrase unlock, and a "log in to add to my deck" join.
+
+### Anonymous API access
+The authed `$checkapi` client assumes a session. For the public surface, either:
+- (a) call the `/api/public/checklist/{token}/...` endpoints with the **same** `$checkapi`
+  (they don't need a session — they auth by token in the path), passing the grant via
+  `query: { share_grant }` / `headers: { 'x-share-grant' }` when the link is protected; **or**
+- (b) a thin dedicated client.
+Prefer (a) — the open-fetch types already cover these paths. Do **not** let `plugins/api.ts`'s
+401→`/login` redirect fire on the public page (a logged-out 401 from `/join` should prompt login
+inline, not bounce the anonymous viewer). Add a per-call `onResponseError` override on the public
+calls, or guard the redirect when `route.path` starts with `/p/`.
+
+### Route + page: `pages/p/[token].vue`
+- On mount: `GET /api/public/checklist/{token}` →
+  - **200** → render the card (read-only/check/edit per `my_permission` from P0.1, reusing
+    `usePermissions` + the same `CheckList`/`CheckListItem` components as the grid, but standalone —
+    no sidebar/board chrome). Items via `GET /public/checklist/{token}/item`; check via
+    `PATCH .../item/{id}/state`; edit via `POST/PATCH/DELETE .../item[...]`.
+  - **404** → either the link is bad/expired/disabled **or** it's password-protected. Show a
+    passphrase form (can't distinguish — backend deliberately returns the same 404). On submit:
+    `POST /public/checklist/{token}/unlock {password}` → `{grant, expires_in}`. Store the grant in
+    memory (or `sessionStorage`) and replay it on every subsequent public call; retry the load.
+    Wrong passphrase → same 404 → "incorrect passphrase" message.
+- **Live updates:** open an anonymous SSE: `new EventSource("/api/sync?token=<token>" + grant)`
+  (the `/api/sync` endpoint accepts `token` + `share_grant` query params — see openapi). Reuse the
+  `useSync` dispatch logic, but scoped to this single card. (Consider parameterising `useSync` to
+  accept an optional `{token, grant}` so the same handler serves both; or a slimmer
+  `usePublicSync`.)
+- **Join / "add to my deck":** a button → `POST /api/public/checklist/{token}/join` (passing the
+  grant if protected). If logged out → **401**: route to `/login?redirect=/p/<token>` with a
+  message "log in to add this card". If logged in → the card is added as a real collaborator
+  (`share_added` fans out); navigate to `/card/<id>` in the main app.
+
+Security/UX notes: never put the **passphrase** in the URL (only the short-lived grant travels in
+the query, mirroring the backend's design); the token itself is the capability — treat the page as
+public. Anonymous edits emit sync so the owner sees them live.
+
+---
+
+## Phase F5 — Notifications feed (backend Phase 9) — 📋 PLANNED
+**Goal:** a navbar bell with an unread badge and a dropdown feed (card shared / invited / public
+link opened).
+
+### Store: `stores/notification.ts`
+- `unreadCount`, `items: NotificationReadType[]`.
+- `refreshUnread()` → `GET /api/user/me/notifications/unread-count`.
+- `list({unread_only?, limit?})` → `GET /api/user/me/notifications`.
+- `markRead(id)` → `POST /api/user/me/notifications/{id}/read`.
+- `markAllRead()` → `POST /api/user/me/notifications/read-all`.
+- On the `notification` SSE event (F0.4) → `refreshUnread()` (+ `list()` if the dropdown is open).
+
+### UI (`components/NotificationBell.vue` in `Navbar.vue`)
+- Bell icon + `UChip`/badge with `unreadCount`. Dropdown (`UPopover`/`UDropdownMenu`) lists items
+  newest-first; each row renders from `payload` (`actor_display_name` / `checklist_name`) and the
+  `type` (`card_shared` / `card_invited` / `public_link_opened`). Clicking a card-related
+  notification marks it read and opens `/card/<cl_id>`. "Mark all read" action.
+- Load `refreshUnread()` on mount. Hide the bell if `SHARING_ENABLED` is off (no notifications are
+  ever produced).
+
+---
+
+## Phase F6 — Invite inbox (backend Phase 8) — 📋 PLANNED
+**Goal:** when the server runs in invite mode (`SHARING_REQUIRE_INVITE_ACCEPT`), a user can
+accept/decline cards shared with them. (When off, the inbox is always empty — harmless.)
+
+### Store: `stores/invite.ts`
+- `pending: InviteReadType[]`, `refresh()` → `GET /api/user/me/invites`.
+- `accept(clId)` → `POST /api/checklist/{checklist_id}/invites/accept` → returns the card
+  (`CheckListApiWithSubObj`); push it into the checklist store + fetch its item preview so it
+  appears in the grid, then drop it from `pending`.
+- `decline(clId)` → `POST /api/checklist/{checklist_id}/invites/decline`; drop from `pending`.
+- On the `share_invited` SSE event (F0.4) → `refresh()`.
+
+### UI
+- Surface pending invites either in the same notification bell (a distinct section with
+  Accept/Decline buttons) or a dedicated inbox entry in `SideMenuNav.vue`. Recommended: an
+  **Invites** section at the top of the notification dropdown (accept/decline inline), since
+  `card_invited` already produces a notification — keep one surface.
+- Show a count. Accept → card animates into the grid; Decline → row removed (owner sees `declined`
+  in their share list).
+- Feature-gate: only fetch/show when invites are possible (P0.2 flag, or just always call — an
+  empty list is cheap and correct when the flag is off).
+
+---
+
+## Phase F7 — Polish & E2E — 📋 PLANNED
+- **Empty/disabled states:** every section degrades gracefully when its server flag is off (P0.2) —
+  no dead buttons.
+- **Error toasts:** reuse the central `plugins/api.ts` handler; add targeted messages for the
+  share flows (e.g. "You can only share with groups you belong to" on a 403 from group-share).
+- **Optimistic vs refetch:** follow the existing store idiom (mutate local array, reconcile via
+  the returned object / SSE). Share/permission changes should re-read `my_permission` so the UI
+  re-gates immediately.
+- **Playwright E2E** (extend `CheckCheck/frontend/tests`, see `E2E_TESTING.md`):
+  - Owner shares a card with a second user → it appears in their grid; level enforcement (view
+    can't check, check can't edit) in the UI.
+  - Revoke / leave list removes the card live (SSE) in both tabs.
+  - Public link: create → open `/p/<token>` in an anonymous context → view/check/edit per level;
+    password unlock flow; join-while-logged-in adds the card.
+  - Notification bell shows a count when a card is shared; mark-read clears it.
+  - (Invite mode is a server-flag pass — mirror the backend's "second pytest pass" approach: an
+    E2E project/run booted with `SHARING_REQUIRE_INVITE_ACCEPT=1` exercising accept/decline.)
+
+---
+
+## Suggested build order
+F0 (foundations + the two P0 backend prereqs) → **F1** (gating, immediately visible value) →
+**F2** (share dialog — the core feature) → **F3** (public-link management) → **F4** (public viewer
+page — the largest, most isolated piece) → **F5** (notifications) → **F6** (invites) → **F7**
+(polish + E2E). F5/F6 can swap; F4 can be deferred if user-to-user sharing is the priority.
+
+## File map (new / touched)
+| Area | Files |
+|---|---|
+| Backend prereq | `routes_checklist.py` (+ `model/checklist.py`) for `owner_id`/`my_permission`; a `GET /public-config`; regen `openapi.json` |
+| Foundations | `types/index.ts` (extend), `stores/user.ts` (new), `composables/usePermissions.ts` (new), `composables/useSync.ts` (extend) |
+| Gating | `CheckListItem.vue`, `CheckListItemCollection/AddNewButton.vue`, `CheckListEditModal.vue`, footer buttons |
+| Share dialog | `stores/share.ts` (new), `components/ShareModal/*` (new), `components/CheckListFooter/Button/Share.vue` (wire up) |
+| Public links | `components/ShareModal/PublicLinks.vue` (new), share store additions |
+| Public viewer | `pages/p/[token].vue` (new), anonymous-sync handling, `plugins/api.ts` (guard 401 redirect on `/p/`) |
+| Notifications | `stores/notification.ts` (new), `components/NotificationBell.vue` (new), `Navbar.vue` (mount it) |
+| Invites | `stores/invite.ts` (new), invite UI in the bell / `SideMenuNav.vue` |
+| Tests | `CheckCheck/frontend/tests/*` (Playwright) |
+</content>
