@@ -61,6 +61,23 @@ _PERMISSION_RANK: dict[ChecklistAccessLevel, int] = {
 }
 
 
+def attach_my_permission(checklist: CheckList, level) -> CheckList:
+    """Attach the caller's effective permission (P0.1) onto a checklist ORM object
+    so it serialises as ``CheckListApiWithSubObj.my_permission``.
+
+    ``my_permission`` is per-caller, not a stored column, so every route returning
+    a ``CheckListApiWithSubObj`` sets it for the current caller via this helper.
+    ``level`` may be a ``ChecklistAccessLevel``, a ``SharePermission``, or their
+    plain string value — all are normalised to the ladder's string value.
+
+    Written straight into the instance ``__dict__``: ``my_permission`` is not a
+    mapped column, and SQLModel's Pydantic ``__setattr__`` rejects assigning a
+    non-field attribute. The response serialiser reads it back via ``getattr``
+    (``from_attributes``), and SQLAlchemy's unit of work ignores the unmapped key."""
+    checklist.__dict__["my_permission"] = ChecklistAccessLevel(level).value
+    return checklist
+
+
 def permission_at_least(have, want) -> bool:
     """Compare two permission levels on the shared view<check<edit<owner ladder.
 

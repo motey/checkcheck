@@ -32,6 +32,7 @@ from checkcheckserver.api.access import (
     require_public_checklist_permission,
     verify_item_belongs_to_public_checklist,
     link_is_resolvable,
+    attach_my_permission,
     ChecklistAccessLevel,
     UserChecklistAccess,
 )
@@ -140,6 +141,8 @@ async def get_public_checklist(
     checklist.labels = await checklist_label_crud.list_labels_for_user(
         checklist_id=checklist_id, user_id=owner_id
     )
+    # Anonymous visitor: my_permission reflects the link's level (never "owner").
+    attach_my_permission(checklist, checklist_access.permission_level())
     return checklist
 
 
@@ -274,6 +277,16 @@ async def join_public_checklist(
     checklist.labels = await checklist_label_crud.list_labels_for_user(
         checklist_id=checklist_id, user_id=current_user.id
     )
+    # The joining user now holds the card as a real principal: "owner" if it is
+    # their own card, their existing level if they were already a collaborator
+    # (join never downgrades), otherwise the link's level they just joined at.
+    if is_owner:
+        my_level = ChecklistAccessLevel.owner
+    elif existing is not None:
+        my_level = existing.permission
+    else:
+        my_level = link.permission
+    attach_my_permission(checklist, my_level)
     return checklist
 
 

@@ -242,7 +242,16 @@ def test_accept_invite_grants_access_and_notifies_owner():
             "post",
             access_token=invitee_token,
         )
-        dict_must_contain(card, {"id": checklist_id})
+        # The returned card carries the P0.1 fields scoped to the invitee: the
+        # real owner_id and the invite's granted level (the grid re-gates on this).
+        dict_must_contain(
+            card,
+            {
+                "id": checklist_id,
+                "owner_id": req("api/user/me")["id"],
+                "my_permission": "check",
+            },
+        )
         assert owner_sse.received(cl_id=checklist_id, upd_prop="share_added")
 
     # after accept: access, in grid, inbox empty

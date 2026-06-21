@@ -12,6 +12,15 @@ def mount_fast_api_routers(fastapi_app: FastAPI):
         fast_api_healthcheck_router, tags=["Health"], prefix="/api"
     )
 
+    ### Public client bootstrap config (unauthenticated feature flags)
+    from checkcheckserver.api.routes.routes_public_config import (
+        fast_api_public_config_router,
+    )
+
+    fastapi_app.include_router(
+        fast_api_public_config_router, tags=["Config"], prefix="/api"
+    )
+
     ### AUTH STUFF
     from checkcheckserver.api.routes.routes_auth import (
         fast_api_auth_base_router,

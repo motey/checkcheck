@@ -63,6 +63,29 @@ class CheckListCollaboratorCRUD(
         results = await self.session.exec(statement=query)
         return results.one_or_none()
 
+    async def permissions_for_user_by_checklist(
+        self,
+        checklist_ids: List[uuid.UUID],
+        user_id: uuid.UUID,
+    ) -> dict[uuid.UUID, str]:
+        """Map each checklist id to the user's *accepted* collaborator permission.
+
+        Used to populate ``my_permission`` (P0.1) for the whole grid in a single
+        query. Cards the user owns are absent (the owner is not a collaborator —
+        the caller fills in ``"owner"`` for those); pending/declined invites grant
+        no access and are excluded."""
+        if not checklist_ids:
+            return {}
+        query = select(
+            CheckListCollaborator.checklist_id, CheckListCollaborator.permission
+        ).where(
+            CheckListCollaborator.user_id == user_id,
+            col(CheckListCollaborator.checklist_id).in_(checklist_ids),
+            CheckListCollaborator.status == ShareStatus.accepted.value,
+        )
+        results = await self.session.exec(statement=query)
+        return {checklist_id: permission for checklist_id, permission in results.all()}
+
     async def upsert(
         self,
         checklist_id: uuid.UUID,

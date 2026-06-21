@@ -25,11 +25,37 @@ Stack recap (so future sessions don't re-derive it):
 
 ---
 
-## Backend prerequisites (do these FIRST — the UI cannot be permission-aware without them)
+## Backend prerequisites (do these FIRST — the UI cannot be permission-aware without them) — ✅ DONE
 
 These are the **only** backend changes the frontend needs. They are small and additive.
+Both landed together; `CheckCheck/openapi.json` has been regenerated (the test server
+dumps it on boot). **Before the first frontend phase, run `bunx nuxi prepare` in
+`CheckCheck/frontend` so the open-fetch types pick up the new fields/endpoint.**
 
-### P0.1 — Expose ownership + the caller's effective permission on the card read model ⚠️ REQUIRED
+> **Implementation notes (what actually shipped):**
+> - **`my_permission` is attached, not stored.** A shared helper
+>   `api/access.py::attach_my_permission(checklist, level)` normalises a
+>   `ChecklistAccessLevel` / `SharePermission` / plain string to the ladder's string
+>   value and writes it into the ORM instance's `__dict__`. It can't be a plain
+>   attribute set (`checklist.my_permission = …`) — SQLModel's Pydantic `__setattr__`
+>   rejects assigning a non-field attribute (`"CheckList" object has no field …`). The
+>   response serialiser reads it back via `from_attributes`, and SQLAlchemy's unit of
+>   work ignores the unmapped key.
+> - Every route returning a `CheckListApiWithSubObj` calls the helper: list / create /
+>   get / update (`routes_checklist.py`), accept-invite (`routes_checklist_share.py`),
+>   and public read / join (`routes_checklist_public.py`).
+> - The grid list resolves all collaborators' levels in **one** query via
+>   `CheckListCollaboratorCRUD.permissions_for_user_by_checklist(...)` (owner →
+>   `"owner"`; a non-owned listed card is always an accepted collaboration, so a missing
+>   entry defensively falls back to `"view"` rather than 500-ing the whole grid).
+> - **Tests:** `tests/tests_sharing_prereqs.py` (9 tests: owner_id/my_permission on
+>   create, single GET for view/check/edit, grid list, update, public read level-capping,
+>   public join, owner-joins-own-link, and the public-config flags+values). The
+>   invite-mode accept case is asserted in `tests/tests_sharing_invites.py` instead —
+>   that's the module the invite-flow test pass boots with
+>   `SHARING_REQUIRE_INVITE_ACCEPT=1`. Default pass + invite pass both green.
+
+### P0.1 — Expose ownership + the caller's effective permission on the card read model ⚠️ REQUIRED — ✅ DONE
 `CheckListApiWithSubObj` (the `CheckListType` every card in the grid is rendered from) currently
 exposes **only** `name, text, color_id, checked_items_seperated, checked_items_collapsed, id,
 color, position, labels`. It does **not** include `owner_id`, and there is no field telling the
@@ -48,18 +74,29 @@ join, etc.):
 
 This is the single source of truth the whole UI gates on. Everything below assumes it exists.
 
-### P0.2 — Expose the relevant server feature flags ⚠️ REQUIRED (small)
+### P0.2 — Expose the relevant server feature flags ⚠️ REQUIRED (small) — ✅ DONE
 The sharing endpoints return **404** when a feature is switched off server-side
 (`SHARING_ENABLED`, `SHARING_PUBLIC_LINKS_ENABLED`, `SHARING_USER_SEARCH_ENABLED`,
 `SHARING_REQUIRE_INVITE_ACCEPT`). The frontend should hide the corresponding UI rather than
-render a button that 404s. Add a tiny **unauthenticated** `GET /public-config` (or extend an
-existing bootstrap endpoint) returning those four booleans. If this is rejected, fall back to
-**feature-detection**: attempt the call, hide the section on 404 (uglier, more flicker — prefer
-the config endpoint).
+render a button that 404s.
 
-> If P0.1/P0.2 land in the same session, regenerate `CheckCheck/openapi.json` and run
-> `bunx nuxi prepare` so the open-fetch types pick up the new fields. **Every frontend phase
-> below assumes the schema types are current.**
+**Shipped:** a tiny **unauthenticated** `GET /api/public-config`
+(`api/routes/routes_public_config.py`, mounted in `routers_map.py`, tag `Config`) returning a
+`PublicConfig` model with exactly those four booleans, named to mirror the `Config` switches:
+```jsonc
+{
+  "sharing_enabled": true,
+  "sharing_public_links_enabled": true,
+  "sharing_user_search_enabled": true,
+  "sharing_require_invite_accept": false
+}
+```
+No secrets, so it is safe without a session. Frontend: fetch once on app mount and gate the
+sharing UI on it (no feature-detection-by-404 needed).
+
+> P0.1 + P0.2 landed together: `CheckCheck/openapi.json` has been regenerated. Run
+> `bunx nuxi prepare` in `CheckCheck/frontend` so the open-fetch types pick up the new fields
+> and the new endpoint. **Every frontend phase below assumes the schema types are current.**
 
 ---
 
@@ -91,7 +128,11 @@ type InviteReadType       = components["schemas"]["InviteRead"]
 type NotificationReadType = components["schemas"]["NotificationRead"]
 type UserSearchResult     = components["schemas"]["UserSearchResult"]
 type UserType             = components["schemas"]["User"]
+type PublicConfigType     = components["schemas"]["PublicConfig"]   // P0.2 feature flags
 ```
+> `CheckListType` (`CheckListApiWithSubObj`) now also carries `owner_id: string` and
+> `my_permission: "view"|"check"|"edit"|"owner"` (P0.1) — these are required fields on
+> every card the API returns, so the grid/card components can read them directly.
 Extend the hand-maintained sync union — the backend now emits these too:
 ```ts
 type SyncNotificationUpdateProp =
@@ -326,7 +367,7 @@ page — the largest, most isolated piece) → **F5** (notifications) → **F6**
 ## File map (new / touched)
 | Area | Files |
 |---|---|
-| Backend prereq | `routes_checklist.py` (+ `model/checklist.py`) for `owner_id`/`my_permission`; a `GET /public-config`; regen `openapi.json` |
+| Backend prereq ✅ | `model/checklist.py` (+ fields), `api/access.py` (`attach_my_permission`), `db/checklist_collaborator.py` (`permissions_for_user_by_checklist`), routes `routes_checklist.py` / `routes_checklist_share.py` / `routes_checklist_public.py` (attach call); `routes_public_config.py` (new `GET /public-config`) + `routers_map.py`; tests `tests/tests_sharing_prereqs.py` (+ `tests_sharing_invites.py`); regenerated `openapi.json` |
 | Foundations | `types/index.ts` (extend), `stores/user.ts` (new), `composables/usePermissions.ts` (new), `composables/useSync.ts` (extend) |
 | Gating | `CheckListItem.vue`, `CheckListItemCollection/AddNewButton.vue`, `CheckListEditModal.vue`, footer buttons |
 | Share dialog | `stores/share.ts` (new), `components/ShareModal/*` (new), `components/CheckListFooter/Button/Share.vue` (wire up) |

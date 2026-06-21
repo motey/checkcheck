@@ -58,6 +58,7 @@ from checkcheckserver.api.auth.security import (
 from checkcheckserver.api.access import (
     user_has_checklist_access,
     require_checklist_permission,
+    attach_my_permission,
     ChecklistAccessLevel,
     UserChecklistAccess,
 )
@@ -98,6 +99,9 @@ async def list_checklists(
     search: Optional[str] = Query(None),
     checklist_crud: CheckListCRUD = Depends(CheckListCRUD.get_crud),
     checklist_label_crud: ChecklistLabelCRUD = Depends(ChecklistLabelCRUD.get_crud),
+    checklist_collaborator_crud: CheckListCollaboratorCRUD = Depends(
+        CheckListCollaboratorCRUD.get_crud
+    ),
     pagination: QueryParamsInterface = Depends(CheckListQueryParams),
     current_user: User = Depends(get_current_user),
 ) -> PaginatedResponse[CheckListApiWithSubObj]:
@@ -124,6 +128,30 @@ async def list_checklists(
     )
     for checklist in result_checklist_items:
         checklist.labels = labels_by_checklist.get(checklist.id, [])
+    # Attach the caller's effective permission (P0.1) so the client can gate
+    # owner-only / collaborator UI. A listed card is one the caller owns or is an
+    # accepted collaborator on (pending invites have no position, so never list);
+    # resolve owner -> "owner", everyone else from their collaborator level.
+    collaborator_permissions = (
+        await checklist_collaborator_crud.permissions_for_user_by_checklist(
+            checklist_ids=[cl.id for cl in result_checklist_items],
+            user_id=current_user.id,
+        )
+    )
+    for checklist in result_checklist_items:
+        if checklist.owner_id == current_user.id:
+            attach_my_permission(checklist, ChecklistAccessLevel.owner)
+        else:
+            # Defensive default to the most restrictive level: a non-owned card only
+            # reaches this list via an accepted collaboration (per the position
+            # inner-join), so a missing entry would be an invariant violation — fall
+            # back to "view" rather than 500 the whole grid.
+            attach_my_permission(
+                checklist,
+                collaborator_permissions.get(
+                    checklist.id, ChecklistAccessLevel.view
+                ),
+            )
     return PaginatedResponse(
         total_count=total_count,
         offset=pagination.offset,
@@ -181,6 +209,8 @@ async def create_checklist(
         checklist_db.id,
     )
     checklist_db.position = index
+    # The creator is always the owner.
+    attach_my_permission(checklist_db, ChecklistAccessLevel.owner)
     await sync_crud.create(SyncNotification(cl_id=checklist_db.id, upd_prop="checklist_created"))
     return checklist_db
 
@@ -212,6 +242,7 @@ async def get_checklist(
     checklist.labels = await checklist_label_crud.list_labels_for_user(
         checklist_id=checklist_id, user_id=current_user.id
     )
+    attach_my_permission(checklist, checklist_access.permission_level())
     return checklist
 
 
@@ -237,6 +268,7 @@ async def update_checklist(
             detail=f"No checklist with id '{checklist_id}'",
         ),
     )
+    attach_my_permission(result, checklist_access.permission_level())
     await sync_crud.create(SyncNotification(cl_id=checklist_id, upd_prop="checklist"))
     return result
 

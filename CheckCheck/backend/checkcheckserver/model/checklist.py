@@ -111,6 +111,14 @@ class CheckListApiCreate(CheckListBase):
 
 
 class CheckListApiWithSubObj(CheckListApi):
+    owner_id: uuid.UUID
+    # The caller's effective permission on this card, on the
+    # view < check < edit < owner ladder (see ChecklistAccessLevel). This is the
+    # single source of truth the client gates owner-only / collaborator UI on. It
+    # is not a stored column — every route returning this model attaches it for the
+    # current caller (owner -> "owner"; for an anonymous public read, the link's
+    # level).
+    my_permission: Literal["view", "check", "edit", "owner"]
     color: Optional[ChecklistColorScheme]
     position: CheckListPositionPublicWithoutChecklistID
     labels: list[LabelReadAPI]

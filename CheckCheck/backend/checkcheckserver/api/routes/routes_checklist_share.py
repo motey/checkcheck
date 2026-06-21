@@ -28,6 +28,7 @@ from checkcheckserver.api.access import (
     user_has_checklist_access,
     require_checklist_permission,
     permission_at_least,
+    attach_my_permission,
     ChecklistAccessLevel,
     UserChecklistAccess,
 )
@@ -690,7 +691,7 @@ async def accept_invite(
     checklist_label_crud: ChecklistLabelCRUD = Depends(ChecklistLabelCRUD.get_crud),
     sync_crud: SyncNotifiationCRUD = Depends(SyncNotifiationCRUD.get_crud),
 ) -> CheckListApiWithSubObj:
-    await _get_own_pending_invite(
+    invite = await _get_own_pending_invite(
         checklist_id, current_user.id, checklist_collaborator_crud
     )
     await checklist_collaborator_crud.set_status(
@@ -714,6 +715,8 @@ async def accept_invite(
     checklist.labels = await checklist_label_crud.list_labels_for_user(
         checklist_id=checklist_id, user_id=current_user.id
     )
+    # Just accepted -> the caller now holds the invite's granted level.
+    attach_my_permission(checklist, invite.permission)
     return checklist
 
 

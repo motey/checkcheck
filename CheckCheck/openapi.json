@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "CheckCheck REST API",
-    "version": "0.1.dev53+g49d4fb9.d20260621"
+    "version": "0.1.dev55+gdc77d91.d20260621"
   },
   "paths": {
     "/api/health": {
@@ -52,6 +52,28 @@
             "HTTPBearer": []
           }
         ]
+      }
+    },
+    "/api/public-config": {
+      "get": {
+        "tags": [
+          "Config"
+        ],
+        "summary": "Get Public Config",
+        "description": "Public, unauthenticated feature flags the web client gates its sharing UI on.",
+        "operationId": "get_public_config_api_public_config_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicConfig"
+                }
+              }
+            }
+          }
+        }
       }
     },
     "/api/auth/list": {
@@ -5528,6 +5550,21 @@
             "format": "uuid",
             "title": "Id"
           },
+          "owner_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Owner Id"
+          },
+          "my_permission": {
+            "type": "string",
+            "enum": [
+              "view",
+              "check",
+              "edit",
+              "owner"
+            ],
+            "title": "My Permission"
+          },
           "color": {
             "anyOf": [
               {
@@ -5552,6 +5589,8 @@
         "type": "object",
         "required": [
           "id",
+          "owner_id",
+          "my_permission",
           "color",
           "position",
           "labels"
@@ -6781,6 +6820,39 @@
           "items"
         ],
         "title": "PaginatedResponse[User]"
+      },
+      "PublicConfig": {
+        "properties": {
+          "sharing_enabled": {
+            "type": "boolean",
+            "title": "Sharing Enabled",
+            "description": "Master switch for card sharing (collaborators + public links). When false, the whole share UI is hidden."
+          },
+          "sharing_public_links_enabled": {
+            "type": "boolean",
+            "title": "Sharing Public Links Enabled",
+            "description": "Whether owners may create anonymous public share links. When false, hide the public-links section."
+          },
+          "sharing_user_search_enabled": {
+            "type": "boolean",
+            "title": "Sharing User Search Enabled",
+            "description": "Whether users may search for other users when picking a share target. When false, hide the user-search field."
+          },
+          "sharing_require_invite_accept": {
+            "type": "boolean",
+            "title": "Sharing Require Invite Accept",
+            "description": "Whether a share creates a pending invite the target must accept before gaining access (invite mode)."
+          }
+        },
+        "type": "object",
+        "required": [
+          "sharing_enabled",
+          "sharing_public_links_enabled",
+          "sharing_user_search_enabled",
+          "sharing_require_invite_accept"
+        ],
+        "title": "PublicConfig",
+        "description": "The subset of server feature flags the web client needs to decide which\nsharing UI to render. Mirrors the like-named ``Config`` switches."
       },
       "PublicLinkCreateRequest": {
         "properties": {
