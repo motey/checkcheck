@@ -53,6 +53,34 @@ config = Config()
 oauth_clients: dict[str, OAuthContainer] = register_and_create_oauth_clients()
 
 SESSION_COOKIE_NAME = f"session_{slugify_string(config.APP_NAME,'_')}"
+
+
+def caller_restricted_to_own_groups(current_user_auth: "UserAuth") -> bool:
+    """True when the caller logged in via an OIDC provider configured with
+    ``RESTRICT_USER_SEARCH_TO_OWN_GROUPS`` — meaning they may only see / target
+    other users (and OIDC groups) they share at least one group with.
+
+    Local users and callers from an unrestricted provider return ``False``
+    (unrestricted). Shared by user-search (routes_user) and group-share
+    (routes_checklist_share) so both apply the exact same scoping rule."""
+    if (
+        current_user_auth is not None
+        and current_user_auth.auth_source_type == AllowedAuthSchemeType.oidc
+        and current_user_auth.oidc_provider_slug
+    ):
+        provider = next(
+            (
+                p
+                for p in config.AUTH_OIDC_PROVIDERS
+                if p.get_provider_name_slug() == current_user_auth.oidc_provider_slug
+            ),
+            None,
+        )
+        if provider is not None and provider.RESTRICT_USER_SEARCH_TO_OWN_GROUPS:
+            return True
+    return False
+
+
 NEEDS_ADMIN_API_INFO = "Needs Admin role"
 NEEDS_USERMAN_API_INFO = "Need usermanager role"
 api_token_security = HTTPBearer(auto_error=False)

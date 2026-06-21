@@ -39,6 +39,7 @@ from checkcheckserver.api.auth.security import (
     user_is_usermanager,
     get_current_user,
     get_current_user_auth,
+    caller_restricted_to_own_groups,
 )
 
 
@@ -99,21 +100,7 @@ async def search_users(
         )
 
     # Determine whether this caller's OIDC provider restricts search to own groups.
-    restrict_to_groups = False
-    if (
-        current_user_auth.auth_source_type == AllowedAuthSchemeType.oidc
-        and current_user_auth.oidc_provider_slug
-    ):
-        provider = next(
-            (
-                p
-                for p in config.AUTH_OIDC_PROVIDERS
-                if p.get_provider_name_slug() == current_user_auth.oidc_provider_slug
-            ),
-            None,
-        )
-        if provider is not None and provider.RESTRICT_USER_SEARCH_TO_OWN_GROUPS:
-            restrict_to_groups = True
+    restrict_to_groups = caller_restricted_to_own_groups(current_user_auth)
 
     # When restricting to shared groups we filter in Python *after* the query, so
     # the DB-level limit must not pre-truncate matches that survive the filter —

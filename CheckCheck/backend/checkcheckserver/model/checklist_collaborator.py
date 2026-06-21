@@ -38,6 +38,18 @@ class SharePermission(str, enum.Enum):
     edit = "edit"  # full edit of the card and its items
 
 
+class ShareStatus(str, enum.Enum):
+    """Lifecycle of a share grant. With ``SHARING_REQUIRE_INVITE_ACCEPT`` off
+    (default) every share is created ``accepted`` and behaves as it always has.
+    With the flag on, a fresh share starts ``pending`` and grants **no** access
+    until the target accepts; declining keeps a ``declined`` row (so the owner can
+    re-invite and the UI can show "you previously declined")."""
+
+    pending = "pending"  # invited, awaiting the target's decision — no access yet
+    accepted = "accepted"  # live access
+    declined = "declined"  # the target turned the invite down — no access
+
+
 class CheckListCollaboratorCreate(TimestampedModel, table=False):
     checklist_id: uuid.UUID = Field(
         foreign_key="checklist.id", primary_key=True, ondelete="CASCADE"
@@ -47,6 +59,11 @@ class CheckListCollaboratorCreate(TimestampedModel, table=False):
         default=SharePermission.edit,
         sa_type=String,
         description="What the collaborator is allowed to do. Defaults to 'edit' to preserve the behavior of collaborators created before permission levels existed.",
+    )
+    status: ShareStatus = Field(
+        default=ShareStatus.accepted,
+        sa_type=String,
+        description="Whether this share is a live grant ('accepted'), an unaccepted invite ('pending'), or was turned down ('declined'). Defaults to 'accepted' so shares created when SHARING_REQUIRE_INVITE_ACCEPT is off — and pre-existing rows — grant access immediately.",
     )
 
 

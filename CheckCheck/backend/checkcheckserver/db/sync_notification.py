@@ -10,7 +10,10 @@ from checkcheckserver.config import Config, DbBackend
 from checkcheckserver.log import get_logger
 from checkcheckserver.db._base_crud import create_crud_base
 from checkcheckserver.model.checklist import CheckList
-from checkcheckserver.model.checklist_collaborator import CheckListCollaborator
+from checkcheckserver.model.checklist_collaborator import (
+    CheckListCollaborator,
+    ShareStatus,
+)
 from checkcheckserver.model.checklist_public_share import CheckListPublicShare
 from checkcheckserver.model.sync_notifications import SyncNotification, SyncNotificationPackage
 
@@ -64,7 +67,13 @@ class SyncNotifiationCRUD(
 
         collab_res = await self.session.exec(
             select(CheckListCollaborator.user_id).where(
-                CheckListCollaborator.checklist_id == cl_id
+                and_(
+                    CheckListCollaborator.checklist_id == cl_id,
+                    # A pending/declined invitee is not a live viewer yet, so it is
+                    # not fanned out ordinary edits (the invite notification itself
+                    # is pinned to the invitee at the call site — see upsert_share).
+                    CheckListCollaborator.status == ShareStatus.accepted.value,
+                )
             )
         )
         target_ids = list(collab_res.all())

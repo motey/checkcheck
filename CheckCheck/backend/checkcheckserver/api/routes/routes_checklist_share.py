@@ -18,19 +18,28 @@ from checkcheckserver.config import Config
 from checkcheckserver.log import get_logger
 
 from checkcheckserver.db.user import User, UserCRUD
-from checkcheckserver.api.auth.security import get_current_user
+from checkcheckserver.db.user_auth import UserAuth
+from checkcheckserver.api.auth.security import (
+    get_current_user,
+    get_current_user_auth,
+    caller_restricted_to_own_groups,
+)
 from checkcheckserver.api.access import (
     user_has_checklist_access,
     require_checklist_permission,
+    permission_at_least,
     ChecklistAccessLevel,
     UserChecklistAccess,
 )
 from checkcheckserver.model.checklist_collaborator import (
     CheckListCollaborator,
     SharePermission,
+    ShareStatus,
 )
 from checkcheckserver.db.checklist_collaborator import CheckListCollaboratorCRUD
 from checkcheckserver.db.checklist import CheckListCRUD
+from checkcheckserver.db.checklist_label import ChecklistLabelCRUD
+from checkcheckserver.model.checklist import CheckListApiWithSubObj
 from checkcheckserver.db.checklist_position import (
     CheckListPositionCRUD,
     CheckListPositionCreate,
@@ -43,6 +52,8 @@ from checkcheckserver.db.checklist_public_share import CheckListPublicShareCRUD
 from checkcheckserver.api.share_password import hash_share_password
 from checkcheckserver.db.sync_notification import SyncNotifiationCRUD
 from checkcheckserver.model.sync_notifications import SyncNotification
+from checkcheckserver.db.notification import NotificationCRUD, emit_notification
+from checkcheckserver.model.notification import NotificationType
 
 config = Config()
 log = get_logger()
@@ -88,6 +99,10 @@ class ShareRead(BaseModel):
     user_name: Optional[str] = None
     display_name: Optional[str] = None
     permission: SharePermission
+    status: ShareStatus = Field(
+        default=ShareStatus.accepted,
+        description="Whether the share is live ('accepted'), an unaccepted invite ('pending'), or declined.",
+    )
 
 
 class TransferOwnershipRequest(BaseModel):
@@ -133,6 +148,76 @@ async def _ensure_position(
     )
 
 
+async def _grant_share_to_user(
+    *,
+    checklist_id: uuid.UUID,
+    target_user_id: uuid.UUID,
+    permission: SharePermission,
+    notification_payload: dict,
+    already_accepted: bool,
+    checklist_collaborator_crud: CheckListCollaboratorCRUD,
+    checklist_position_crud: CheckListPositionCRUD,
+    sync_crud: SyncNotifiationCRUD,
+    notification_crud: NotificationCRUD,
+) -> bool:
+    """Grant (or raise) one user's share, honouring ``SHARING_REQUIRE_INVITE_ACCEPT``.
+
+    Does only the **per-recipient** side effects: the collaborator upsert, the
+    grid position (instant-add only), the pinned invite nudge, and the in-app
+    notification. The broadcast ``share_added`` SSE (which fans out to the whole
+    share set) is intentionally left to the caller so a bulk group-share can emit
+    it exactly once.
+
+    ``already_accepted`` is the caller's pre-read of whether the target is already
+    a live collaborator — when so, the invite gate is bypassed (re-arming an invite
+    must never revoke live access) and no fresh ``card_shared`` notification fires
+    for a mere level change.
+
+    Returns ``True`` when this took the instant-add path (so the caller knows a
+    broadcast ``share_added`` is warranted), ``False`` for an invite.
+    """
+    if config.SHARING_REQUIRE_INVITE_ACCEPT and not already_accepted:
+        await checklist_collaborator_crud.upsert(
+            checklist_id=checklist_id,
+            user_id=target_user_id,
+            permission=permission,
+            status=ShareStatus.pending,
+        )
+        await sync_crud.create(
+            SyncNotification(cl_id=checklist_id, upd_prop="share_invited"),
+            target_user_ids=[target_user_id],
+        )
+        await emit_notification(
+            notification_crud,
+            sync_crud,
+            user_id=target_user_id,
+            type=NotificationType.card_invited,
+            cl_id=checklist_id,
+            payload=notification_payload,
+        )
+        return False
+
+    await checklist_collaborator_crud.upsert(
+        checklist_id=checklist_id,
+        user_id=target_user_id,
+        permission=permission,
+        status=ShareStatus.accepted,
+    )
+    await _ensure_position(checklist_id, target_user_id, checklist_position_crud)
+    # Don't re-notify on a no-op level change of an already-accepted collaborator;
+    # only a genuinely new grant produces a 'card_shared' notification.
+    if not already_accepted:
+        await emit_notification(
+            notification_crud,
+            sync_crud,
+            user_id=target_user_id,
+            type=NotificationType.card_shared,
+            cl_id=checklist_id,
+            payload=notification_payload,
+        )
+    return True
+
+
 # ── Endpoints ───────────────────────────────────────────────────────────────
 
 
@@ -163,6 +248,7 @@ async def list_shares(
                 user_name=user.user_name if user else None,
                 display_name=user.display_name if user else None,
                 permission=collab.permission,
+                status=collab.status,
             )
         )
     return result
@@ -188,6 +274,7 @@ async def upsert_share(
     ),
     user_crud: UserCRUD = Depends(UserCRUD.get_crud),
     sync_crud: SyncNotifiationCRUD = Depends(SyncNotifiationCRUD.get_crud),
+    notification_crud: NotificationCRUD = Depends(NotificationCRUD.get_crud),
 ) -> ShareRead:
     checklist_id = checklist_access.checklist.id
     if user_id == checklist_access.checklist.owner_id:
@@ -201,20 +288,52 @@ async def upsert_share(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"No user with id '{user_id}'.",
         )
-    collab = await checklist_collaborator_crud.upsert(
-        checklist_id=checklist_id,
-        user_id=user_id,
-        permission=body.permission,
+
+    existing = await checklist_collaborator_crud.get_one(
+        checklist_id=checklist_id, user_id=user_id
     )
-    await _ensure_position(checklist_id, user_id, checklist_position_crud)
-    await sync_crud.create(
-        SyncNotification(cl_id=checklist_id, upd_prop="share_added")
+    already_accepted = existing is not None and existing.status == ShareStatus.accepted
+
+    # Actor context for the in-app notification — the owner doing the sharing. No
+    # secrets here; just enough to render "X shared 'Card' with you".
+    actor = checklist_access.user
+    notification_payload = {
+        "actor_id": str(actor.id),
+        "actor_user_name": actor.user_name,
+        "actor_display_name": actor.display_name,
+        "checklist_name": checklist_access.checklist.name,
+    }
+
+    # Invite mode: a *new* share (or one still pending / previously declined) goes
+    # out as a pending invite (no grid position until accepted); an already-accepted
+    # collaborator just has their level updated. Instant-add mode grants access
+    # immediately. The per-recipient work lives in the shared helper; the broadcast
+    # 'share_added' below is emitted only when access actually changed live.
+    instant_added = await _grant_share_to_user(
+        checklist_id=checklist_id,
+        target_user_id=user_id,
+        permission=body.permission,
+        notification_payload=notification_payload,
+        already_accepted=already_accepted,
+        checklist_collaborator_crud=checklist_collaborator_crud,
+        checklist_position_crud=checklist_position_crud,
+        sync_crud=sync_crud,
+        notification_crud=notification_crud,
+    )
+    if instant_added:
+        await sync_crud.create(
+            SyncNotification(cl_id=checklist_id, upd_prop="share_added")
+        )
+
+    collab = await checklist_collaborator_crud.get_one(
+        checklist_id=checklist_id, user_id=user_id
     )
     return ShareRead(
         user_id=collab.user_id,
         user_name=target.user_name,
         display_name=target.display_name,
         permission=collab.permission,
+        status=collab.status,
     )
 
 
@@ -329,6 +448,298 @@ async def transfer_ownership(
         checklist_id=checklist_id,
         new_owner_id=new_owner_id,
         previous_owner_id=old_owner_id,
+    )
+
+
+# ── Group (OIDC group) sharing — Phase 10 ────────────────────────────────────
+#
+# Share a card with everyone in an OIDC group in one call. Membership is
+# *snapshotted* at share time: the group is expanded to its current members and an
+# ordinary CheckListCollaborator row is created per member at the chosen level
+# (reusing all of the per-user machinery, so the invite gate applies automatically
+# when SHARING_REQUIRE_INVITE_ACCEPT is on). New members who join the group later
+# do NOT auto-gain access — re-run the share. Local users have no groups.
+
+
+class GroupShareRequest(BaseModel):
+    permission: SharePermission = Field(
+        description="Permission level to grant every member of the group.",
+    )
+
+
+class GroupShareResult(BaseModel):
+    """Summary of a group share — how many members were (re)granted vs skipped."""
+
+    group: str
+    permission: SharePermission
+    total_members: int = Field(
+        description="Group members resolved for this share, excluding the card owner.",
+    )
+    added: int = Field(
+        description="Members newly shared/invited or raised to the chosen level.",
+    )
+    skipped: int = Field(
+        description="Members skipped because they already held an equal or higher level.",
+    )
+
+
+@fast_api_checklist_share_router.get(
+    "/user/me/groups",
+    response_model=List[str],
+    dependencies=[Depends(require_sharing_enabled)],
+    description="List the current user's own OIDC groups (for a group-share picker). Empty for local users.",
+)
+async def list_my_groups(
+    current_user: User = Security(get_current_user),
+) -> List[str]:
+    return current_user.oidc_groups or []
+
+
+@fast_api_checklist_share_router.put(
+    "/checklist/{checklist_id}/shares/group/{group}",
+    response_model=GroupShareResult,
+    dependencies=[Depends(require_sharing_enabled)],
+    description=(
+        "Share the checklist with every member of an OIDC group at the given "
+        "permission. Snapshots membership now (later joiners are not auto-added). "
+        "Skips the owner and anyone already at an equal or higher level (never "
+        "downgrades). Honours the invite gate. Owner only."
+    ),
+)
+async def share_with_group(
+    group: str,
+    body: GroupShareRequest,
+    checklist_access: UserChecklistAccess = Security(
+        require_checklist_permission(ChecklistAccessLevel.owner)
+    ),
+    current_user_auth: UserAuth = Depends(get_current_user_auth),
+    user_crud: UserCRUD = Depends(UserCRUD.get_crud),
+    checklist_collaborator_crud: CheckListCollaboratorCRUD = Depends(
+        CheckListCollaboratorCRUD.get_crud
+    ),
+    checklist_position_crud: CheckListPositionCRUD = Depends(
+        CheckListPositionCRUD.get_crud
+    ),
+    sync_crud: SyncNotifiationCRUD = Depends(SyncNotifiationCRUD.get_crud),
+    notification_crud: NotificationCRUD = Depends(NotificationCRUD.get_crud),
+) -> GroupShareResult:
+    checklist_id = checklist_access.checklist.id
+    owner_id = checklist_access.checklist.owner_id
+
+    # Group scoping: a caller from an OIDC provider configured to restrict search
+    # to own groups may only target a group they themselves belong to (the same
+    # rule user-search applies). Local / unrestricted callers may target any group.
+    if caller_restricted_to_own_groups(current_user_auth):
+        if group not in (checklist_access.user.oidc_groups or []):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You can only share with groups you belong to.",
+            )
+
+    members = await user_crud.find_by_oidc_group(group)
+
+    actor = checklist_access.user
+    notification_payload = {
+        "actor_id": str(actor.id),
+        "actor_user_name": actor.user_name,
+        "actor_display_name": actor.display_name,
+        "checklist_name": checklist_access.checklist.name,
+    }
+
+    total = 0
+    added = 0
+    skipped = 0
+    any_instant_add = False
+    for member in members:
+        if member.id == owner_id:
+            # The owner already has full access — never a collaborator.
+            continue
+        total += 1
+        existing = await checklist_collaborator_crud.get_one(
+            checklist_id=checklist_id, user_id=member.id
+        )
+        already_accepted = (
+            existing is not None and existing.status == ShareStatus.accepted
+        )
+        # Idempotent / never-downgrade: a live collaborator already at the chosen
+        # level or higher is left untouched (mirrors the public-link join).
+        if already_accepted and permission_at_least(
+            existing.permission, body.permission
+        ):
+            skipped += 1
+            continue
+        instant = await _grant_share_to_user(
+            checklist_id=checklist_id,
+            target_user_id=member.id,
+            permission=body.permission,
+            notification_payload=notification_payload,
+            already_accepted=already_accepted,
+            checklist_collaborator_crud=checklist_collaborator_crud,
+            checklist_position_crud=checklist_position_crud,
+            sync_crud=sync_crud,
+            notification_crud=notification_crud,
+        )
+        any_instant_add = any_instant_add or instant
+        added += 1
+
+    # One broadcast for the whole batch (the share set changed). In invite mode no
+    # access changed live, so the only nudges are the per-invitee pinned ones.
+    if any_instant_add:
+        await sync_crud.create(
+            SyncNotification(cl_id=checklist_id, upd_prop="share_added")
+        )
+
+    return GroupShareResult(
+        group=group,
+        permission=body.permission,
+        total_members=total,
+        added=added,
+        skipped=skipped,
+    )
+
+
+# ── Invite inbox & actions (Phase 8) ─────────────────────────────────────────
+#
+# Only relevant when SHARING_REQUIRE_INVITE_ACCEPT is on (else shares are
+# instant-add and no pending rows ever exist — the inbox is simply always empty).
+# These are authenticated as the *invitee* (any logged-in user acting on their own
+# invites), not the owner.
+
+
+class InviteRead(BaseModel):
+    """A pending invite as seen by the invitee — the card plus who invited them
+    (the card's owner), enough to render an inbox row."""
+
+    checklist_id: uuid.UUID
+    checklist_name: Optional[str] = None
+    permission: SharePermission
+    inviter_id: uuid.UUID
+    inviter_user_name: Optional[str] = None
+    inviter_display_name: Optional[str] = None
+    created_at: datetime.datetime
+
+
+@fast_api_checklist_share_router.get(
+    "/user/me/invites",
+    response_model=List[InviteRead],
+    dependencies=[Depends(require_sharing_enabled)],
+    description="List the current user's pending share invites (cards shared with them awaiting accept/decline).",
+)
+async def list_my_invites(
+    current_user: User = Security(get_current_user),
+    checklist_collaborator_crud: CheckListCollaboratorCRUD = Depends(
+        CheckListCollaboratorCRUD.get_crud
+    ),
+    user_crud: UserCRUD = Depends(UserCRUD.get_crud),
+) -> List[InviteRead]:
+    pending = await checklist_collaborator_crud.list_pending_for_user(
+        user_id=current_user.id
+    )
+    result: List[InviteRead] = []
+    for collab, checklist in pending:
+        inviter = await user_crud.get(checklist.owner_id, show_deactivated=True)
+        result.append(
+            InviteRead(
+                checklist_id=checklist.id,
+                checklist_name=checklist.name,
+                permission=collab.permission,
+                inviter_id=checklist.owner_id,
+                inviter_user_name=inviter.user_name if inviter else None,
+                inviter_display_name=inviter.display_name if inviter else None,
+                created_at=collab.created_at,
+            )
+        )
+    return result
+
+
+async def _get_own_pending_invite(
+    checklist_id: uuid.UUID,
+    user_id: uuid.UUID,
+    checklist_collaborator_crud: CheckListCollaboratorCRUD,
+) -> CheckListCollaborator:
+    """Load the caller's pending invite for this checklist, or 404. Returns 404
+    (not 403) for a non-pending / missing row so it never reveals whether the card
+    exists to someone who was never invited."""
+    collab = await checklist_collaborator_crud.get_one(
+        checklist_id=checklist_id, user_id=user_id
+    )
+    if collab is None or collab.status != ShareStatus.pending:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="You have no pending invite for this checklist.",
+        )
+    return collab
+
+
+@fast_api_checklist_share_router.post(
+    "/checklist/{checklist_id}/invites/accept",
+    response_model=CheckListApiWithSubObj,
+    dependencies=[Depends(require_sharing_enabled)],
+    description="Accept a pending invite: gain access, the card appears in your grid. Returns the card scoped to you.",
+)
+async def accept_invite(
+    checklist_id: uuid.UUID,
+    current_user: User = Security(get_current_user),
+    checklist_crud: CheckListCRUD = Depends(CheckListCRUD.get_crud),
+    checklist_collaborator_crud: CheckListCollaboratorCRUD = Depends(
+        CheckListCollaboratorCRUD.get_crud
+    ),
+    checklist_position_crud: CheckListPositionCRUD = Depends(
+        CheckListPositionCRUD.get_crud
+    ),
+    checklist_label_crud: ChecklistLabelCRUD = Depends(ChecklistLabelCRUD.get_crud),
+    sync_crud: SyncNotifiationCRUD = Depends(SyncNotifiationCRUD.get_crud),
+) -> CheckListApiWithSubObj:
+    await _get_own_pending_invite(
+        checklist_id, current_user.id, checklist_collaborator_crud
+    )
+    await checklist_collaborator_crud.set_status(
+        checklist_id=checklist_id,
+        user_id=current_user.id,
+        status=ShareStatus.accepted,
+    )
+    await _ensure_position(checklist_id, current_user.id, checklist_position_crud)
+    # Now an accepted collaborator: owner + collaborators (incl. the new joiner)
+    # see the share set change, exactly like an instant-add share.
+    await sync_crud.create(
+        SyncNotification(cl_id=checklist_id, upd_prop="share_added")
+    )
+
+    checklist = await checklist_crud.get(id_=checklist_id)
+    user_position = await checklist_position_crud.get(
+        checklist_id=checklist_id, user_id=current_user.id
+    )
+    if user_position is not None:
+        checklist.position = user_position
+    checklist.labels = await checklist_label_crud.list_labels_for_user(
+        checklist_id=checklist_id, user_id=current_user.id
+    )
+    return checklist
+
+
+@fast_api_checklist_share_router.post(
+    "/checklist/{checklist_id}/invites/decline",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[Depends(require_sharing_enabled)],
+    description="Decline a pending invite. No access is granted; the declined row is kept (the owner can re-invite).",
+)
+async def decline_invite(
+    checklist_id: uuid.UUID,
+    current_user: User = Security(get_current_user),
+    checklist_collaborator_crud: CheckListCollaboratorCRUD = Depends(
+        CheckListCollaboratorCRUD.get_crud
+    ),
+):
+    await _get_own_pending_invite(
+        checklist_id, current_user.id, checklist_collaborator_crud
+    )
+    # Keep the row as 'declined' (rather than deleting): it lets the UI show "you
+    # previously declined" and lets the owner re-invite (which re-arms it to
+    # pending via upsert_share). No position is created.
+    await checklist_collaborator_crud.set_status(
+        checklist_id=checklist_id,
+        user_id=current_user.id,
+        status=ShareStatus.declined,
     )
 
 

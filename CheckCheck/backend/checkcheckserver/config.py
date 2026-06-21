@@ -129,6 +129,10 @@ class Config(BaseSettings):
         default=True,
         description="Allow owners to create public share URLs that let anonymous visitors open a card. When false, public-link endpoints are disabled.",
     )
+    SHARING_REQUIRE_INVITE_ACCEPT: bool = Field(
+        default=False,
+        description="When true, sharing a card with a user creates a *pending* invite the target must accept before they gain access (the card does not appear in their grid until then). When false (default), sharing instantly adds the collaborator, preserving the original behaviour.",
+    )
 
     AUTH_BASIC_LOGIN_IS_ENABLED: bool = Field(
         default=True,

@@ -63,6 +63,14 @@ class CheckListPublicShareCreate(TimestampedModel, table=False):
             "passphrase (the default). Never store or log the plaintext."
         ),
     )
+    first_opened_at: datetime.datetime | None = Field(
+        default=None,
+        description=(
+            "Naive UTC time of the first successful anonymous resolve of this link. "
+            "Set once (null -> set), which is the trigger for the one-time "
+            "'public_link_opened' notification to the link's creator (Phase 9)."
+        ),
+    )
     created_by: uuid.UUID = Field(foreign_key="user.id")
 
 

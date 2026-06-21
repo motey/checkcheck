@@ -15,13 +15,19 @@ from checkcheckserver.api.auth.security import (
     get_current_user,
 )
 from checkcheckserver.config import Config
-from checkcheckserver.model.checklist_collaborator import CheckListCollaborator
+from checkcheckserver.model.checklist_collaborator import (
+    CheckListCollaborator,
+    ShareStatus,
+)
 from checkcheckserver.db.checklist_collaborator import CheckListCollaboratorCRUD
 from checkcheckserver.model.checklist import CheckList
 from checkcheckserver.db.checklist import CheckListCRUD
 from checkcheckserver.model.checklist_public_share import CheckListPublicShare
 from checkcheckserver.db.checklist_public_share import CheckListPublicShareCRUD
 from checkcheckserver.api.share_password import verify_share_grant
+from checkcheckserver.db.sync_notification import SyncNotifiationCRUD
+from checkcheckserver.db.notification import NotificationCRUD, emit_notification
+from checkcheckserver.model.notification import NotificationType
 
 from checkcheckserver.model.checklist_item import CheckListItem
 from checkcheckserver.db.checklist_item import CheckListItemCRUD
@@ -53,6 +59,19 @@ class ChecklistAccessLevel(str, enum.Enum):
 _PERMISSION_RANK: dict[ChecklistAccessLevel, int] = {
     level: rank for rank, level in enumerate(ChecklistAccessLevel)
 }
+
+
+def permission_at_least(have, want) -> bool:
+    """Compare two permission levels on the shared view<check<edit<owner ladder.
+
+    Accepts ``SharePermission`` or ``ChecklistAccessLevel`` values (the former's
+    values are a subset of the latter's). Returns True when ``have`` is at least
+    as strong as ``want`` — used by bulk group sharing to skip members who already
+    hold an equal-or-higher grant (never downgrade)."""
+    return (
+        _PERMISSION_RANK[ChecklistAccessLevel(have)]
+        >= _PERMISSION_RANK[ChecklistAccessLevel(want)]
+    )
 
 
 class AnonymousPrincipal:
@@ -94,8 +113,12 @@ class UserChecklistAccess:
         return self.user.id is not None and self.user.id == self.checklist.owner_id
 
     def user_is_collaborator(self) -> bool:
+        # Only an *accepted* collaborator counts as having access. A pending or
+        # declined invite grants nothing (see ShareStatus / Phase 8).
         return self.user.id is not None and self.user.id in [
-            collab.user_id for collab in self.collaborators
+            collab.user_id
+            for collab in self.collaborators
+            if collab.status == ShareStatus.accepted
         ]
 
     def permission_level(self) -> ChecklistAccessLevel | None:
@@ -106,7 +129,12 @@ class UserChecklistAccess:
         if self.user_is_owner():
             return ChecklistAccessLevel.owner
         for collab in self.collaborators:
-            if collab.user_id == self.user.id:
+            # A pending/declined invite grants no access (Phase 8): skip it so the
+            # invitee is treated exactly like an unrelated user until they accept.
+            if (
+                collab.user_id == self.user.id
+                and collab.status == ShareStatus.accepted
+            ):
                 # SharePermission values are a subset of ChecklistAccessLevel values
                 return ChecklistAccessLevel(collab.permission)
         return None
@@ -208,6 +236,12 @@ async def resolve_public_checklist_access(
         CheckListCollaboratorCRUD, Depends(CheckListCollaboratorCRUD.get_crud)
     ],
     checklist_crud: Annotated[CheckListCRUD, Depends(CheckListCRUD.get_crud)],
+    notification_crud: Annotated[
+        NotificationCRUD, Depends(NotificationCRUD.get_crud)
+    ],
+    sync_crud: Annotated[
+        SyncNotifiationCRUD, Depends(SyncNotifiationCRUD.get_crud)
+    ],
     share_grant: Annotated[Optional[str], Query()] = None,
     x_share_grant: Annotated[Optional[str], Header()] = None,
 ) -> UserChecklistAccess:
@@ -242,6 +276,20 @@ async def resolve_public_checklist_access(
     checklist = await checklist_crud.get(id_=link.checklist_id)
     if checklist is None:
         raise not_found
+
+    # First successful anonymous resolve of this link → notify its creator, once.
+    # mark_first_opened flips null→set atomically and returns True only for the
+    # very first caller, so subsequent opens emit nothing (idempotent).
+    if await checklist_public_share_crud.mark_first_opened(link.id):
+        await emit_notification(
+            notification_crud,
+            sync_crud,
+            user_id=link.created_by,
+            type=NotificationType.public_link_opened,
+            cl_id=checklist.id,
+            payload={"checklist_name": checklist.name},
+        )
+
     collaborators = await checklist_collaborator_crud.list(
         checklist_id=link.checklist_id
     )

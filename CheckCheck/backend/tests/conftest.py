@@ -66,6 +66,21 @@ def set_config_for_test_env():
     os.environ["APP_PROVISIONING_DATA_YAML_FILES"] = json.dumps(
         [str(PROVISIONING_DATA_PATH)]
     )
+    # Phase 8 (invite/accept) behaviour is gated by a server-side config flag that
+    # changes how sharing works for the whole process, so it cannot be toggled
+    # per-request. The flag-on tests run in a *separate* pytest invocation that
+    # sets CHECKCHECK_TEST_SHARING_REQUIRE_INVITE_ACCEPT=1 (see the run scripts);
+    # that boots the test server with the invite flow on. The default suite leaves
+    # it off, so all the instant-add tests keep passing unchanged. The test process
+    # reads the same env (utils.server_config) so test modules can branch on it.
+    if os.getenv("CHECKCHECK_TEST_SHARING_REQUIRE_INVITE_ACCEPT", "").lower() in (
+        "1",
+        "true",
+        "yes",
+    ):
+        os.environ["SHARING_REQUIRE_INVITE_ACCEPT"] = "True"
+    else:
+        os.environ["SHARING_REQUIRE_INVITE_ACCEPT"] = "False"
 
 
 # Set at module level so it is in place during pytest's collection phase.
@@ -157,6 +172,11 @@ def _start_oidc_mock():
         "USER_MAIL_ATTRIBUTE": "email",
         "USER_GROUPS_ATTRIBUTE": "groups",
         "ROLE_MAPPING": {OIDC_TEST_ROLE_GROUP: [OIDC_TEST_MAPPED_ROLE]},
+        # Phase 10 group-share scoping: an OIDC caller may only target groups they
+        # themselves belong to. Turned on here so tests_sharing_groups can exercise
+        # the restriction; it only affects OIDC-authed callers (local users such as
+        # the admin owner are unrestricted), so other suites are unaffected.
+        "RESTRICT_USER_SEARCH_TO_OWN_GROUPS": True,
     }
     os.environ["AUTH_OIDC_TOKEN_STORAGE_SECRET"] = "oidc-test-storage-secret-checkcheck"
     os.environ["AUTH_OIDC_PROVIDERS"] = json.dumps([provider_config])

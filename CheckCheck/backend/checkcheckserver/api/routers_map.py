@@ -31,6 +31,16 @@ def mount_fast_api_routers(fastapi_app: FastAPI):
         fast_api_user_self_service_router, tags=["User"], prefix="/api"
     )
 
+    ### USER NOTIFICATIONS (self-service /user/me/notifications — register with the
+    ### other "me" routes, before /user/{user_id} management routes)
+    from checkcheckserver.api.routes.routes_notification import (
+        fast_api_notification_router,
+    )
+
+    fastapi_app.include_router(
+        fast_api_notification_router, tags=["Notifications"], prefix="/api"
+    )
+
     ### USER MANAGEMENT
     from checkcheckserver.api.routes.routes_user_management import (
         fast_api_user_manage_router,

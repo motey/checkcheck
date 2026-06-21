@@ -285,7 +285,7 @@ Four Stage-2 ideas, each packed into a **single focused session**. Recommended o
 Phase 9 (notifications) can lean on the invite events from Phase 8; Phase 10 is independent
 and can move earlier if needed.
 
-The current head migration is `0008` (Phase 7); each phase that needs schema changes takes the
+The current head migration is `0010` (Phase 9); each phase that needs schema changes takes the
 next number in sequence. Both backends (Postgres prod, SQLite dev — see `[[db-targets]]`) must
 stay green via `./run_backend_tests_with_postgres.sh` and `./run_backend_tests_with_sqlite.sh`.
 
@@ -341,99 +341,124 @@ Delivered:
 - [x] `join` on a protected link needs a grant.
 - [x] Token-keyed SSE refuses a protected link without a grant (401) and streams with one.
 
-### Phase 8 — Invite / accept flow  📋 PLANNED
+### Phase 8 — Invite / accept flow  ✅ DONE
 **Goal:** optionally turn instant-add sharing into an invite the target must accept. Default
 stays instant-add (current model); the flow is gated so less-trusted deployments can opt in.
 
-**Config:** `SHARING_REQUIRE_INVITE_ACCEPT: bool = False` in `config.py` (when off, sharing
-behaves exactly as today — no behavioural change for existing deployments).
+**Decision (locked in-session):** decline **keeps a `declined` row** (rather than deleting it),
+so the owner can re-invite (which re-arms it to `pending`) and the UI can show "you previously
+declined".
 
-**Data model / migration `0009`:**
-- Add a `ShareStatus(str, enum)` = `pending | accepted | declined` and a
-  `status: ShareStatus` column (default `accepted`) to `CheckListCollaborator` /
-  `CheckListCollaboratorCreate` in `model/checklist_collaborator.py`. Enum-as-string so it
-  surfaces in OpenAPI (mirrors how `SharePermission` is done).
-- Migration `0009` adds the column and **backfills every existing collaborator row to
-  `accepted`** (they already have live access — must not regress to pending). Chains the head.
+Delivered:
+- [x] `SHARING_REQUIRE_INVITE_ACCEPT: bool = False` in `config.py` (off → sharing behaves
+      exactly as today; no behavioural change for existing deployments).
+- [x] `ShareStatus(str, enum)` = `pending | accepted | declined` + a `status` column
+      (default `accepted`, enum-as-string like `SharePermission`) on `CheckListCollaborator` /
+      `CheckListCollaboratorCreate`. Migration `0009` adds the column and backfills existing
+      rows to `accepted` (they already have live access — must not regress to pending); chains
+      `0008 → 0009` (verified single head).
+- [x] Access scoping (`api/access.py`): `permission_level()` and `user_is_collaborator()` only
+      count `accepted` rows — a `pending`/`declined` invitee is treated like an unrelated user
+      (covered by the no-access tests). `_resolve_target_user_ids` (`db/sync_notification.py`)
+      likewise fans out only to `accepted` collaborators, so a pending invitee gets no ordinary
+      edit notifications; the invite notification itself is pinned to the invitee at the call
+      site. (SQL where-clauses compare against `ShareStatus.<x>.value` for asyncpg safety.)
+- [x] `upsert_share`: with the flag on, a *new* / still-`pending` / previously-`declined`
+      target becomes a `pending` invite — **no** `CheckListPosition` (the card stays out of
+      their grid) — and emits `upd_prop="share_invited"` pinned to the invitee. Re-sharing an
+      **already-accepted** collaborator just updates their level (never re-arms an invite, so
+      live access is preserved). Flag off → instant-add as before (`accepted` + position +
+      `share_added`). `ShareRead` now carries `status`, so the owner's share list shows pending.
+- [x] `CheckListCollaboratorCRUD`: `upsert(..., status=accepted)` (default keeps every existing
+      caller — instant-add, public-link join, ownership-transfer demotion — granting access
+      immediately), `set_status(...)`, and `list_pending_for_user(...)` (joins the card; `.unique()`
+      because `CheckList` eager-loads a collection).
+- [x] Inbox + actions (authenticated as the invitee, in `routes_checklist_share.py`):
+      `GET /user/me/invites` (pending rows + card name + inviter = the card owner);
+      `POST /checklist/{id}/invites/accept` (→ `accepted`, `_ensure_position`, `share_added`,
+      returns the card scoped to the new collaborator); `POST /checklist/{id}/invites/decline`
+      (→ `declined`, no position). accept/decline 404 when the caller has no pending invite
+      (no card-existence probe for an uninvited user).
 
-**Authorization (`api/access.py`) — the careful part:**
-- `UserChecklistAccess.permission_level()` and `user_is_collaborator()` must only count rows
-  with `status == accepted`. A `pending`/`declined` row grants **no** access. (Add the filter
-  in both places; a missed spot is a silent access leak — cover with a test.)
-- `_resolve_target_user_ids` in `db/sync_notification.py` should likewise only fan out to
-  **accepted** collaborators (a pending invitee isn't a live viewer yet) — except the invite
-  notification itself, which is pinned to the invitee.
+**Test harness note (locked in-session):** the invite flow is a *server-side config flag* that
+changes sharing for the whole process, so it cannot be toggled per-request, and turning it on
+globally would break every instant-add test. The single-server test harness therefore runs the
+flag-on cases in a **second pytest pass** booted with `SHARING_REQUIRE_INVITE_ACCEPT=1` — wired
+into both `run_backend_tests_with_{sqlite,postgres}.sh` (skipped only when the user narrows the
+run to a path/`-k`). `tests/tests_sharing_invites.py` branches on
+`utils.server_config.SHARING_REQUIRE_INVITE_ACCEPT`: the flag-off no-regression case runs in the
+normal suite; the flag-on cases run in the second pass.
 
-**API:**
-- `upsert_share` (in `routes_checklist_share.py`): when `SHARING_REQUIRE_INVITE_ACCEPT` is on,
-  create the collaborator row as `pending` (and **do not** create their `CheckListPosition`
-  yet — the card must not appear in their grid until they accept). Emit a new sync
-  `upd_prop="share_invited"` pinned to the invitee. When the flag is off, behave exactly as
-  today (`accepted` + position created + `share_added`).
-- Inbox + actions (new, authenticated as the invitee):
-  - `GET /user/me/invites` — the caller's `pending` collaborator rows joined with card name +
-    inviter, enough to render an inbox.
-  - `POST /checklist/{checklist_id}/invites/accept` — flip the caller's row to `accepted`,
-    create their position (`_ensure_position`), emit `share_added`.
-  - `POST /checklist/{checklist_id}/invites/decline` — flip to `declined` (or delete the row —
-    **decide in-session**; keeping `declined` enables "you previously declined" UX and blocks
-    re-invite spam, deleting is cleaner). No position created.
-- Re-inviting a `declined`/`pending` user re-arms the invite rather than erroring.
+**Tests (`tests/tests_sharing_invites.py`, 6 — green on SQLite + Postgres):**
+- [x] Flag **off**: sharing still instant-adds (access + grid + `accepted`, empty inbox).
+- [x] Flag **on**: `upsert_share` creates a pending row; the invitee has **no access**, the
+      card is **not** in their grid; invite appears in their `/user/me/invites` with inviter info;
+      owner's share list shows `pending`.
+- [x] Accept → access granted, card in grid, inbox cleared, the invite's level enforced, owner
+      receives a live `share_added`. Decline → still no access; owner sees `declined`; re-invite
+      re-arms a fresh `pending`.
+- [x] accept/decline 404 without a pending invite.
+- [x] A pending invitee is not fanned out ordinary edit notifications (SSE); after accepting,
+      they are.
 
-**Relationship to Phase 9:** this phase ships a **minimal** invite inbox (a query over
-collaborator rows). Phase 9's general notification feed can additionally emit a notification on
-`share_invited`; the two inboxes stay distinct (invites are actionable rows on the
-collaborator table; notifications are an append-only feed).
-
-**Tests (`tests/tests_sharing.py` or a new `tests/tests_sharing_invites.py`):**
-- Flag **off**: sharing still instant-adds (no regression) — guard with an explicit test.
-- Flag **on**: `upsert_share` creates a pending row; the invitee has **no access** and the
-  card is **not** in their grid; invite appears in their `/user/me/invites`.
-- Accept → access granted, card in grid, owner sees `share_added`. Decline → still no access.
-- A pending invitee is not fanned out ordinary edit notifications.
-
-### Phase 9 — In-app share notifications  📋 PLANNED
+### Phase 9 — In-app share notifications  ✅ DONE
 **Goal:** a persistent in-app notification feed: tell a user when a card is shared with /
 invited to them, and tell an owner the first time one of their public links is opened.
 **Email is explicitly out of scope here** (see note at the end of this phase).
 
-**Data model / migration `0010`:**
-- New `Notification` table: `id` (uuid PK), `user_id` (FK → `user.id`, `ondelete=CASCADE`,
-  indexed), `type` (str/enum: `card_shared | card_invited | public_link_opened`),
-  `cl_id` (uuid, nullable — the card it refers to), `payload` (JSON, nullable — e.g. actor
-  name/id), `read_at` (datetime, nullable), timestamps from `TimestampedModel`.
-- For "public link first opened": add `first_opened_at: datetime | None` to
-  `CheckListPublicShare` (set once, on the first successful anonymous resolve in
-  `resolve_public_checklist_access`); when it transitions null→set, enqueue a
-  `public_link_opened` notification to `link.created_by`. (Naive UTC datetime — see
-  `[[backend-test-harness]]`.) Migration `0010` creates `notification` + adds the column.
+**Decision (locked in-session):** the single internal seam the email sub-project will hook
+into is `db/notification.py::emit_notification(...)` — the **one** place a `Notification` row
+is created. It both persists the row and pushes the live SSE nudge, so every caller (share
+event, public-open hook, future transports) goes through it.
 
-**API (new `routes_notification.py`, authenticated, registered in `routers_map.py`):**
-- `GET /user/me/notifications?unread_only=` — the caller's feed, newest first, bounded limit.
-- `POST /user/me/notifications/{id}/read` (or `PATCH`) — mark one read; and a
-  `POST /user/me/notifications/read-all` convenience.
-- Optional `GET /user/me/notifications/unread-count` for a badge.
-
-**Delivery / sync:** persist the row, then push a lightweight `upd_prop="notification"` over
-the **existing** SSE so a connected client refreshes its feed/badge live (reuse
-`SyncNotifiationCRUD.create` pinned to the recipient `user_id`). Emit a notification at the
-existing share events: `upsert_share`/`share_added`, the Phase 8 `share_invited`, and the new
-`public_link_opened` hook.
+Delivered:
+- [x] New `Notification` table (`model/notification.py`): `id` (uuid PK), `user_id`
+      (FK → `user.id`, `ondelete=CASCADE`, indexed), `type` (`NotificationType` enum-as-string:
+      `card_shared | card_invited | public_link_opened`), `cl_id` (uuid, nullable),
+      `payload` (JSON, nullable — actor id/name + card name; **never** a token/passphrase),
+      `read_at` (naive-UTC datetime, nullable), `created_at` from `TimestampedModel`. Registered
+      in `model/_tables.py` so `create_all` builds it on fresh DBs.
+- [x] `first_opened_at: datetime | None` (naive UTC) on `CheckListPublicShare`. Set once via
+      `CheckListPublicShareCRUD.mark_first_opened` — a conditional `UPDATE … WHERE
+      first_opened_at IS NULL` that flips null→set **atomically**, so exactly one caller wins
+      under concurrent opens (returns `True` → emit; later opens return `False`).
+- [x] Migration `0010` creates `notification` (+ its two indexes) and adds the
+      `checklist_public_share.first_opened_at` column; chains `0009 → 0010` (verified single
+      head; down/up checked on a create_all'd DB — the rebuilt schema matches the model).
+      `sa.Uuid()/String()/JSON()/DateTime()` match what `create_all` emits (`[[db-targets]]`).
+- [x] `NotificationCRUD` (`db/notification.py`): `list_for_user(unread_only=, limit=)` (newest
+      first, bounded), `unread_count`, `mark_read` (ownership-checked, idempotent),
+      `mark_all_read`. Plus the free-function seam `emit_notification(...)`.
+- [x] `public_link_opened` hook in `resolve_public_checklist_access` (`api/access.py`): on the
+      first successful anonymous resolve (`mark_first_opened` → `True`) it emits one
+      notification pinned to `link.created_by`. Idempotent on every later open.
+- [x] `card_shared` / `card_invited` hooks in `upsert_share` (`routes_checklist_share.py`):
+      the instant-add branch emits `card_shared`; the invite branch emits `card_invited`. A
+      no-op level change on an **already-accepted** collaborator emits nothing (only a genuinely
+      new grant notifies).
+- [x] New `routes_notification.py` (authenticated, registered in `routers_map.py` with the
+      other `/user/me` routes): `GET /user/me/notifications?unread_only=&limit=`,
+      `GET /user/me/notifications/unread-count`, `POST /user/me/notifications/read-all`,
+      `POST /user/me/notifications/{id}/read` (404 — never 403 — when the row isn't the
+      caller's, so notification ids don't leak across users).
+- [x] Delivery: `emit_notification` pushes `upd_prop="notification"` over the **existing** SSE
+      via `SyncNotifiationCRUD.create(..., target_user_ids=[recipient])`. `"notification"` (and
+      the Phase-8 `"share_invited"`) added to the `SyncNotification.upd_prop` Literal.
 
 **Email note (deferred sub-project):** wiring email/SMTP transport (config block, an async
-sender, templates, per-user opt-in) is intentionally **not** in this phase. Phase 9 leaves a
-single internal seam — the place where a `Notification` row is created — so a later
-"notification transports" sub-project can fan the same event out to email without touching
-callers.
+sender, templates, per-user opt-in) is intentionally **not** in this phase — `emit_notification`
+is the seam a later "notification transports" sub-project fans the same event out from.
 
-**Tests (`tests/tests_sharing_notifications.py`):**
-- Sharing a card creates a `card_shared` notification for the target; listing returns it;
-  mark-read flips `read_at`; unread filter/count works.
-- First anonymous open of a public link creates exactly **one** `public_link_opened`
-  notification for the owner (idempotent on subsequent opens via `first_opened_at`).
-- Recipient gets the `notification` SSE push live.
+**Tests (`tests/tests_sharing_notifications.py`, 5 — green on SQLite + Postgres):**
+- [x] Sharing a card notifies the target (type branches `card_shared`/`card_invited` on the
+      invite flag); listing returns it with actor + card-name payload; mark-read flips
+      `read_at`; unread filter/count work; `read-all` clears the count.
+- [x] Marking another user's notification read 404s and leaves it unread (ownership enforced).
+- [x] First anonymous open of a public link creates **exactly one** `public_link_opened`
+      notification for the owner (idempotent on subsequent opens via `first_opened_at`).
+- [x] Recipient gets the `notification` SSE push live the moment a card is shared with them.
 
-### Phase 10 — Org / group (OIDC group) sharing  📋 PLANNED
+### Phase 10 — Org / group (OIDC group) sharing  ✅ DONE
 **Goal:** share a card with everyone in an OIDC group in one call. Builds on the persisted
 `User.oidc_groups` from Phase 1.
 
@@ -464,12 +489,48 @@ to (and only see co-members), intersecting on `oidc_groups`.
   Returns a summary (added / skipped / total). Honour `SHARING_REQUIRE_INVITE_ACCEPT` — group
   shares go out as invites too when that flag is on.
 
-**Tests (`tests/tests_sharing_groups.py`):**
-- Sharing with a group adds every member as a collaborator at the level; the owner and
-  existing higher-level collaborators are skipped (no downgrade).
-- A local user (no `oidc_groups`) / unknown group → empty resolve, no error.
-- `RESTRICT_USER_SEARCH_TO_OWN_GROUPS`: a caller cannot share to a group they don't belong to.
-- Backend parity: the containment resolver returns the same members on Postgres and SQLite.
+**Decision (locked in-session):** the group-scoping rule (`RESTRICT_USER_SEARCH_TO_OWN_GROUPS`)
+was extracted from `routes_user.py` into one shared helper
+`api/auth/security.py::caller_restricted_to_own_groups(...)`, now used by **both** user-search
+and group-share so they can never drift. No new table / migration (snapshot model, as planned).
+
+Delivered:
+- [x] `UserCRUD.find_by_oidc_group(group)` (`db/user.py`) — the snapshot resolver. Postgres
+      (prod) uses a SQL `cast(oidc_groups AS jsonb) @> '["group"]'` containment predicate;
+      SQLite (dev only, `[[db-targets]]`) over-fetches the non-deactivated set and filters
+      membership in Python. Both return only non-deactivated users.
+- [x] `permission_at_least(have, want)` (`api/access.py`) — a public comparison on the shared
+      `view<check<edit<owner` ladder (accepts `SharePermission` or `ChecklistAccessLevel`), used
+      to skip members already at an equal/higher level (never downgrade).
+- [x] `_grant_share_to_user(...)` helper (`routes_checklist_share.py`) — the per-recipient share
+      logic (collaborator upsert, grid position, pinned invite nudge, in-app notification),
+      honouring `SHARING_REQUIRE_INVITE_ACCEPT`. `upsert_share` was refactored onto it (behaviour
+      unchanged), and the group endpoint loops over it. The broadcast `share_added` SSE is left to
+      the caller, so the bulk group-share fires it **once** for the whole batch.
+- [x] `GET /user/me/groups` — the caller's own `oidc_groups` (empty for local users), for a picker.
+- [x] `PUT /checklist/{checklist_id}/shares/group/{group}` `{permission}` (owner-only, under
+      `require_sharing_enabled`): resolves members, skips the owner and anyone already at an
+      equal/higher accepted level, grants the rest via the shared helper, and returns a
+      `GroupShareResult` summary (`group`, `permission`, `total_members`, `added`, `skipped`). A
+      restricted OIDC caller targeting a group they don't belong to → 403 (before any member is
+      touched). Honours the invite gate (members go out as pending invites when the flag is on).
+- [x] Test harness: the mock OIDC provider in `conftest.py` now sets
+      `RESTRICT_USER_SEARCH_TO_OWN_GROUPS=True` (only affects OIDC-authed callers, so other
+      suites are unaffected) so the restriction is exercised end-to-end; `tests_sharing_groups.py`
+      is wired into the invite-flow second pass of both run scripts for its flag-on case.
+
+**Tests (`tests/tests_sharing_groups.py`, 7 — green on SQLite + Postgres):**
+- [x] `GET /user/me/groups` returns the caller's persisted groups (empty for a fresh local user).
+- [x] Group share adds every (non-owner) member at the level; a member already at a higher level
+      is skipped (no downgrade), an other-group user is untouched; an added member gains real
+      access and a `card_shared` notification.
+- [x] Idempotent re-share at the same level adds nothing; a lower-level re-share never downgrades.
+- [x] Unknown group (and the local-user / no-`oidc_groups` case) → empty resolve, no error.
+- [x] Owner-only: a non-owner collaborator → 403, an unrelated user → 401.
+- [x] Flag on: group share goes out as **pending invites** (no access, inbox + owner see pending).
+- [x] `RESTRICT_USER_SEARCH_TO_OWN_GROUPS` (real OIDC login): the caller may share their own group
+      but is forbidden (403) from a foreign one. Backend parity is covered by running the suite
+      (and its dialect-specific resolver) on both Postgres and SQLite.
 
 ---
 

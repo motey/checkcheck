@@ -2,11 +2,11 @@ from typing import AsyncGenerator, List, Optional, Literal, Sequence, Annotated
 from pydantic import validate_email, validator, StringConstraints, model_validator
 from typing import Optional
 from sqlmodel.ext.asyncio.session import AsyncSession
-from sqlmodel import select, delete, func, and_, or_
+from sqlmodel import select, delete, func, and_, or_, col
 from uuid import UUID
 
 
-from checkcheckserver.config import Config
+from checkcheckserver.config import Config, DbBackend
 from checkcheckserver.log import get_logger
 from checkcheckserver.model.user import (
     User,
@@ -121,6 +121,40 @@ class UserCRUD(
         statement = statement.limit(limit)
         results = await self.session.exec(statement=statement)
         return results.all()
+
+    async def find_by_oidc_group(
+        self,
+        group: str,
+    ) -> Sequence[User]:
+        """All non-deactivated users whose persisted ``oidc_groups`` JSON list
+        contains ``group``. Used to expand an OIDC group into its members at
+        share time (Phase 10 group sharing).
+
+        There is no portable JSON-containment predicate across our two backends,
+        so the query is dialect-specific:
+
+        * Postgres (production): cast the JSON column to ``jsonb`` and use the
+          ``@>`` containment operator — done in SQL so it stays cheap at scale.
+        * SQLite (dev only, see ``[[db-targets]]``): fetch the non-deactivated
+          users and filter membership in Python. Correct and simple; deliberately
+          not hardened for scale, which SQLite never carries here.
+        """
+        if config.db_backend == DbBackend.POSTGRES:
+            from sqlalchemy import cast
+            from sqlalchemy.dialects.postgresql import JSONB
+
+            statement = select(User).where(
+                User.deactivated == False,
+                cast(col(User.oidc_groups), JSONB).contains([group]),
+            )
+            results = await self.session.exec(statement=statement)
+            return results.all()
+
+        # SQLite dev path: over-fetch the (small) non-deactivated set, filter in
+        # Python. The JSON column round-trips to a Python list of strings.
+        statement = select(User).where(User.deactivated == False)
+        results = await self.session.exec(statement=statement)
+        return [u for u in results.all() if group in (u.oidc_groups or [])]
 
     async def get_by_user_name(
         self,

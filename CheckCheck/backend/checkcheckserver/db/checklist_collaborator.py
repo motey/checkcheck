@@ -16,7 +16,9 @@ from checkcheckserver.log import get_logger
 from checkcheckserver.model.checklist_collaborator import (
     CheckListCollaborator,
     CheckListCollaboratorCreate,
+    ShareStatus,
 )
+from checkcheckserver.model.checklist import CheckList
 from checkcheckserver.db._base_crud import create_crud_base
 from checkcheckserver.api.paginator import QueryParamsInterface
 
@@ -66,11 +68,19 @@ class CheckListCollaboratorCRUD(
         checklist_id: uuid.UUID,
         user_id: uuid.UUID,
         permission,
+        status: ShareStatus = ShareStatus.accepted,
     ) -> CheckListCollaborator:
-        """Create the collaborator or, if it already exists, update its permission."""
+        """Create the collaborator or, if it already exists, update its permission
+        and status.
+
+        ``status`` defaults to ``accepted`` so every existing caller (instant-add
+        sharing, public-link join, ownership-transfer demotion) keeps granting
+        access immediately. The invite flow passes ``pending`` explicitly to arm an
+        unaccepted invite (and to re-arm a previously ``declined``/``pending`` row)."""
         existing = await self.get_one(checklist_id=checklist_id, user_id=user_id)
         if existing is not None:
             existing.permission = permission
+            existing.status = status
             self.session.add(existing)
             await self.session.commit()
             await self.session.refresh(existing)
@@ -80,8 +90,47 @@ class CheckListCollaboratorCRUD(
                 checklist_id=checklist_id,
                 user_id=user_id,
                 permission=permission,
+                status=status,
             )
         )
+
+    async def set_status(
+        self,
+        checklist_id: uuid.UUID,
+        user_id: uuid.UUID,
+        status: ShareStatus,
+    ) -> Optional[CheckListCollaborator]:
+        """Flip an existing collaborator row's status (accept / decline an invite).
+        Returns None if no such row exists."""
+        existing = await self.get_one(checklist_id=checklist_id, user_id=user_id)
+        if existing is None:
+            return None
+        existing.status = status
+        self.session.add(existing)
+        await self.session.commit()
+        await self.session.refresh(existing)
+        return existing
+
+    async def list_pending_for_user(
+        self,
+        user_id: uuid.UUID,
+    ) -> List[Tuple[CheckListCollaborator, CheckList]]:
+        """The user's pending invites joined with the card they were invited to,
+        newest first — enough to render an invite inbox. The card's owner is the
+        inviter (only an owner can share)."""
+        query = (
+            select(CheckListCollaborator, CheckList)
+            .join(CheckList, CheckList.id == CheckListCollaborator.checklist_id)
+            .where(
+                CheckListCollaborator.user_id == user_id,
+                CheckListCollaborator.status == ShareStatus.pending.value,
+            )
+            .order_by(col(CheckListCollaborator.created_at).desc())
+        )
+        results = await self.session.exec(statement=query)
+        # CheckList eager-loads collection relationships (labels), so the joined
+        # result rows must be de-duplicated with unique() before materialising.
+        return list(results.unique().all())
 
     async def delete(
         self,

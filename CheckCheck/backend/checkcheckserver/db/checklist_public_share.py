@@ -9,7 +9,7 @@ import datetime
 import uuid
 from typing import List, Optional
 
-from sqlmodel import select, delete, and_, or_, col
+from sqlmodel import select, delete, update, and_, or_, col
 
 from checkcheckserver.config import Config
 from checkcheckserver.log import get_logger
@@ -84,6 +84,26 @@ class CheckListPublicShareCRUD(
         await self.session.commit()
         await self.session.refresh(link)
         return link
+
+    async def mark_first_opened(self, link_id: uuid.UUID) -> bool:
+        """Record the first anonymous open of a link, atomically and once.
+
+        The conditional ``WHERE first_opened_at IS NULL`` makes this idempotent
+        even under concurrent opens: exactly one caller flips null -> set and gets
+        ``True`` (the trigger to emit the one-time 'public_link_opened'
+        notification); every later open matches no rows and gets ``False``."""
+        result = await self.session.exec(
+            update(CheckListPublicShare)
+            .where(
+                and_(
+                    CheckListPublicShare.id == link_id,
+                    col(CheckListPublicShare.first_opened_at).is_(None),
+                )
+            )
+            .values(first_opened_at=_utcnow())
+        )
+        await self.session.commit()
+        return result.rowcount > 0
 
     async def delete_for_checklist(self, checklist_id: uuid.UUID) -> None:
         await self.session.exec(

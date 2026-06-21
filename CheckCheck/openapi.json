@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "CheckCheck REST API",
-    "version": "0.1.dev52+g5f6db70.d20260620"
+    "version": "0.1.dev53+g49d4fb9.d20260621"
   },
   "paths": {
     "/api/health": {
@@ -839,6 +839,169 @@
         "responses": {
           "204": {
             "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/user/me/notifications": {
+      "get": {
+        "tags": [
+          "Notifications"
+        ],
+        "summary": "List My Notifications",
+        "description": "The current user's notification feed, newest first.",
+        "operationId": "list_my_notifications_api_user_me_notifications_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "unread_only",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "description": "Return only notifications that are still unread.",
+              "default": false,
+              "title": "Unread Only"
+            },
+            "description": "Return only notifications that are still unread."
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 200,
+              "minimum": 1,
+              "default": 100,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/NotificationRead"
+                  },
+                  "title": "Response List My Notifications Api User Me Notifications Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/user/me/notifications/unread-count": {
+      "get": {
+        "tags": [
+          "Notifications"
+        ],
+        "summary": "My Unread Notification Count",
+        "description": "How many unread notifications the current user has (for a badge).",
+        "operationId": "my_unread_notification_count_api_user_me_notifications_unread_count_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnreadCountResult"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/user/me/notifications/read-all": {
+      "post": {
+        "tags": [
+          "Notifications"
+        ],
+        "summary": "Mark All My Notifications Read",
+        "description": "Mark all of the current user's notifications as read.",
+        "operationId": "mark_all_my_notifications_read_api_user_me_notifications_read_all_post",
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/user/me/notifications/{notification_id}/read": {
+      "post": {
+        "tags": [
+          "Notifications"
+        ],
+        "summary": "Mark My Notification Read",
+        "description": "Mark a single notification read. 404 if it is not the caller's.",
+        "operationId": "mark_my_notification_read_api_user_me_notifications__notification_id__read_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "notification_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Notification Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotificationRead"
+                }
+              }
+            }
           },
           "422": {
             "description": "Validation Error",
@@ -1884,6 +2047,227 @@
                 }
               }
             }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/user/me/groups": {
+      "get": {
+        "tags": [
+          "Checklist Sharing"
+        ],
+        "summary": "List My Groups",
+        "description": "List the current user's own OIDC groups (for a group-share picker). Empty for local users.",
+        "operationId": "list_my_groups_api_user_me_groups_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array",
+                  "title": "Response List My Groups Api User Me Groups Get"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/checklist/{checklist_id}/shares/group/{group}": {
+      "put": {
+        "tags": [
+          "Checklist Sharing"
+        ],
+        "summary": "Share With Group",
+        "description": "Share the checklist with every member of an OIDC group at the given permission. Snapshots membership now (later joiners are not auto-added). Skips the owner and anyone already at an equal or higher level (never downgrades). Honours the invite gate. Owner only.",
+        "operationId": "share_with_group_api_checklist__checklist_id__shares_group__group__put",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "group",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Group"
+            }
+          },
+          {
+            "name": "checklist_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Checklist Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GroupShareRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GroupShareResult"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/user/me/invites": {
+      "get": {
+        "tags": [
+          "Checklist Sharing"
+        ],
+        "summary": "List My Invites",
+        "description": "List the current user's pending share invites (cards shared with them awaiting accept/decline).",
+        "operationId": "list_my_invites_api_user_me_invites_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/InviteRead"
+                  },
+                  "type": "array",
+                  "title": "Response List My Invites Api User Me Invites Get"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/checklist/{checklist_id}/invites/accept": {
+      "post": {
+        "tags": [
+          "Checklist Sharing"
+        ],
+        "summary": "Accept Invite",
+        "description": "Accept a pending invite: gain access, the card appears in your grid. Returns the card scoped to you.",
+        "operationId": "accept_invite_api_checklist__checklist_id__invites_accept_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "checklist_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Checklist Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CheckListApiWithSubObj"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/checklist/{checklist_id}/invites/decline": {
+      "post": {
+        "tags": [
+          "Checklist Sharing"
+        ],
+        "summary": "Decline Invite",
+        "description": "Decline a pending invite. No access is granted; the declined row is kept (the owner can re-invite).",
+        "operationId": "decline_invite_api_checklist__checklist_id__invites_decline_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "checklist_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Checklist Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
           },
           "422": {
             "description": "Validation Error",
@@ -5803,6 +6187,55 @@
         ],
         "title": "ChecklistColorScheme"
       },
+      "GroupShareRequest": {
+        "properties": {
+          "permission": {
+            "$ref": "#/components/schemas/SharePermission",
+            "description": "Permission level to grant every member of the group."
+          }
+        },
+        "type": "object",
+        "required": [
+          "permission"
+        ],
+        "title": "GroupShareRequest"
+      },
+      "GroupShareResult": {
+        "properties": {
+          "group": {
+            "type": "string",
+            "title": "Group"
+          },
+          "permission": {
+            "$ref": "#/components/schemas/SharePermission"
+          },
+          "total_members": {
+            "type": "integer",
+            "title": "Total Members",
+            "description": "Group members resolved for this share, excluding the card owner."
+          },
+          "added": {
+            "type": "integer",
+            "title": "Added",
+            "description": "Members newly shared/invited or raised to the chosen level."
+          },
+          "skipped": {
+            "type": "integer",
+            "title": "Skipped",
+            "description": "Members skipped because they already held an equal or higher level."
+          }
+        },
+        "type": "object",
+        "required": [
+          "group",
+          "permission",
+          "total_members",
+          "added",
+          "skipped"
+        ],
+        "title": "GroupShareResult",
+        "description": "Summary of a group share \u2014 how many members were (re)granted vs skipped."
+      },
       "HTTPValidationError": {
         "properties": {
           "detail": {
@@ -5863,6 +6296,70 @@
           "db_working"
         ],
         "title": "HealthCheckReport"
+      },
+      "InviteRead": {
+        "properties": {
+          "checklist_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Checklist Id"
+          },
+          "checklist_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Checklist Name"
+          },
+          "permission": {
+            "$ref": "#/components/schemas/SharePermission"
+          },
+          "inviter_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Inviter Id"
+          },
+          "inviter_user_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Inviter User Name"
+          },
+          "inviter_display_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Inviter Display Name"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "checklist_id",
+          "permission",
+          "inviter_id",
+          "created_at"
+        ],
+        "title": "InviteRead",
+        "description": "A pending invite as seen by the invitee \u2014 the card plus who invited them\n(the card's owner), enough to render an inbox row."
       },
       "LabelCreate": {
         "properties": {
@@ -6010,6 +6507,76 @@
         },
         "type": "object",
         "title": "LabelUpdate"
+      },
+      "NotificationRead": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "type": {
+            "$ref": "#/components/schemas/NotificationType"
+          },
+          "cl_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cl Id"
+          },
+          "payload": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Payload"
+          },
+          "read_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Read At"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "type",
+          "created_at"
+        ],
+        "title": "NotificationRead"
+      },
+      "NotificationType": {
+        "type": "string",
+        "enum": [
+          "card_shared",
+          "card_invited",
+          "public_link_opened"
+        ],
+        "title": "NotificationType",
+        "description": "What a notification is about. Stored as a string (enum-as-string like\n``SharePermission`` / ``ShareStatus``)."
       },
       "PaginatedResponse_CheckListApiWithSubObj_": {
         "properties": {
@@ -6458,6 +7025,11 @@
           },
           "permission": {
             "$ref": "#/components/schemas/SharePermission"
+          },
+          "status": {
+            "$ref": "#/components/schemas/ShareStatus",
+            "description": "Whether the share is live ('accepted'), an unaccepted invite ('pending'), or declined.",
+            "default": "accepted"
           }
         },
         "type": "object",
@@ -6467,6 +7039,16 @@
         ],
         "title": "ShareRead",
         "description": "A single collaborator entry with enough user info to render a share list."
+      },
+      "ShareStatus": {
+        "type": "string",
+        "enum": [
+          "pending",
+          "accepted",
+          "declined"
+        ],
+        "title": "ShareStatus",
+        "description": "Lifecycle of a share grant. With ``SHARING_REQUIRE_INVITE_ACCEPT`` off\n(default) every share is created ``accepted`` and behaves as it always has.\nWith the flag on, a fresh share starts ``pending`` and grants **no** access\nuntil the target accepts; declining keeps a ``declined`` row (so the owner can\nre-invite and the UI can show \"you previously declined\")."
       },
       "ShareUpsertRequest": {
         "properties": {
@@ -6533,7 +7115,9 @@
               "checklist_deleted",
               "checklist_label",
               "share_added",
-              "share_removed"
+              "share_invited",
+              "share_removed",
+              "notification"
             ],
             "title": "Upd Prop"
           },
@@ -6649,6 +7233,20 @@
           "expires_in"
         ],
         "title": "UnlockResult"
+      },
+      "UnreadCountResult": {
+        "properties": {
+          "unread_count": {
+            "type": "integer",
+            "title": "Unread Count",
+            "description": "Number of unread notifications."
+          }
+        },
+        "type": "object",
+        "required": [
+          "unread_count"
+        ],
+        "title": "UnreadCountResult"
       },
       "User": {
         "properties": {

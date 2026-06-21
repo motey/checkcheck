@@ -37,7 +37,9 @@ class SyncNotification(BaseTable, table=True):
         "checklist_deleted",
         "checklist_label",
         "share_added",
+        "share_invited",
         "share_removed",
+        "notification",
     ] = Field(default=None, sa_type=String)
     target_user_ids: Optional[List[str]] = Field(
         default=None,
