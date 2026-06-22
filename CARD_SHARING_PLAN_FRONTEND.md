@@ -381,9 +381,69 @@ Gated by `SHARING_PUBLIC_LINKS_ENABLED` (hide section when off).
 
 ---
 
-## Phase F4 — Public/anonymous viewer page (backend Phases 5, 6, 7) — 📋 PLANNED
+## Phase F4 — Public/anonymous viewer page (backend Phases 5, 6, 7) — ✅ DONE
 **Goal:** a logged-out visitor opens `/p/<token>` and sees the card at the link's level, with live
 updates, optional passphrase unlock, and a "log in to add to my deck" join.
+
+> **Shipped:**
+> - **Design decision (noted up front, per the plan):** the authed
+>   `CheckList`/`CheckListItem` components are tightly coupled to the
+>   session-backed Pinia stores (`checklist` / `checklist_item` / `useSync`) and
+>   call the authed `/api/checklist/...` endpoints directly. Rather than shoehorn
+>   anonymous data through those stores, the viewer owns a **dedicated, slim data
+>   source** — `composables/usePublicCard.ts` (new) — that holds the card + items
+>   in local refs, talks only to the token-authed `/api/public/checklist/{token}/…`
+>   surface, gates writes through the **same** `usePermissions` ladder over
+>   `card.my_permission` (the link's level, P0.1), and drives its own anonymous
+>   SSE. It's instantiated **once per page mount** (not a shared composable) so its
+>   EventSource + state are scoped to the single open card. Item rendering is a
+>   small standalone `components/PublicChecklistItem.vue` (new) — checkbox gated on
+>   `check`, text-edit/delete gated on `edit` — instead of the board's components.
+> - **`plugins/api.ts` (modified) — the critical fix.** The global handler toasts
+>   every non-2xx AND redirects to `/login` on 401, and runs **before** any
+>   per-call `onResponseError` (so a call-site override can't suppress it). Added
+>   `isPublicShareRequest(ctx)` (URL contains `/api/public/`) and guarded BOTH the
+>   `onResponse` 401-redirect and the `onResponseError` toast with it. So a 404
+>   (bad/expired/disabled **or** password-protected link) and a 401 (join while
+>   logged out) are now silent branches the viewer page owns — no "Error 4xx"
+>   toast, no `/login` bounce on initial load.
+> - **`pages/p/[token].vue` (new)** — standalone (default layout, no board/sidebar
+>   chrome; just a Logo + `ColorModeSwitch` header). `onMounted` → `load()` does
+>   `GET /api/public/checklist/{token}`: **200** renders the card + items with the
+>   permission ladder (view = read-only, check = tick state, edit = add/edit/delete);
+>   **404** drops to a passphrase form (`UInput type=password`) → `POST …/unlock`
+>   → the short-lived `grant` is stored in memory **and** `sessionStorage` (keyed
+>   by token; the passphrase itself NEVER touches the URL) and replayed on every
+>   subsequent call via `?share_grant=` → retry the load; a wrong passphrase comes
+>   back as the same 404 → "Incorrect passphrase." A separate **gone** state
+>   covers a non-404 failure / live `checklist_deleted`.
+> - **Live updates:** `usePublicCard` opens an anonymous
+>   `EventSource("/api/sync?token=<token>[&share_grant=…]")` scoped to this one
+>   card — item-level events debounce-reload the item list, `checklist`/`label`
+>   events re-read the card, `checklist_deleted` flips to the gone state. **Closed
+>   on unmount** (`disconnectSync`) so the live SSE doesn't block Playwright
+>   teardown.
+> - **Join / "add to my deck":** a footer button → `POST …/join` (grant replayed).
+>   **401** (logged out) → toast + `navigateTo('/login?redirect=/p/<token>')` from
+>   the page (the global redirect is suppressed for `/api/public` now); **200**
+>   (logged in) → real collaborator added (`share_added` fans out) → navigate to
+>   `/card/<id>` in the main app.
+> - **`types/index.ts`** gained `UnlockRequestType` / `UnlockResultType` aliases
+>   (the rest already existed); re-ran `bunx nuxi prepare`. Typecheck clean except
+>   the 2 pre-existing errors (`nuxt.config.ts:77`, `stores/color.ts:29`).
+> - **Tests:** `tests/e2e/public-viewer.spec.ts` (new, 7 tests, all green) — view
+>   renders read-only (checkbox disabled, no editable text/add), check ticks an
+>   item, edit adds an item, a **bad token shows the locked branch with ZERO
+>   `Error 4xx` toasts and NO `/login` bounce** (URL stays on `/p/…`), a
+>   password-protected link rejects the wrong passphrase and unlocks with the
+>   right one, an item the owner adds via the authed API appears live on the open
+>   anon viewer (SSE), and a logged-in join navigates to `/card/<id>`. The
+>   anonymous viewer runs in a fresh `browser.newContext()` with **no
+>   storageState**; the join test reuses the testuser01 login. Every context's
+>   pages are navigated to `about:blank` in `afterEach` (live SSE blocks
+>   teardown). Restored `CheckCheck/openapi.json` after the run (the e2e server
+>   rewrites it on boot). `Error 4xx`-count-is-0 asserted on every expected path
+>   (the F2/F3 lesson).
 
 ### Anonymous API access
 The authed `$checkapi` client assumes a session. For the public surface, either:
@@ -503,7 +563,7 @@ page — the largest, most isolated piece) → **F5** (notifications) → **F6**
 | Gating | `CheckListItem.vue`, `CheckListItemCollection/AddNewButton.vue`, `CheckListEditModal.vue`, footer buttons |
 | Share dialog ✅ | `stores/share.ts` (new), `stores/publicConfig.ts` (new), `components/ShareModal/*` (new), `components/CheckListFooter/Button/Share.vue` (wire up), `composables/useSync.ts` (refreshIfOpen), `pages/index.vue` (load config), `types/index.ts` (TransferOwnershipResultType); tests `tests/e2e/sharing-modal.spec.ts` |
 | Public links ✅ | `components/ShareModal/PublicLinks.vue` (fleshed out from stub), `stores/share.ts` (links cache + `linksFor`/`listLinks`/`createLink`/`updateLink`/`deleteLink`); tests `tests/e2e/sharing-public-links.spec.ts` |
-| Public viewer | `pages/p/[token].vue` (new), anonymous-sync handling, `plugins/api.ts` (guard 401 redirect on `/p/`) |
+| Public viewer ✅ | `pages/p/[token].vue` (new), `composables/usePublicCard.ts` (new — public data source + anonymous SSE + write actions), `components/PublicChecklistItem.vue` (new — standalone item row), `plugins/api.ts` (skip toast + 401→/login redirect for `/api/public/` requests), `types/index.ts` (`UnlockRequestType`/`UnlockResultType`); tests `tests/e2e/public-viewer.spec.ts` |
 | Notifications | `stores/notification.ts` (new), `components/NotificationBell.vue` (new), `Navbar.vue` (mount it) |
 | Invites | `stores/invite.ts` (new), invite UI in the bell / `SideMenuNav.vue` |
 | Tests | `CheckCheck/frontend/tests/*` (Playwright) |

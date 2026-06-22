@@ -1,8 +1,11 @@
 <template>
-    <div v-if="canEdit" class="flex mb-0 grow break-after-column cursor-pointer" @click="addNewItem()">
-        <span class="flex-none w-8"></span>
-        <span class="flex-none w-4 font-bold">+</span>
-        <span class="flex-1 w-full grow pl-2 text-slate-500">Add New Checklist Item</span>
+    <div
+        v-if="canEdit"
+        class="flex items-center gap-1.5 py-1 cursor-pointer text-muted hover:text-default transition-colors"
+        @click="addNewItem()"
+    >
+        <UIcon name="i-lucide-plus" class="flex-none size-5" />
+        <span class="flex-1 min-w-0 text-sm">Add new item</span>
     </div>
 </template>
 

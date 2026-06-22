@@ -8,6 +8,18 @@ export default defineNuxtPlugin({
 
     if (!clients) return { provide: {} }
 
+    // The anonymous public-share surface (`/p/<token>` viewer, F4) owns its own
+    // 4xx handling: a 404 on `GET /api/public/checklist/{token}` is the EXPECTED
+    // "bad/expired/disabled OR password-protected" branch (→ passphrase form), and
+    // a 401 on `.../join` means "log in first" — neither should toast, and a
+    // logged-out visitor must NOT be bounced to /login on the initial load. The
+    // global handler runs BEFORE any per-call onResponseError, so a call-site
+    // override can't suppress it — we have to skip these requests here.
+    const isPublicShareRequest = (ctx: any): boolean => {
+      const url = ctx?.request ? String(ctx.request) : ''
+      return url.includes('/api/public/')
+    }
+
     // Handle 401 responses: redirect to login (server handles session cleanup)
     const handleUnauthorized = () => {
       const current = router.currentRoute.value // Must access .value for reactivity
@@ -39,11 +51,11 @@ export default defineNuxtPlugin({
           ...localOptions,
           onRequest: localOptions?.onRequest,
           onResponse(ctx) {
-            if (ctx.response?.status === 401) handleUnauthorized()
+            if (ctx.response?.status === 401 && !isPublicShareRequest(ctx)) handleUnauthorized()
             ;(localOptions?.onResponse as any)?.(ctx)
           },
           onResponseError(ctx) {
-            handleError(ctx)
+            if (!isPublicShareRequest(ctx)) handleError(ctx)
             ;(localOptions?.onResponseError as any)?.(ctx)
           }
         }))

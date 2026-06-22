@@ -1,12 +1,15 @@
 <template>
-  <UContainer
+  <div
     v-if="checkList"
-    :style="{ color: textColor, backgroundColor: backgroundColor, borderColor: accentColor }"
-    :class="backgroundColor"
-    class="checklist list-drag-handle shadow rounded gap-0 textareas-inherit-color min-h-48  flex flex-col border-1 border-solid px-4 sm:p-4 lg:p-6 lg:pb-1 sm:pb-1"
+    :style="cardStyle"
+    :class="[
+      hasColor ? '' : 'bg-elevated',
+      previewModeActive ? 'p-4 min-h-32 shadow-sm hover:shadow-md cursor-pointer' : 'p-5 sm:p-6',
+    ]"
+    class="checklist list-drag-handle textareas-inherit-color flex flex-col gap-1 border border-default rounded-xl transition-shadow"
   >
 
-    <div v-if="!editModeActive" class="flex-none text-lg font-semibold min-h-8" v-html="highlightText(checkList!.name, searchQuery)" />
+    <div v-if="!editModeActive" data-testid="card-title" class="flex-none text-base font-semibold leading-snug break-words" v-html="highlightText(checkList!.name, searchQuery)" />
     <UTextarea
       v-if="editModeActive"
       autoresize
@@ -16,11 +19,11 @@
       :disabled="!canEdit"
       placeholder="Enter a checklist title..."
       v-model="localName"
-      class="flex-initial w-full grow pl-1 text-2xl font-semibold"
+      class="flex-initial w-full grow text-xl sm:text-2xl font-semibold"
       @focus="nameFocused = true"
       @blur="nameFocused = false"
     />
-    <p v-if="!editModeActive" class="flex-none line-clamp-3" v-html="highlightText(checkList!.text, searchQuery)" />
+    <p v-if="!editModeActive && checkList!.text" class="flex-none line-clamp-3 text-sm opacity-80 whitespace-pre-wrap break-words" v-html="highlightText(checkList!.text, searchQuery)" />
     <UTextarea
       v-if="editModeActive"
       ref="notesTextField"
@@ -32,11 +35,11 @@
       :disabled="!canEdit"
       placeholder="Enter some notes..."
       v-model="localText"
-      class="w-full flex-none pl-1"
+      class="w-full flex-none text-sm opacity-90"
       @focus="textFocused = true"
       @blur="textFocused = false"
     />
-    <div class="checklist-items-collection max-h-[90vm]">
+    <div class="checklist-items-collection mt-1">
       <CheckListItemCollectionSeperated
         v-if="checkList?.checked_items_seperated"
         :parentCheckList="checkList"
@@ -57,10 +60,10 @@
       />
     </div>
 
-    <div class="checklist-footer flex-none">
+    <div class="checklist-footer flex-none mt-3 pt-2 border-t border-current/10">
       <CheckListFooter :checkListId="checkListId" />
     </div>
-  </UContainer>
+  </div>
 </template>
 
 <script setup lang="ts">
@@ -100,31 +103,33 @@ const checkList = computed(() => checkListsStore.get(props.checkListId));
 const { can } = usePermissions();
 const canEdit = computed(() => can(checkList.value, "edit"));
 
+// When a card has no color theme, we return undefined and let the default
+// theme classes (bg-elevated / border-default / inherited text) take over —
+// that keeps uncolored cards subtle instead of forcing a stark black border.
+const hasColor = computed(() => !!checkList.value?.color);
+
 const textColor = computed(() => {
   const { color } = checkList.value!;
-  const isDarkModeEnabled = colorMode.value === "dark";
-
-  if (color) {
-    return isDarkModeEnabled ? color.textcolor_dark_hex : color.textcolor_light_hex;
-  }
-  // Checklist has not color theme applied. lets just return a contrast color the background
-  return isDarkModeEnabled ? "#fff" : "#000";
+  if (!color) return undefined;
+  return colorMode.value === "dark" ? color.textcolor_dark_hex : color.textcolor_light_hex;
 });
 const accentColor = computed(() => {
   const { color } = checkList.value!;
-  const isDarkModeEnabled = colorMode.value === "dark";
-
-  if (color) {
-    return isDarkModeEnabled ? color.accentcolor_dark_hex : color.accentcolor_light_hex;
-  }
-  // Checklist has not color theme applied. lets just return a contrast color the background
-  return isDarkModeEnabled ? "#fff" : "#000";
+  if (!color) return undefined;
+  return colorMode.value === "dark" ? color.accentcolor_dark_hex : color.accentcolor_light_hex;
 });
 const backgroundColor = computed(() => {
   const { color } = checkList.value!;
-  const isDarkModeEnabled = colorMode.value === "dark";
+  if (!color) return undefined;
+  return colorMode.value === "dark" ? color.backgroundcolor_dark_hex : color.backgroundcolor_light_hex;
+});
 
-  return color ? (isDarkModeEnabled ? color.backgroundcolor_dark_hex : color.backgroundcolor_light_hex) : "";
+const cardStyle = computed(() => {
+  const style: Record<string, string> = {};
+  if (textColor.value) style.color = textColor.value;
+  if (backgroundColor.value) style.backgroundColor = backgroundColor.value;
+  if (accentColor.value) style.borderColor = accentColor.value;
+  return style;
 });
 
 const notesTextField = ref();
@@ -132,6 +137,9 @@ const nameFocused = ref(false);
 const textFocused = ref(false);
 
 if (!props.previewModeActive && props.checkListId) {
+  // Ensure the card itself is loaded (supports deep-linking a card that isn't
+  // on the current board page yet) before refreshing its items.
+  await checkListsStore.fetch(props.checkListId).catch(() => {});
   await checkListsItemStore.refreshAllCheckListItems(props.checkListId);
 }
 

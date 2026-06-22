@@ -1,6 +1,6 @@
 <template>
-  <ul v-if="dragCheckLists" ref="checkListBoard" data-testid="checklist-board" class="grid gap-4 grid-cols-[repeat(auto-fill,minmax(16rem,1fr))]">
-    <li v-for="checkList in dragCheckLists" :key="checkList.id" class="w-full sm:w-auto checklist-preview">
+  <ul v-if="dragCheckLists" ref="checkListBoard" data-testid="checklist-board" class="grid gap-3 sm:gap-4 grid-cols-[repeat(auto-fill,minmax(15rem,1fr))]">
+    <li v-for="checkList in dragCheckLists" :key="checkList.id" class="w-full checklist-preview">
       <CheckList :checkListId="checkList.id" @click="openCheckListEditor(checkList.id)" :previewModeActive="true" />
     </li>
     <li
@@ -101,8 +101,15 @@ function openCheckListEditor(checkListId: string) {
 ul {
   margin: 0 auto;
   width: 100%;
-  /*max-width: 1400px;*/
-  padding: 14px 14px;
+  padding: 12px;
+}
+@media (min-width: 640px) {
+  ul {
+    padding: 20px;
+  }
+}
+.checklist-preview {
+  transition: transform 0.15s ease;
 }
 .checklist-preview:hover {
   transform: translateY(-2px);

@@ -93,7 +93,7 @@ test.describe("F1 permission-aware gating", () => {
     await expect(card, "shared card should appear in the collaborator's grid").toBeVisible({
       timeout: 8_000,
     });
-    await card.locator(".text-lg.font-semibold").click();
+    await card.locator("[data-testid=card-title]").click();
     // Identify the card editor by its content (the `.checklist` container only
     // the editor renders) and scope assertions to it. `.first()` is belt-and-
     // suspenders against any transient duplicate overlay root.
@@ -117,7 +117,7 @@ test.describe("F1 permission-aware gating", () => {
     // Item text is read-only.
     await expect(dialog.locator("li textarea").first()).toBeDisabled();
     // No "add new item" affordance.
-    await expect(dialog.getByText("Add New Checklist Item")).toHaveCount(0);
+    await expect(dialog.getByText("Add new item")).toHaveCount(0);
 
     await userPage.keyboard.press("Escape");
   });
@@ -133,7 +133,7 @@ test.describe("F1 permission-aware gating", () => {
     // Full item editing is available.
     await expect(dialog.locator('[role="checkbox"]').first()).toBeEnabled();
     await expect(dialog.locator("li textarea").first()).toBeEnabled();
-    await expect(dialog.getByText("Add New Checklist Item")).toBeVisible();
+    await expect(dialog.getByText("Add new item")).toBeVisible();
 
     await userPage.keyboard.press("Escape");
   });

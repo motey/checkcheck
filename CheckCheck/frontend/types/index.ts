@@ -47,6 +47,8 @@ declare global {
     type PublicLinkCreateRes = components["schemas"]["PublicLinkCreateResult"]  // carries token ONCE
     type PublicLinkCreateReq = components["schemas"]["PublicLinkCreateRequest"]
     type PublicLinkUpdateReq = components["schemas"]["PublicLinkUpdateRequest"]
+    type UnlockRequestType = components["schemas"]["UnlockRequest"]          // {password}
+    type UnlockResultType = components["schemas"]["UnlockResult"]            // {grant, expires_in}
     type GroupShareResult = components["schemas"]["GroupShareResult"]
     type TransferOwnershipResultType = components["schemas"]["TransferOwnershipResult"]
     type InviteReadType = components["schemas"]["InviteRead"]

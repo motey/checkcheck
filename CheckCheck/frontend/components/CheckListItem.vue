@@ -1,15 +1,23 @@
 <template>
-  <UContainer class="flex mb-0 grow break-after-column" @mouseover="hover = true" @mouseleave="hover = false">
-    <div class="flex-none">
-      <span :class="{ nonActive: !hover }" class="list-item-drag-handle" title="Drag to reorder" :id="checkListItem!.id" v-if="parentEditMode && canEdit">
-        <UIcon  name="i-mdi-drag" class="w-6 h-6 cursor-row-resize" />
-      </span>
+  <div class="flex items-start gap-1.5 py-0.5" @mouseover="hover = true" @mouseleave="hover = false">
+    <span
+      v-if="parentEditMode && canEdit"
+      :class="{ nonActive: !hover }"
+      class="list-item-drag-handle flex-none self-center transition-opacity"
+      title="Drag to reorder"
+      :id="checkListItem!.id"
+    >
+      <UIcon name="i-mdi-drag" class="w-5 h-5 cursor-row-resize" />
+    </span>
+    <div class="flex-none flex items-center self-stretch min-h-6" :title="canCheck ? undefined : 'View only'">
+      <UCheckbox v-model="checkListItem!.state.checked" :disabled="!canCheck" @click.stop="toggleCheck()" size="md" />
     </div>
-    <div class="flex-none w-4" :title="canCheck ? undefined : 'View only'">
-      <UCheckbox v-model="checkListItem!.state.checked" :disabled="!canCheck" @click.stop="toggleCheck()" size="xl"  />
-    </div>
-    <div v-if="!parentEditMode" :class="[' pl-2', { 'line-clamp-3': !parentEditMode, 'strikethrough': checkListItem?.state.checked }]" class=""
-      v-html="highlightText(checkListItem!.text, searchQuery)" />
+    <div
+      v-if="!parentEditMode"
+      class="min-w-0 flex-1 pt-0.5 break-words whitespace-pre-wrap line-clamp-3"
+      :class="{ strikethrough: checkListItem?.state.checked }"
+      v-html="highlightText(checkListItem!.text, searchQuery)"
+    />
 
     <UTextarea
       placeholder="Enter some text..."
@@ -21,12 +29,12 @@
       :padded="false"
       :disabled="!canEdit"
       :style="{ color: textColor }"
-      class="w-full grow pl-2 cursor-auto m-0"
+      class="min-w-0 flex-1 grow cursor-auto m-0"
       :class="{ strikethrough: checkListItem?.state.checked }"
       @focus="textFocused = true"
       @blur="textFocused = false"
     />
-  </UContainer>
+  </div>
 </template>
 
 <script setup lang="ts">

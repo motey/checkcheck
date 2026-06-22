@@ -115,7 +115,7 @@ test.describe("item movement", () => {
       .locator("[data-testid=checklist-board] .checklist-preview")
       .filter({ hasText: clName });
     await expect(card).toBeVisible();
-    await card.locator(".text-lg.font-semibold").click();
+    await card.locator("[data-testid=card-title]").click();
 
     const dialog = page.locator('[role="dialog"]');
     await expect(dialog).toBeVisible({ timeout: 5_000 });
@@ -163,7 +163,7 @@ test.describe("item movement", () => {
     await page.keyboard.press("Escape");
     await expect(dialog).not.toBeVisible({ timeout: 3_000 });
 
-    await card.locator(".text-lg.font-semibold").click();
+    await card.locator("[data-testid=card-title]").click();
     await expect(dialog).toBeVisible({ timeout: 5_000 });
 
     // Wait for textareas to repopulate, then verify order persisted.

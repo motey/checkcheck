@@ -65,7 +65,7 @@ tests/e2e/
 ```
 [data-testid="checklist-board"]    the <ul> grid of cards
 .checklist-preview                 each card's <li> wrapper (draggable)
-.text-lg.font-semibold             the card title div (click this to open modal)
+[data-testid="card-title"]          the card title div (click this to open modal)
 [role="dialog"]                    the edit modal (UModal)
 .list-item-drag-handle             drag handle span inside each item row
                                    (opacity 0.3 until hovered; only in edit mode)
@@ -419,7 +419,7 @@ await page.locator("aside").getByText(labelName, { exact: true }).click();
 Preview-mode items include a checkbox with `@click.stop`.  A center click lands
 on the checkbox and the edit modal never opens.  Click the title instead:
 ```ts
-await card.locator(".text-lg.font-semibold").click();
+await card.locator("[data-testid=card-title]").click();
 ```
 
 **Open tab 1 fully before opening tab 2 in sync tests.**
@@ -449,7 +449,7 @@ a real 403 response, not a 500 crash.
 `CheckListItemCollection` (with drag handles and textareas) only renders when
 `editModeActive=true`.  To interact with items, click the card title first:
 ```ts
-await card.locator(".text-lg.font-semibold").click();
+await card.locator("[data-testid=card-title]").click();
 const dialog = page.locator('[role="dialog"]');
 await expect(dialog).toBeVisible({ timeout: 5_000 });
 ```

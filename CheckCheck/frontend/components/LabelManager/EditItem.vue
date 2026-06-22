@@ -7,41 +7,15 @@
     />
 
     <!-- Color swatch / picker -->
-    <UPopover>
+    <ColorSwatchPicker :model-value="label.color_id ?? null" @update:model-value="setColor">
       <UTooltip text="Change color">
         <button
-          class="w-5 h-5 rounded-full border-2 shrink-0 transition-colors"
+          class="size-5 rounded-full border-2 shrink-0 transition-colors"
           :style="swatchStyle"
           @click.stop
         />
       </UTooltip>
-      <template #content>
-        <div class="flex flex-wrap gap-1 p-2 max-w-52">
-          <!-- No color option -->
-          <UTooltip text="No color">
-            <button
-              class="w-6 h-6 rounded-full border-2 flex items-center justify-center hover:scale-110 transition-transform"
-              :style="{ borderColor: isDark ? '#666' : '#ccc', backgroundColor: isDark ? '#333' : '#eee' }"
-              @click.stop="setColor(null)"
-            >
-              <UIcon name="i-lucide-x" class="text-xs" />
-            </button>
-          </UTooltip>
-          <UTooltip
-            v-for="color in colorStore.colors"
-            :key="color.id"
-            :text="color.display_name"
-          >
-            <button
-              class="w-6 h-6 rounded-full border-2 hover:scale-110 transition-transform"
-              :class="{ 'ring-2 ring-offset-1 ring-primary': color.id === label.color_id }"
-              :style="colorOptionStyle(color)"
-              @click.stop="setColor(color.id)"
-            />
-          </UTooltip>
-        </div>
-      </template>
-    </UPopover>
+    </ColorSwatchPicker>
 
     <!-- Label name input -->
     <UInput
@@ -99,13 +73,6 @@ const swatchStyle = computed(() => {
     borderColor: isDark.value ? color.accentcolor_dark_hex : color.accentcolor_light_hex,
   };
 });
-
-function colorOptionStyle(color: ChecklistColorSchemeType) {
-  return {
-    backgroundColor: isDark.value ? color.backgroundcolor_dark_hex : color.backgroundcolor_light_hex,
-    borderColor: isDark.value ? color.accentcolor_dark_hex : color.accentcolor_light_hex,
-  };
-}
 
 const debouncedSave = useDebounceFn(async (value: string) => {
   await labelStore.updateLabel(props.label.id, { display_name: value });

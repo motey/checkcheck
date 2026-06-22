@@ -13,12 +13,20 @@
 
     <!-- Mobile nav drawer (portaled, lives outside the flex flow) -->
     <SideMenuDrawer v-model:open="mobileNavOpen" />
+
+    <!-- Card editor, driven by the /card/<cardId> path. Declarative (single
+         instance) so it can't double-mount the way the old useOverlay wiring
+         did — that double-mount was the "card reopens / needs multiple clicks
+         to close" bug. -->
+    <CheckListEditModal v-if="cardModalId" :checkListId="cardModalId" v-model:open="cardModalOpen" />
+
+    <!-- Label editor, driven by ?editlabels=true -->
+    <LabelManagerModal v-model:open="labelEditorOpen" />
   </NuxtLayout>
 </template>
 
 <script setup lang="ts">
-import { ref, watch } from "vue";
-import { CheckListEditModal, LabelManagerModal } from "#components";
+import { computed, ref, watch } from "vue";
 import { useSync } from "~/composables/useSync";
 import { useAppRoute } from "~/composables/useAppRoute";
 import { useCheckListsStore } from "@/stores/checklist";
@@ -50,54 +58,34 @@ onUnmounted(disconnect);
 const { cardId, editLabels, closeCard, closeLabelEditor } = useAppRoute();
 const checkListStore = useCheckListsStore();
 
-// --- Label editor modal, driven by ?editlabels=true ------------------------
-const labelEditorOverlay = useOverlay();
-const labelEditorModal = labelEditorOverlay.create(LabelManagerModal);
-let labelEditorOpening = false;
-
-watch(
-  editLabels,
-  async (open) => {
-    if (open) {
-      if (labelEditorOpening) return;
-      labelEditorOpening = true;
-      await labelEditorModal.open();
-      labelEditorOpening = false;
-      // Resolved => the user closed the modal. Strip editlabels from the URL.
-      closeLabelEditor();
-    } else {
-      // editlabels disappeared from the URL (e.g. browser back while open).
-      labelEditorModal.close();
-    }
-  },
-  { immediate: true }
-);
-
 // --- Card editor modal, driven by the /card/<cardId> path ------------------
-const cardEditorOverlay = useOverlay();
-const cardEditorModal = cardEditorOverlay.create(CheckListEditModal);
-let cardOpening = false;
+// The URL is the single source of truth. `cardModalId` retains the last id so
+// the modal content stays valid during the close animation (cardId goes null
+// before the leave transition finishes).
+const cardModalId = ref(cardId.value);
+watch(cardId, async (id) => {
+  if (!id) return;
+  cardModalId.value = id;
+  // Make sure the card exists in the store before showing it — supports
+  // deep-linking / sharing a card that isn't on the current page yet.
+  await checkListStore.fetch(id).catch(() => {});
+});
 
-watch(
-  cardId,
-  async (id) => {
-    if (id) {
-      if (cardOpening) return;
-      cardOpening = true;
-      // Make sure the card exists in the store before showing it — supports
-      // deep-linking / sharing a card that isn't on the current page yet.
-      await checkListStore.fetch(id).catch(() => {});
-      await cardEditorModal.open({ checkListId: id });
-      cardOpening = false;
-      // Resolved => the user closed the modal. Return to the board.
-      closeCard();
-    } else {
-      // Card path disappeared (e.g. browser back while open).
-      cardEditorModal.close();
-    }
+const cardModalOpen = computed({
+  get: () => !!cardId.value,
+  set: (open) => {
+    // Only the user closing the modal (open=false) drives a route change.
+    if (!open) closeCard();
   },
-  { immediate: true }
-);
+});
+
+// --- Label editor modal, driven by ?editlabels=true ------------------------
+const labelEditorOpen = computed({
+  get: () => editLabels.value,
+  set: (open) => {
+    if (!open) closeLabelEditor();
+  },
+});
 </script>
 
 <style scoped></style>

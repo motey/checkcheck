@@ -1,8 +1,6 @@
 <template>
-  <UTooltip @click.stop text="Change Color" :popper="{ arrow: true }" >
-    <UPopover arrow class="border-0":ui="{
-    content: 'p-0 m-0 lg:p-0 bg-transparent border-0',       // Remove padding from content
-  }">
+  <ColorSwatchPicker :model-value="currentColorId" @update:model-value="setCheckListColor">
+    <UTooltip text="Change color">
       <CheckListColoredButton
         variant="ghost"
         icon="i-lucide-palette"
@@ -10,86 +8,17 @@
         :disabled="!canEdit"
         @click.stop
       />
-      <template #content>
-        <UContainer class="flex flex-wrap gap-0 border-0 bg-transparent p-0 lg:p-0 sm:p-0">
-          <UTooltip text="No Color" :popper="{ arrow: true }">
-            <UButton
-              @click.stop="setCheckListColor(null)"
-              key="no_color"
-              size="xl"
-              variant="solid"
-              class=" border-1 bg-neutral-100 border-transparent lg:p-2 sm:p-2"
-              :style="{
-                
-                borderColor: 'transparent',
-                transition: 'border-color 0.3s',
-                color: 'red',
-              }"
-              @mouseover="
-                (e) => {
-                  e.currentTarget.style.borderColor = colorMode.value === 'dark' ? 'white' : 'black';
-                  e.currentTarget.style.borderWidth = '1px';
-                }
-              "
-              @mouseleave="
-                (e) => {
-                  e.currentTarget.style.borderColor = 'transparent';
-                  e.currentTarget.style.borderWidth = '1px';
-                }
-              "
-            >
-              ❌️
-            </UButton>
-          </UTooltip>
-          <UTooltip
-            v-for="color in checkListColorSchemeStore.colors"
-            :text="color.display_name"
-            :popper="{ arrow: true }"
-          >
-            <UButton
-              @click.stop="setCheckListColor(color.id)"
-              :key="color.id"
-              size="xl"
-              variant="solid"
-              class=" border-1 border-transparent"
-              :style="{
-                backgroundColor:
-                  colorMode.value === 'dark' ? color.backgroundcolor_dark_hex : color.backgroundcolor_light_hex,
-                borderColor: 'transparent',
-                transition: 'border-color 0.3s',
-              }"
-              @mouseover="
-                (e) => {
-                  e.currentTarget.style.borderColor =
-                    colorMode.value === 'dark' ? color.accentcolor_dark_hex : color.accentcolor_light_hex;
-                  e.currentTarget.style.borderWidth = '1px';
-                }
-              "
-              @mouseleave="
-                (e) => {
-                  e.currentTarget.style.borderColor = 'transparent';
-                  e.currentTarget.style.borderWidth = '1px';
-                }
-              "
-            >
-              &nbsp;&nbsp;&nbsp;&nbsp;
-            </UButton>
-          </UTooltip>
-        </UContainer>
-      </template>
-    </UPopover>
-  </UTooltip>
+    </UTooltip>
+  </ColorSwatchPicker>
 </template>
 
 <script setup lang="ts">
-const runtimeConfig = useRuntimeConfig();
-const appConfig = useAppConfig();
+import { computed } from "vue";
 import { useCheckListsStore } from "@/stores/checklist";
 import { useCheckListsColorSchemeStore } from "@/stores/color";
-const colorMode = useColorMode();
+
 const checkListColorSchemeStore = useCheckListsColorSchemeStore();
 const checkListsStore = useCheckListsStore();
-const allColors = checkListColorSchemeStore.colors;
 
 const props = defineProps({
   checkListId: {
@@ -97,26 +26,15 @@ const props = defineProps({
     required: true,
   },
 });
-const checkList = ref(await checkListsStore.get(props.checkListId));
 
 // Changing the shared card's color requires edit access (P0.1 / usePermissions).
 const { can } = usePermissions();
 const canEdit = computed(() => can(checkListsStore.get(props.checkListId), "edit"));
-const textColor = computed(() => {
-  const { color } = checkList.value!;
-  const isDarkModeEnabled = colorMode.value === "dark";
-  if (color) {
-    return isDarkModeEnabled ? color.textcolor_dark_hex : color.textcolor_light_hex;
-  }
-  // Checklist has not color theme applied. lets just return a contrast color the background
-  return isDarkModeEnabled ? "#fff" : "#000";
-});
-const backgroundColor = computed(() => {
-  const { color } = checkList.value!;
-  const isDarkModeEnabled = colorMode.value === "dark";
-  return color ? (isDarkModeEnabled ? color.backgroundcolor_dark_hex : color.backgroundcolor_light_hex) : "";
-});
+
+const currentColorId = computed(() => checkListsStore.get(props.checkListId)?.color?.id ?? null);
+
 function setCheckListColor(colorId: string | null) {
+  if (!canEdit.value) return;
   (async () => {
     await checkListColorSchemeStore.updateChecklistColor(props.checkListId, colorId);
   })();
