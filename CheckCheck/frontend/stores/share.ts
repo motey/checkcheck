@@ -13,6 +13,14 @@ import { defineStore } from "pinia";
 export type ShareState = {
   // Collaborator lists keyed by checklist id (owner row excluded — see backend).
   shares: Record<string, ShareReadType[]>;
+  // Public (anonymous URL) links keyed by checklist id. Tokens are redacted by
+  // the backend on list/update — they only ever exist in a createLink result.
+  links: Record<string, PublicLinkReadType[]>;
+  // Tokens captured at creation, keyed by link id. The server never returns a
+  // token again, so this is purely an in-memory convenience: links created while
+  // the app is open stay copyable from the list. Lost on reload (by design — the
+  // token is a capability we don't persist).
+  linkTokens: Record<string, string>;
   // The checklist id whose ShareModal is currently open, if any.
   openForChecklistId: string | null;
   // The current user's OIDC groups (empty for local users → hide group UI).
@@ -24,6 +32,8 @@ export const useShareStore = defineStore("share", {
   state: () =>
     ({
       shares: {},
+      links: {},
+      linkTokens: {},
       openForChecklistId: null,
       myGroups: null,
     } as ShareState),
@@ -31,6 +41,14 @@ export const useShareStore = defineStore("share", {
     // The cached collaborator list for a checklist (empty until listShares runs).
     sharesFor: (state) => {
       return (checkListId: string): ShareReadType[] => state.shares[checkListId] ?? [];
+    },
+    // The cached public-link list for a checklist (empty until listLinks runs).
+    linksFor: (state) => {
+      return (checkListId: string): PublicLinkReadType[] => state.links[checkListId] ?? [];
+    },
+    // The token captured for a link at creation (this session only), or null.
+    tokenFor: (state) => {
+      return (linkId: string): string | null => state.linkTokens[linkId] ?? null;
     },
   },
   actions: {
@@ -159,6 +177,98 @@ export const useShareStore = defineStore("share", {
       // modal reflects them immediately.
       await this.listShares(checkListId).catch(() => {});
       return res;
+    },
+
+    // ── Public (anonymous URL) links — owner-only, F3 ───────────────────────
+    // Tokens are redacted everywhere except the createLink result below. There
+    // is no way to recover a token after creation; the owner must delete and
+    // recreate a link to get a fresh URL.
+
+    async listLinks(checkListId: string): Promise<PublicLinkReadType[]> {
+      const { $checkapi } = useNuxtApp();
+      let res: PublicLinkReadType[];
+      try {
+        res = await $checkapi("/api/checklist/{checklist_id}/public-links", {
+          path: { checklist_id: checkListId },
+          method: "get",
+        });
+      } catch (error) {
+        console.error("Could not list public links 'GET .../public-links'", error);
+        throw error;
+      }
+      this.links[checkListId] = res;
+      return res;
+    },
+
+    // Create a link. The returned token is the ONE chance to capture the URL —
+    // the caller must surface it immediately. We cache the link (without the
+    // token) so the list reflects it right away.
+    async createLink(
+      checkListId: string,
+      body: PublicLinkCreateReq
+    ): Promise<PublicLinkCreateRes> {
+      const { $checkapi } = useNuxtApp();
+      let res: PublicLinkCreateRes;
+      try {
+        res = await $checkapi("/api/checklist/{checklist_id}/public-links", {
+          path: { checklist_id: checkListId },
+          method: "post",
+          body,
+        });
+      } catch (error) {
+        console.error("Could not create public link 'POST .../public-links'", error);
+        throw error;
+      }
+      const { token, ...redacted } = res;
+      const list = (this.links[checkListId] ??= []);
+      list.unshift(redacted);
+      // Retain the token in memory so the new link stays copyable from the list
+      // (the server won't ever hand it back). Lost on reload — by design.
+      this.linkTokens[res.id] = token;
+      return res;
+    },
+
+    async updateLink(
+      checkListId: string,
+      linkId: string,
+      patch: PublicLinkUpdateReq
+    ): Promise<PublicLinkReadType> {
+      const { $checkapi } = useNuxtApp();
+      let res: PublicLinkReadType;
+      try {
+        res = await $checkapi("/api/checklist/{checklist_id}/public-links/{link_id}", {
+          path: { checklist_id: checkListId, link_id: linkId },
+          method: "patch",
+          body: patch,
+        });
+      } catch (error) {
+        console.error("Could not update public link 'PATCH .../public-links/" + linkId + "'", error);
+        throw error;
+      }
+      const list = (this.links[checkListId] ??= []);
+      const idx = list.findIndex((l) => l.id === linkId);
+      if (idx !== -1) list.splice(idx, 1, res);
+      else list.push(res);
+      return res;
+    },
+
+    async deleteLink(checkListId: string, linkId: string): Promise<void> {
+      const { $checkapi } = useNuxtApp();
+      try {
+        await $checkapi("/api/checklist/{checklist_id}/public-links/{link_id}", {
+          path: { checklist_id: checkListId, link_id: linkId },
+          method: "delete",
+        });
+      } catch (error) {
+        console.error("Could not delete public link 'DELETE .../public-links/" + linkId + "'", error);
+        throw error;
+      }
+      const list = this.links[checkListId];
+      if (list) {
+        const idx = list.findIndex((l) => l.id === linkId);
+        if (idx !== -1) list.splice(idx, 1);
+      }
+      delete this.linkTokens[linkId];
     },
 
     // ── ShareModal open-state plumbing (for live SSE refresh) ───────────────

@@ -1,7 +1,5 @@
 <template>
-  <section class="flex flex-col gap-2">
-    <h3 class="text-sm font-semibold">Add people</h3>
-
+  <div class="flex flex-col gap-2">
     <div class="flex gap-2">
       <UInput
         v-model="query"
@@ -54,7 +52,7 @@
         />
       </li>
     </ul>
-  </section>
+  </div>
 </template>
 
 <script setup lang="ts">

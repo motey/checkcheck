@@ -1,10 +1,5 @@
 <template>
-  <section class="flex flex-col gap-2 border-t border-[var(--ui-border)] pt-4">
-    <h3 class="text-sm font-semibold">Share with a group</h3>
-    <p class="text-xs text-[var(--ui-text-muted)]">
-      Grant every member of one of your groups access at once.
-    </p>
-
+  <div class="flex flex-col gap-2">
     <div class="flex gap-2">
       <USelect
         v-model="group"
@@ -22,7 +17,7 @@
         @click="share"
       />
     </div>
-  </section>
+  </div>
 </template>
 
 <script setup lang="ts">

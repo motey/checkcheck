@@ -1,11 +1,5 @@
 <template>
-  <section class="flex flex-col gap-2 border-t border-[var(--ui-border)] pt-4">
-    <h3 class="text-sm font-semibold">Transfer ownership</h3>
-    <p class="text-xs text-[var(--ui-text-muted)]">
-      Hand this list to another collaborator. You'll be demoted to an
-      <strong>edit</strong> collaborator and lose owner controls.
-    </p>
-
+  <div class="flex flex-col gap-2">
     <p
       v-if="candidates.length === 0"
       class="text-xs text-[var(--ui-text-muted)] italic"
@@ -47,7 +41,7 @@
         </div>
       </div>
     </template>
-  </section>
+  </div>
 </template>
 
 <script setup lang="ts">

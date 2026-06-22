@@ -308,9 +308,57 @@ public links). Refresh the share list on the `share_added`/`share_removed` SSE w
 
 ---
 
-## Phase F3 — Public URL links: owner management (backend Phases 5, 7) — 📋 PLANNED
+## Phase F3 — Public URL links: owner management (backend Phases 5, 7) — ✅ DONE
 **Goal:** owner creates/manages anonymous share links from within the Share modal.
 Gated by `SHARING_PUBLIC_LINKS_ENABLED` (hide section when off).
+
+> **Shipped:**
+> - **`stores/share.ts` (extended)** — same store as F2 (the modal already uses it),
+>   now with a `links: Record<clId, PublicLinkReadType[]>` cache + `linksFor`
+>   getter and four owner-only actions keyed by checklist id: `listLinks`
+>   (`GET …/public-links`), `createLink` (`POST …/public-links` → returns the
+>   `PublicLinkCreateResult` carrying the **one-time token**; the cached copy is
+>   stored **token-stripped** via destructuring so a token never lingers in
+>   state), `updateLink` (`PATCH …/public-links/{id}` — `enabled` toggle,
+>   `permission`/`expires_at`, `password:string` (re)protects / `password:null`
+>   clears / `expires_at:null` clears), and `deleteLink` (`DELETE …`). All mirror
+>   the established `$checkapi` path/query/body idiom and reconcile the local list
+>   in place.
+> - **`components/ShareModal/PublicLinks.vue`** — replaced the F3 stub (parent
+>   `ShareModal.vue` already renders it gated on `publicConfig.publicLinksEnabled`
+>   in the owner branch). A create form (level `USelect`, optional `type="date"`
+>   expiry → ISO via `new Date(d).toISOString()`, optional password `UInput`),
+>   then on create the **full `${location.origin}/p/<token>` URL is surfaced once**
+>   in a read-only field with a copy-to-clipboard button (success-tick feedback;
+>   falls back to a "select & copy manually" toast if `navigator.clipboard` is
+>   blocked) and a "won't be shown again / viewer route is F4, link won't resolve
+>   yet" note. The existing-links list shows the `permission` badge, a 🔒
+>   `password_protected` indicator (never the token), the `expires_at`
+>   ("Never expires" when null), a `USwitch` enabled toggle, and a delete button —
+>   prefixed by the "links are write-only after creation; delete & recreate for a
+>   fresh URL" caveat. `listLinks` runs `onMounted` (owner-only section, so no
+>   stray 4xx).
+> - **In-session token retention (UX follow-up):** the server never returns a
+>   token after create, so a listed link's URL is genuinely unrecoverable. To
+>   soften the "shown once" cliff, the store keeps a `linkTokens` in-memory map
+>   (`tokenFor` getter) populated on create and cleared on delete — so a link
+>   created while the app is open stays **copyable from its row** (a per-row copy
+>   button), while older/list-loaded links show a muted `i-lucide-link-2-off`
+>   indicator instead. Tokens are never persisted (lost on reload — by design).
+>   The card layout was also reworked: each sharing method (people / group /
+>   public link / transfer) is now a self-contained bordered card with an icon +
+>   title + description, making the "use whichever you need" relationship obvious
+>   rather than one long form.
+> - **Tests:** `tests/e2e/sharing-public-links.spec.ts` (new, 2 tests, green) —
+>   owner creates a link from the board-driven dialog, asserts the one-time
+>   `/p/<token>` URL appears + clipboard copy round-trips (with a granted
+>   clipboard permission), the redacted row shows (and does **not** leak the
+>   token), the `USwitch` toggles, and delete clears it; a second test creates a
+>   password+expiry link and asserts the 🔒 indicator and a non-"Never" expiry.
+>   Both assert **`Error 4xx` toast count is 0** (F2 learning — `plugins/api.ts`
+>   toasts every non-2xx). `data-testid` forwards onto the inner `<input>` (so
+>   selectors target the testid directly, no ` input` suffix). Restored
+>   `CheckCheck/openapi.json` after the run (the e2e server rewrites it on boot).
 
 ### Store additions (`stores/share.ts` or a `stores/public_link.ts`)
 - `listLinks(clId)` → `GET /api/checklist/{checklist_id}/public-links` → `PublicLinkReadType[]`
@@ -454,9 +502,56 @@ page — the largest, most isolated piece) → **F5** (notifications) → **F6**
 | Foundations | `types/index.ts` (extend), `stores/user.ts` (new), `composables/usePermissions.ts` (new), `composables/useSync.ts` (extend) |
 | Gating | `CheckListItem.vue`, `CheckListItemCollection/AddNewButton.vue`, `CheckListEditModal.vue`, footer buttons |
 | Share dialog ✅ | `stores/share.ts` (new), `stores/publicConfig.ts` (new), `components/ShareModal/*` (new), `components/CheckListFooter/Button/Share.vue` (wire up), `composables/useSync.ts` (refreshIfOpen), `pages/index.vue` (load config), `types/index.ts` (TransferOwnershipResultType); tests `tests/e2e/sharing-modal.spec.ts` |
-| Public links | `components/ShareModal/PublicLinks.vue` (new), share store additions |
+| Public links ✅ | `components/ShareModal/PublicLinks.vue` (fleshed out from stub), `stores/share.ts` (links cache + `linksFor`/`listLinks`/`createLink`/`updateLink`/`deleteLink`); tests `tests/e2e/sharing-public-links.spec.ts` |
 | Public viewer | `pages/p/[token].vue` (new), anonymous-sync handling, `plugins/api.ts` (guard 401 redirect on `/p/`) |
 | Notifications | `stores/notification.ts` (new), `components/NotificationBell.vue` (new), `Navbar.vue` (mount it) |
 | Invites | `stores/invite.ts` (new), invite UI in the bell / `SideMenuNav.vue` |
 | Tests | `CheckCheck/frontend/tests/*` (Playwright) |
+
+---
+
+## Possible changes later (not committed — revisit before/while building F4+)
+
+Ideas surfaced during F2/F3 that are **not** part of the agreed plan yet. They're parked here so we
+don't forget them and don't churn the committed phases. None of these block current work.
+
+### 1. Make the global API error handling opt-out per call (frontend — recommended before F4)
+**Smell:** `plugins/api.ts` runs *globally* on every response — it toasts **every** non-2xx and
+redirects to `/login` on **every** 401, and the global handler runs **before** any per-call
+`onResponseError`, so a call site can't suppress it. This assumes "any 4xx = unexpected error."
+The sharing features break that assumption:
+- F2 had to **avoid** calling owner-only endpoints (`GET /shares` 403) purely to dodge a stray
+  "Error 403" toast.
+- F4's viewer has flows where a 4xx is a **normal, handled branch**: a `404` on
+  `GET /api/public/checklist/{token}` means "bad/expired/disabled **or** password-protected" (the
+  passphrase form), and a `401` on `…/join` means "log in first" — neither should toast, and the
+  logged-out visitor must **not** be bounced to `/login` on initial load.
+
+**Proposed change (frontend-only, no backend/plan impact):** make the toast + 401-redirect
+**opt-out** per request — e.g. a `skipErrorToast` / `skipAuthRedirect` fetch option the public
+calls pass, or path-based suppression for `/api/public/…`. Do it as a small prerequisite
+(call it **F3.5**) so F4 doesn't hack around the plugin from inside `pages/p/[token].vue`. Pays back
+across F4/F5/F6. **Acceptance:** opening a bad/locked token shows the viewer's own state with **zero**
+"Error 4xx" toasts and **no** `/login` navigation.
+
+### 2. Distinguish "needs password" from "gone" in the public viewer (backend tradeoff — lean NO)
+**Observation:** the backend deliberately returns the **same 404** for a bad/expired/disabled link
+and a password-protected one (so there's no oracle confirming a token exists or is merely locked).
+That makes the F4 UX slightly clumsy — we show a generic "not found / enter passphrase" because we
+can't tell the two apart.
+**Option:** have the backend signal "needs password" distinctly (e.g. `401` with a marker) vs `404`
+"gone", so the viewer only shows the passphrase form when it's actually warranted.
+**Tradeoff:** this reintroduces exactly the existence/password oracle the current design hides.
+**Recommendation: keep the identical-404 as-is** unless we decide viewer polish outweighs that
+hardening. Listed only so the choice is conscious, not accidental.
+
+### 3. "Regenerate link URL" without losing the link (backend feature gap — low priority)
+**Observation:** because a token is shown once and never re-emitted (correct capability hygiene),
+the only way to get a fresh URL today is **delete + recreate**, which loses the link's identity and
+settings (level/expiry/password). F3 softens this client-side by keeping created tokens copyable for
+the current session, but they're gone after a reload (by design).
+**Option:** a backend `POST …/public-links/{id}/rotate` that mints a new token in place (invalidating
+the old URL) and returns it once, preserving the link row + settings.
+**Status:** functionally covered by delete+recreate; only worth doing if users ask for URL rotation
+that preserves settings. Not planned.
 </content>

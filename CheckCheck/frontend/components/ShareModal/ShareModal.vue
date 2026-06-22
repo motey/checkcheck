@@ -16,26 +16,90 @@
           />
         </div>
 
-        <!-- Owner: full management ------------------------------------------ -->
+        <!-- Owner: full management ------------------------------------------
+             Each card below is a *separate, independent* way to share — the
+             owner can use any one of them on its own; none requires the others.
+             Keeping them in distinct bordered cards (rather than one long form)
+             makes that "or" relationship obvious. -->
         <template v-if="isOwner">
-          <ShareModalAddPeople
-            v-if="publicConfig.userSearchEnabled"
-            :check-list-id="checkListId"
-          />
+          <!-- Invite specific people -->
+          <div class="flex flex-col gap-3 rounded-lg border border-[var(--ui-border)] p-4">
+            <div class="flex items-start gap-3">
+              <UIcon
+                name="i-lucide-user-plus"
+                class="mt-0.5 size-5 shrink-0 text-[var(--ui-text-muted)]"
+              />
+              <div class="flex flex-col">
+                <h3 class="text-sm font-semibold">Invite specific people</h3>
+                <p class="text-xs text-[var(--ui-text-muted)]">
+                  Share with individual people and choose what each one can do.
+                </p>
+              </div>
+            </div>
+            <ShareModalAddPeople
+              v-if="publicConfig.userSearchEnabled"
+              :check-list-id="checkListId"
+            />
+            <ShareModalPeopleList :check-list-id="checkListId" :editable="true" />
+          </div>
 
-          <ShareModalPeopleList :check-list-id="checkListId" :editable="true" />
-
-          <ShareModalShareWithGroup
+          <!-- Share with a group -->
+          <div
             v-if="hasGroups"
-            :check-list-id="checkListId"
-          />
+            class="flex flex-col gap-3 rounded-lg border border-[var(--ui-border)] p-4"
+          >
+            <div class="flex items-start gap-3">
+              <UIcon
+                name="i-lucide-users"
+                class="mt-0.5 size-5 shrink-0 text-[var(--ui-text-muted)]"
+              />
+              <div class="flex flex-col">
+                <h3 class="text-sm font-semibold">Share with a group</h3>
+                <p class="text-xs text-[var(--ui-text-muted)]">
+                  Grant every member of one of your groups access at once.
+                </p>
+              </div>
+            </div>
+            <ShareModalShareWithGroup :check-list-id="checkListId" />
+          </div>
 
-          <ShareModalPublicLinks
+          <!-- Create a public link -->
+          <div
             v-if="publicConfig.publicLinksEnabled"
-            :check-list-id="checkListId"
-          />
+            class="flex flex-col gap-3 rounded-lg border border-[var(--ui-border)] p-4"
+          >
+            <div class="flex items-start gap-3">
+              <UIcon
+                name="i-lucide-link"
+                class="mt-0.5 size-5 shrink-0 text-[var(--ui-text-muted)]"
+              />
+              <div class="flex flex-col">
+                <h3 class="text-sm font-semibold">Create a public link</h3>
+                <p class="text-xs text-[var(--ui-text-muted)]">
+                  Anyone with the link can open this list anonymously — no account needed.
+                </p>
+              </div>
+            </div>
+            <ShareModalPublicLinks :check-list-id="checkListId" />
+          </div>
 
-          <ShareModalTransferOwnership :check-list-id="checkListId" />
+          <!-- Advanced: transfer ownership (not a "way to share" — set apart) -->
+          <div class="flex flex-col gap-3 rounded-lg border border-[var(--ui-border)] p-4">
+            <div class="flex items-start gap-3">
+              <UIcon
+                name="i-lucide-crown"
+                class="mt-0.5 size-5 shrink-0 text-[var(--ui-text-muted)]"
+              />
+              <div class="flex flex-col">
+                <h3 class="text-sm font-semibold">Transfer ownership</h3>
+                <p class="text-xs text-[var(--ui-text-muted)]">
+                  Hand this list to another collaborator. You'll be demoted to an
+                  <strong>edit</strong> collaborator and lose owner controls.
+                </p>
+              </div>
+            </div>
+            <ShareModalTransferOwnership :check-list-id="checkListId" />
+          </div>
         </template>
 
         <!-- Non-owner: collaborator notice + leave --------------------------
@@ -102,7 +166,7 @@ const title = computed(() =>
 );
 const description = computed(() =>
   isOwner.value
-    ? "Manage who can see and edit this list."
+    ? "Invite people, share with a group, or create a public link — use whichever you need."
     : "People with access to this list."
 );
 

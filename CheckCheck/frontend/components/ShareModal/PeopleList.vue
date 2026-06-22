@@ -1,7 +1,5 @@
 <template>
-  <section class="flex flex-col gap-2">
-    <h3 class="text-sm font-semibold">People with access</h3>
-
+  <div class="flex flex-col gap-2">
     <ul class="rounded-md border border-[var(--ui-border)] divide-y divide-[var(--ui-border)]">
       <!-- Owner row (synthetic — the backend list excludes the owner). Only
            shown when the current user is the owner, since otherwise we don't
@@ -70,7 +68,7 @@
         </div>
       </li>
     </ul>
-  </section>
+  </div>
 </template>
 
 <script setup lang="ts">
