@@ -24,8 +24,17 @@ No Vite dev server, no HMR, no proxy.
 
 # Or directly from the frontend directory
 cd CheckCheck/frontend
-bunx playwright test
+bun run test:e2e
 ```
+
+> **⚠️ Always invoke Playwright through `bun run test:e2e` (or the wrapper
+> scripts), never a bare `bunx playwright …`.** `bun run` resolves the *local*
+> `@playwright/test` CLI, which always matches the version the spec files import.
+> A bare `bunx playwright` can pull a **cached standalone `playwright` package of
+> a different version**, and the mismatch makes Playwright abort at collection
+> time (`test.afterEach() … not expected here` / "two different versions" → 0
+> tests found). `run_e2e_tests.sh` has a preflight that catches this and fails
+> with a clear message. See [Troubleshooting](#playwright-aborts-at-collection-two-different-versions).
 
 First run takes ~3–4 min (`nuxt generate` builds the static bundle + backend
 startup + 19 tests).  Subsequent headless runs are similar — the build always
@@ -52,12 +61,12 @@ Force a rebuild: `FORCE_BUILD=1 ./run_e2e_tests.sh --ui`.
 ./run_e2e_tests.sh --debug --grep "cross-tab sync"
 
 # Open the HTML report (traces included for every test)
-cd CheckCheck/frontend && bunx playwright show-report
+cd CheckCheck/frontend && bun run test:e2e:report
 ```
 
 > **Tip:** install `fzf` (`apt install fzf`) for a fuzzy-searchable `--pick` list.
 
-> **Note on `--ui` mode:** Playwright's interactive UI (`bunx playwright test --ui`)
+> **Note on `--ui` mode:** Playwright's interactive UI (`bun run test:e2e:ui`)
 > leaves the browser on "loading…" indefinitely and never shows the test list.
 > Investigated: the Playwright HTTP server starts correctly (returns a 302 to
 > `uiMode.html`) but every WebSocket upgrade attempt to the WS endpoint is
@@ -319,6 +328,45 @@ Error: Backend venv not found at .../CheckCheck/backend/.venv/bin/python
 source build_server_dev_env.sh   # from repo root
 ```
 
+### Playwright aborts at collection ("two different versions")
+
+Symptom — every spec errors on its top-level `test.afterEach`, **0 tests run**:
+
+```
+Error: Playwright Test did not expect test.afterEach() to be called here.
+- You have two different versions of @playwright/test. …
+Error: No tests found.
+```
+
+This is **not** a bug in the spec (the `afterEach` is correct). It means the
+Playwright **CLI** that's running differs in version from the `@playwright/test`
+the specs import. It typically happens after a bare `bunx playwright …` (e.g.
+`bunx playwright --version`) caches a *standalone* `playwright` package of a
+newer version; subsequent bare `bunx playwright test` runs then use that cached
+CLI instead of the local `@playwright/test`.
+
+Fix — always go through the local CLI:
+
+```bash
+# Wrapper script (has a preflight that catches the mismatch):
+./run_e2e_tests.sh
+
+# Or directly, via the package script (resolves local node_modules/.bin):
+cd CheckCheck/frontend && bun run test:e2e
+
+# Re-pin / repair the install if versions truly drifted:
+cd CheckCheck/frontend && bun install
+```
+
+Check the two versions agree:
+
+```bash
+cd CheckCheck/frontend
+bun run --silent test:e2e:version                       # CLI the runner uses
+sed -nE 's/.*"version": *"([0-9.]+)".*/\1/p' \
+  node_modules/@playwright/test/package.json | head -1  # installed package
+```
+
 ### Test runner hangs after all tests complete
 
 A spec file is leaving the board page open (SSE connection not closed).
@@ -338,6 +386,15 @@ runs the full suite against it, then removes the container.  Requires Docker.
 - **Playwright traces** land in `test-results/*/trace.zip` for **every** test run
   (`trace: "on"` in `playwright.config.ts`) — not just on retry.
 - **HTML report** at `playwright-report/index.html` — open with
-  `cd CheckCheck/frontend && bunx playwright show-report`.
-- **Headed mode**: `cd CheckCheck/frontend && bunx playwright test --headed`
+  `cd CheckCheck/frontend && bun run test:e2e:report`.
+- **Headed mode**: `cd CheckCheck/frontend && bun run test:e2e:headed`
 - **Step-through a single test**: `./run_e2e_tests.sh --debug --grep "test name"`
+- **Run one spec in isolation** (e.g. when iterating): prefer
+  `./run_e2e_tests.sh tests/e2e/<file>.spec.ts`. If you must call the runner
+  by hand, use `bun run test:e2e <file>` or the local CLI
+  `bun node_modules/@playwright/test/cli.js test <file>` — **not** `bunx
+  playwright` (see the version-mismatch note above).
+- **`node` is not on PATH** for non-login shells; run everything through `bun`
+  (`export PATH="$HOME/.bun/bin:$PATH"` first if needed). The local Playwright
+  CLI has a `#!/usr/bin/env node` shebang, so invoke it as `bun <path-to-cli.js>`
+  rather than executing it directly.

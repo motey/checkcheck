@@ -11,23 +11,20 @@ The grant is bound to both the link ``token`` and a fingerprint of the current
 ``password_hash``, so rotating or clearing the passphrase invalidates every
 outstanding grant. It also carries its own signed timestamp (TTL below).
 
-This module deliberately owns its **own** bcrypt context rather than importing the
-one in ``model.user_auth`` — the dependency stays one-way (sharing depends on
+Share passphrases are hashed with the shared, auth-agnostic ``model._hashing``
+helpers (argon2) — the same primitive local account passwords use, but reached
+through a neutral module so the dependency stays one-way (sharing depends on
 nothing auth-internal).
 """
 
 import hashlib
 
 from itsdangerous import URLSafeTimedSerializer, BadData
-from passlib.context import CryptContext
 
 from checkcheckserver.config import Config
+from checkcheckserver.model import _hashing
 
 config = Config()
-
-# Share passphrases are user-chosen secrets, so use a slow hash (bcrypt), same as
-# local account passwords — but via a context this module owns (one-way dep).
-_crypt_context_share_pwd = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 # A grant is valid for an hour; after that the visitor unlocks again.
 GRANT_TTL_SECONDS = 60 * 60
@@ -40,14 +37,12 @@ _serializer = URLSafeTimedSerializer(
 
 def hash_share_password(password: str) -> str:
     """Hash a plaintext share passphrase. Never store or log the plaintext."""
-    return _crypt_context_share_pwd.hash(password)
+    return _hashing.hash_password(password)
 
 
 def verify_share_password(password: str, password_hash: str) -> bool:
-    """Constant-time check of a passphrase against its bcrypt hash."""
-    if not password or not password_hash:
-        return False
-    return _crypt_context_share_pwd.verify(password, password_hash)
+    """Constant-time check of a passphrase against its argon2 hash."""
+    return _hashing.verify_password(password, password_hash)
 
 
 def _password_fingerprint(password_hash: str) -> str:

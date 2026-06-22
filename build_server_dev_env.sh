@@ -98,9 +98,35 @@ install_deps() {
         echo "   Run this from the repository root: source ./build_server_dev_env.sh"
         return 1
     fi
+
+    # Always operate on the project's own venv ($BACKEND_DIR/.venv) instead of
+    # letting pdm "reuse" whatever virtualenv happens to be active in the user's
+    # shell. Without this, pdm can install into / read from the wrong interpreter
+    # and activate_env later fails to find $VENV_DIR/bin/activate.
+    export PDM_IGNORE_ACTIVE_VENV=1
+
     echo "Installing/updating dependencies in $BACKEND_DIR..."
-    (cd "$BACKEND_DIR" && pdm install --dev) || {
-        echo "❌ 'pdm install --dev' failed in $BACKEND_DIR."
+    (
+        cd "$BACKEND_DIR" || exit 1
+
+        if pdm install --dev; then
+            exit 0
+        fi
+
+        # A stale pdm.lock (most commonly: it was generated for a different
+        # `requires-python` than pyproject.toml now declares) makes pdm refuse to
+        # both install AND re-lock, leaving dependencies uninstalled. Recover by
+        # refreshing the lock, and if even that is blocked by the stale target,
+        # rebuild it from scratch, then retry the install.
+        echo "⚠️  'pdm install --dev' failed — refreshing the lock file and retrying..."
+        if ! pdm lock; then
+            echo "   Lock refresh blocked by a stale lock; rebuilding pdm.lock from scratch."
+            rm -f pdm.lock
+            pdm lock || exit 1
+        fi
+        pdm install --dev
+    ) || {
+        echo "❌ 'pdm install --dev' failed in $BACKEND_DIR (even after refreshing the lock)."
         return 1
     }
 }

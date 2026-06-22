@@ -7,6 +7,7 @@
         variant="ghost"
         icon="i-lucide-palette"
         :checkListId="checkListId"
+        :disabled="!canEdit"
         @click.stop
       />
       <template #content>
@@ -97,6 +98,10 @@ const props = defineProps({
   },
 });
 const checkList = ref(await checkListsStore.get(props.checkListId));
+
+// Changing the shared card's color requires edit access (P0.1 / usePermissions).
+const { can } = usePermissions();
+const canEdit = computed(() => can(checkListsStore.get(props.checkListId), "edit"));
 const textColor = computed(() => {
   const { color } = checkList.value!;
   const isDarkModeEnabled = colorMode.value === "dark";

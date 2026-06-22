@@ -9,7 +9,6 @@ import contextlib
 from pydantic import SecretStr, Json
 from fastapi import Depends, HTTPException, status
 from sqlmodel import Field, select, delete, Enum, Column, and_, or_
-from passlib.context import CryptContext
 import secrets
 
 # Internal
@@ -23,7 +22,6 @@ from checkcheckserver.model.user_auth import (
     UserAuthCreate,
     UserAuthUpdate,
     AllowedAuthSchemeType,
-    crypt_context_pwd,
 )
 from checkcheckserver.db._base_crud import create_crud_base
 from checkcheckserver.api.paginator import QueryParamsInterface

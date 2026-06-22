@@ -5,7 +5,6 @@ import uuid
 from fastapi import Depends, Security, FastAPI, HTTPException, Request, status, Query, Body, Form
 from fastapi.security import OAuth2PasswordRequestForm
 from jose import JWTError, jwt
-from passlib.context import CryptContext
 from pydantic import BaseModel, Field
 from typing import Annotated
 

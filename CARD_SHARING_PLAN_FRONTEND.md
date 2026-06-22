@@ -100,9 +100,20 @@ sharing UI on it (no feature-detection-by-404 needed).
 
 ---
 
-## Cross-cutting foundations (Phase F0) — 📋 PLANNED
+## Cross-cutting foundations (Phase F0) — ✅ DONE
 
 Shared plumbing every feature phase builds on. Land this first.
+
+> **Shipped:** `types/index.ts` extended with every sharing schema alias + the
+> four new sync `upd_prop` values. `stores/user.ts` (new) holds `me` + `myId` /
+> `isOwnerOf(card)` and `fetchMe()` (`GET /api/user/me`), loaded once in
+> `pages/index.vue` `onMounted` alongside `useSync().connect()`.
+> `composables/usePermissions.ts` (new) exposes `can(card, "check"|"edit")` and
+> `isOwner(card)` over the `view<check<edit<owner` ladder, reading
+> `card.my_permission` (defaults to `view` when absent so a missing field never
+> unlocks an action). `useSync` now handles `share_added`/`share_removed`
+> (re-`refresh(clId)` so `my_permission` re-gates) with `share_invited` /
+> `notification` left as documented no-ops until F5/F6 ship their stores.
 
 ### F0.1 — Current-user store
 There is **no** current-user state today (only `login.vue` calls `/api/auth/list`). Add
@@ -162,9 +173,27 @@ In `composables/useSync.ts::handle`, add cases:
 
 ---
 
-## Phase F1 — Permission-aware card UI gating — 📋 PLANNED
+## Phase F1 — Permission-aware card UI gating — ✅ DONE
 **Goal:** a `view`/`check` collaborator (or anonymous viewer) sees the card but cannot perform
 actions above their level. Driven entirely by `card.my_permission` (P0.1) via `usePermissions`.
+
+> **Shipped:** item checkbox gated on `check`; item text + add-new + item drag
+> handle, card name/notes, and the footer **Color** button gated on `edit` (all
+> via `usePermissions`, with the relevant store-write paths also guarded so a
+> stale UI can't bypass the disable). Per-user controls (archive, labels,
+> MoreOptions/separate-checked, card drag) intentionally left ungated. The Share
+> button is untouched (its dialog is permission-scoped in F2).
+>
+> **Tests:** `tests/e2e/sharing-gating.spec.ts` (new) — admin shares a card with
+> `testuser01` via API at `view` then `edit`; asserts the collaborator's editor
+> is read-only at `view` (checkbox + textarea disabled, no add-new) and fully
+> editable at `edit`. Both pass. Notes for future test authors: Nuxt UI renders
+> `<button role="checkbox">` which **`getByRole('checkbox')` does not match** —
+> use the CSS selector `[role="checkbox"]`. Also, the card-editor modal opens as
+> **two** `[role="dialog"]` roots (a **pre-existing** flake — `checklist.spec` /
+> `item-movement.spec` / `sync.spec` hit the same strict-mode clash on a clean
+> tree, unrelated to sharing); scope to `[role="dialog"]:has(.checklist)` and
+> avoid re-`goto("/")` after login.
 
 Audit and gate (disable + hide-on-no-permission, with a tooltip "read-only"/"view only"):
 - **Item checkbox** (`components/CheckListItem.vue`): toggling requires `check`. Disable for `view`.
@@ -185,9 +214,63 @@ still work; as `edit` → everything but share-management/transfer works.
 
 ---
 
-## Phase F2 — Share-management dialog (backend Phases 3, 4, 10) — 📋 PLANNED
+## Phase F2 — Share-management dialog (backend Phases 3, 4, 10) — ✅ DONE
 **Goal:** wire the currently-stubbed `Button/Share.vue` (`console.log("NOT IMPLEMENTED")`) to a
 real dialog. Owner-only management; collaborators get a reduced view.
+
+> **Shipped:**
+> - **`stores/publicConfig.ts` (new)** — fetches the unauthenticated
+>   `GET /api/public-config` **once** (loaded in `pages/index.vue` `onMounted`
+>   alongside `fetchMe()`/`connect()`) and exposes `sharingEnabled` /
+>   `publicLinksEnabled` / `userSearchEnabled` / `requireInviteAccept` getters
+>   (all default `false` until loaded, so no button flashes before the flags
+>   arrive).
+> - **`stores/share.ts` (new)** — keyed by checklist id: `listShares`,
+>   `upsertShare`, `revokeShare` (also self = leave), `transferOwnership`,
+>   `searchUsers` (2-char min; callers debounce), `listMyGroups` (cached),
+>   `shareWithGroup` (re-reads the list after). Plus `setOpen`/`refreshIfOpen`
+>   so `useSync` can live-refresh the open dialog's list on
+>   `share_added`/`share_removed`. `types/index.ts` gained
+>   `TransferOwnershipResultType`.
+> - **`components/ShareModal/*` (new)** — entry `ShareModal.vue` (auto-import
+>   name `ShareModal` via Nuxt prefix-dedupe) opened from `Button/Share.vue` via
+>   `useOverlay()`. Owner view: `AddPeople` (gated on `userSearchEnabled`),
+>   `PeopleList` (editable — level `USelect` + revoke + status badge; synthetic
+>   "you (Owner)" row since the backend list excludes the owner). **`GET /shares`
+>   is owner-only (403 for collaborators)**, so the modal only calls `listShares`
+>   when `my_permission === "owner"` (incl. the `useSync` `refreshIfOpen` guard,
+>   and the transfer flow does **not** re-list after demoting the caller). The
+>   non-owner view therefore shows a plain "you're a collaborator with X access"
+>   notice + Leave list, not a (non-fetchable) collaborator list. This matters
+>   because `plugins/api.ts` toasts **every** non-2xx, so a stray owner-only call
+>   from a non-owner surfaces a visible "Error 403" toast.
+>   `ShareWithGroup` (only when `listMyGroups()` non-empty; toasts the
+>   added/skipped/total summary), `PublicLinks` (**F3 stub**, gated on
+>   `publicLinksEnabled`), `TransferOwnership` (inline confirm → refreshes the
+>   card so `my_permission` flips to `edit` and the dialog swaps to the
+>   collaborator view). Non-owner view: read-only `PeopleList` + a prominent
+>   **Leave list** button (`revokeShare(clId, myId)` → backend pins
+>   `checklist_deleted`, `useSync` drops the card, modal closes).
+> - **Feature-gating:** the footer Share button is hidden entirely when
+>   `sharing_enabled` is false; the user-search section is hidden when
+>   `sharing_user_search_enabled` is false (group share / public links still
+>   render).
+> - **`useSync`** now also calls `shareStore.refreshIfOpen(clId)` on
+>   `share_added`/`share_removed` to live-refresh the open collaborator list.
+> - **Tests:** `tests/e2e/sharing-modal.spec.ts` (new, 4 tests, all green) —
+>   owner adds + revokes a collaborator through the dialog; owner transfers
+>   ownership and is demoted to a collaborator **without an Error-4xx toast**
+>   (regression test for the owner-only `GET /shares` 403); non-owner gets the
+>   read-only view (no Add-people search) and Leave-list removes the card from
+>   their grid. The footer renders on the grid *preview* card, so the dialog is
+>   driven straight from the board (no card-editor open → sidesteps the
+>   double-`[role=dialog]` flake). Gotcha for future authors: `testuser01` has a
+>   `display_name` ("Test User 01"), so collaborator rows render that, **not** the
+>   username — filter rows by display name. Also: run the suite with the **local**
+>   `@playwright/test` CLI (`bun node_modules/@playwright/test/cli.js test …`);
+>   a bare `bunx playwright` can resolve a cached standalone `playwright` package
+>   of a *different* version and trip its "two different versions" guard at
+>   collection time.
 
 ### Store: `stores/share.ts`
 Keyed by checklist id. Actions:
@@ -370,7 +453,7 @@ page — the largest, most isolated piece) → **F5** (notifications) → **F6**
 | Backend prereq ✅ | `model/checklist.py` (+ fields), `api/access.py` (`attach_my_permission`), `db/checklist_collaborator.py` (`permissions_for_user_by_checklist`), routes `routes_checklist.py` / `routes_checklist_share.py` / `routes_checklist_public.py` (attach call); `routes_public_config.py` (new `GET /public-config`) + `routers_map.py`; tests `tests/tests_sharing_prereqs.py` (+ `tests_sharing_invites.py`); regenerated `openapi.json` |
 | Foundations | `types/index.ts` (extend), `stores/user.ts` (new), `composables/usePermissions.ts` (new), `composables/useSync.ts` (extend) |
 | Gating | `CheckListItem.vue`, `CheckListItemCollection/AddNewButton.vue`, `CheckListEditModal.vue`, footer buttons |
-| Share dialog | `stores/share.ts` (new), `components/ShareModal/*` (new), `components/CheckListFooter/Button/Share.vue` (wire up) |
+| Share dialog ✅ | `stores/share.ts` (new), `stores/publicConfig.ts` (new), `components/ShareModal/*` (new), `components/CheckListFooter/Button/Share.vue` (wire up), `composables/useSync.ts` (refreshIfOpen), `pages/index.vue` (load config), `types/index.ts` (TransferOwnershipResultType); tests `tests/e2e/sharing-modal.spec.ts` |
 | Public links | `components/ShareModal/PublicLinks.vue` (new), share store additions |
 | Public viewer | `pages/p/[token].vue` (new), anonymous-sync handling, `plugins/api.ts` (guard 401 redirect on `/p/`) |
 | Notifications | `stores/notification.ts` (new), `components/NotificationBell.vue` (new), `Navbar.vue` (mount it) |

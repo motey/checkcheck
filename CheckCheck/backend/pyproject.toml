@@ -14,10 +14,19 @@ classifiers = [
 dependencies = [
     "uvicorn",
     "oauthlib",
-    "fastapi",
+    # Pin <0.119: 0.119.0 added a set-comprehension over field annotations in
+    # get_definitions() that hashes Annotated metadata. SQLModel's
+    # FieldInfoMetadata (a non-frozen, unhashable dataclass) lands in that
+    # metadata, so openapi generation crashes with
+    # "TypeError: unhashable type: 'FieldInfoMetadata'". Lift once SQLModel
+    # ships a hashable FieldInfoMetadata.
+    "fastapi<0.119",
     "starlette",
     "python-jose[cryptography]",
-    "passlib[bcrypt]",
+    # pwdlib replaces the unmaintained passlib (last release 2020, incompatible
+    # with bcrypt 5). Passwords/passphrases are hashed with argon2; API tokens
+    # use SHA-256 (see model/_hashing.py).
+    "pwdlib[argon2]",
     "Authlib",
     "httpx",
     "sqlmodel",

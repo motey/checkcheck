@@ -6,7 +6,6 @@ import enum
 import uuid
 from pydantic import SecretStr
 from sqlmodel import Field, Column, Enum, UniqueConstraint
-from passlib.context import CryptContext
 import secrets
 import datetime
 

@@ -22,6 +22,8 @@ import { CheckListEditModal, LabelManagerModal } from "#components";
 import { useSync } from "~/composables/useSync";
 import { useAppRoute } from "~/composables/useAppRoute";
 import { useCheckListsStore } from "@/stores/checklist";
+import { useUserStore } from "@/stores/user";
+import { usePublicConfigStore } from "@/stores/publicConfig";
 
 // This page also responds to `/card/<cardId>` (see alias below). The board and
 // the modals stay mounted across that path change, so an opened card is just a
@@ -34,7 +36,15 @@ const sidebarCollapsed = ref(false);
 const mobileNavOpen = ref(false);
 
 const { connect, disconnect } = useSync();
-onMounted(connect);
+const userStore = useUserStore();
+const publicConfigStore = usePublicConfigStore();
+onMounted(() => {
+  // Load the current user once; needed by the permission/share/notification UI.
+  userStore.fetchMe();
+  // Load server feature flags once; gates the sharing UI (P0.2).
+  publicConfigStore.fetch();
+  connect();
+});
 onUnmounted(disconnect);
 
 const { cardId, editLabels, closeCard, closeLabelEditor } = useAppRoute();

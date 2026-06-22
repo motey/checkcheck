@@ -9,11 +9,6 @@ from fastapi.logger import logger
 APP_LOGGER_DEFAULT_NAME = "CheckCheck"
 
 
-# suppress "AttributeError: module 'bcrypt' has no attribute '__about__'"-warning
-# https://github.com/pyca/bcrypt/issues/684
-logging.getLogger("passlib").setLevel(logging.ERROR)
-
-
 def get_loglevel():
     return os.getenv("LOG_LEVEL", config.LOG_LEVEL)
 

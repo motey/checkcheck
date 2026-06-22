@@ -3,7 +3,7 @@
 #
 # Prerequisites (one-time):
 #   source build_server_dev_env.sh   # activates the backend Python venv
-#   cd CheckCheck/frontend && bun install && bunx playwright install chromium
+#   cd CheckCheck/frontend && bun install && bun run test:e2e:install
 #
 # Usage:
 #   ./run_e2e_tests.sh                     # headless, all tests
@@ -25,6 +25,38 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 FRONTEND_DIR="$SCRIPT_DIR/CheckCheck/frontend"
 
 #######################################
+# Preflight: Playwright version consistency
+#
+# ALWAYS invoke Playwright via `bun run test:e2e` (the package script resolves
+# the LOCAL node_modules/.bin/playwright, i.e. @playwright/test's CLI). NEVER use
+# a bare `bunx playwright …`: bunx can resolve a *cached standalone* `playwright`
+# package of a different version than the installed `@playwright/test`, and the
+# mismatch trips Playwright's "two different versions / test.afterEach() not
+# expected here" guard at COLLECTION time — 0 tests found, every spec errors on
+# its top-level afterEach. This preflight fails fast with a clear message if the
+# CLI the runner will use doesn't match the installed package.
+#######################################
+preflight_playwright() {
+  local pkg="$FRONTEND_DIR/node_modules/@playwright/test/package.json"
+  if [[ ! -f "$pkg" ]]; then
+    echo "❌  @playwright/test is not installed."
+    echo "    Run: cd CheckCheck/frontend && bun install && bun run test:e2e -- --version"
+    exit 1
+  fi
+  local installed cli
+  installed=$(sed -nE 's/.*"version"[[:space:]]*:[[:space:]]*"([0-9]+\.[0-9]+\.[0-9]+)".*/\1/p' "$pkg" | head -1)
+  cli=$(cd "$FRONTEND_DIR" && bun run --silent test:e2e:version 2>/dev/null \
+        | sed -nE 's/.*([0-9]+\.[0-9]+\.[0-9]+).*/\1/p' | head -1) || true
+  if [[ -n "$cli" && -n "$installed" && "$cli" != "$installed" ]]; then
+    echo "❌  Playwright CLI version ($cli) != installed @playwright/test ($installed)."
+    echo "    This breaks test collection (see comment in $(basename "$0"))."
+    echo "    Fix: cd CheckCheck/frontend && bun install"
+    exit 1
+  fi
+}
+preflight_playwright
+
+#######################################
 # --pick: interactive test selector
 #######################################
 if [[ "${1:-}" == "--pick" ]]; then
@@ -38,7 +70,8 @@ if [[ "${1:-}" == "--pick" ]]; then
   fi
 
   echo "▶  Fetching test list…"
-  RAW=$(cd "$FRONTEND_DIR" && bunx playwright test --list 2>&1 | grep "›") || true
+  # Use the local CLI via `bun run` (never bare `bunx playwright` — see preflight).
+  RAW=$(cd "$FRONTEND_DIR" && bun run --silent test:e2e --list 2>&1 | grep "›") || true
 
   if [[ -z "$RAW" ]]; then
     echo "❌  No tests found. Is the Python venv active?"
@@ -88,7 +121,7 @@ if [[ "${1:-}" == "--pick" ]]; then
   e2e_exit=$?
   echo ""
   echo "To open the HTML report, run:"
-  echo "  cd CheckCheck/frontend && bunx playwright show-report"
+  echo "  cd CheckCheck/frontend && bun run test:e2e:report"
   exit $e2e_exit
 fi
 
@@ -100,5 +133,5 @@ bun run test:e2e "$@"
 e2e_exit=$?
 echo ""
 echo "To open the HTML report, run:"
-echo "  cd CheckCheck/frontend && bunx playwright show-report"
+echo "  cd CheckCheck/frontend && bun run test:e2e:report"
 exit $e2e_exit

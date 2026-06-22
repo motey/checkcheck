@@ -13,6 +13,7 @@
       variant="none"
       :rows="0"
       :padded="false"
+      :disabled="!canEdit"
       placeholder="Enter a checklist title..."
       v-model="localName"
       class="flex-initial w-full grow pl-1 text-2xl font-semibold"
@@ -28,6 +29,7 @@
       variant="none"
       :rows="0"
       :padded="false"
+      :disabled="!canEdit"
       placeholder="Enter some notes..."
       v-model="localText"
       class="w-full flex-none pl-1"
@@ -94,6 +96,10 @@ if (props.previewModeActive) {
 // replaces it (e.g. splice in refresh()), the component becomes stale.
 const checkList = computed(() => checkListsStore.get(props.checkListId));
 
+// Editing the card name/notes requires edit access (P0.1 / usePermissions).
+const { can } = usePermissions();
+const canEdit = computed(() => can(checkList.value, "edit"));
+
 const textColor = computed(() => {
   const { color } = checkList.value!;
   const isDarkModeEnabled = colorMode.value === "dark";
@@ -140,7 +146,7 @@ watch(() => checkList.value?.text, (t) => { if (!textFocused.value) localText.va
 
 const debouncedUpdateCheckListText = useDebounceFn(
   (updatedAttrName: string, updatedAttrVal: string) => {
-    if (!checkList.value) return;
+    if (!checkList.value || !canEdit.value) return;
     (async () => {
       await checkListsStore.update(checkList.value!.id, { [updatedAttrName]: updatedAttrVal });
     })();

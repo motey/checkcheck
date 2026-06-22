@@ -11,7 +11,6 @@ import enum
 import uuid
 from pydantic import BaseModel, ConfigDict, SecretStr
 from sqlmodel import Field, Column, Enum, UniqueConstraint, CheckConstraint
-from passlib.context import CryptContext
 import secrets
 import datetime
 
@@ -19,17 +18,12 @@ import datetime
 from checkcheckserver.config import Config
 from checkcheckserver.log import get_logger
 from checkcheckserver.model._base_model import TimestampedModel, BaseTable
+from checkcheckserver.model import _hashing
 from checkcheckserver.model.user import User
 
 
 log = get_logger()
 config = Config()
-
-# Passwords benefit from slow hashing algorithms like bcrypt or argon2 to resist brute-force attacks.
-crypt_context_pwd = CryptContext(schemes=["bcrypt"], deprecated="auto")
-
-# API keys, being long and random, don't need slow hashing—so faster algorithms like sha256_crypt or pbkdf2_sha256 may be sufficient and more efficient.
-crypt_context_api_token = CryptContext(schemes=["pbkdf2_sha256"], deprecated="auto")
 
 
 def _generate_fernet_key(input_str: str) -> bytes:
@@ -160,7 +154,12 @@ class UserAuth(_UserAuthBase, TimestampedModel, table=True):
     )
     salt: str = Field(
         default_factory=lambda: secrets.token_hex(8),
-        description="Salt for hashing basic passwords and api tokens",
+        description=(
+            "Legacy per-row salt. No longer used for hashing — argon2 (passwords) "
+            "salts internally and API tokens are high-entropy. Retained as a "
+            "NOT NULL column so existing databases keep accepting inserts; safe "
+            "to drop in a future migration."
+        ),
     )
     oidc_token_encrypted: Optional[str] = Field(default=None)
     last_used_at: Optional[datetime.datetime] = Field(
@@ -199,23 +198,13 @@ class UserAuth(_UserAuthBase, TimestampedModel, table=True):
         pw = password_unencrypted
         if isinstance(pw, SecretStr):
             pw = password_unencrypted.get_secret_value()
-        self.basic_password_hashed = crypt_context_pwd.hash(
-            self.add_salt(
-                pw,
-                self.salt,
-            )
-        )
+        self.basic_password_hashed = _hashing.hash_password(pw)
 
     def set_api_token(self, token_unencrypted: str | SecretStr):
         token = token_unencrypted
         if isinstance(token, SecretStr):
             token = token_unencrypted.get_secret_value()
-        self.api_token_hashed = crypt_context_api_token.hash(
-            self.add_salt(
-                token,
-                self.salt,
-            )
-        )
+        self.api_token_hashed = _hashing.hash_api_token(token)
 
     def verify_password(
         self, password: SecretStr | str, raise_exception_if_wrong: Exception = None
@@ -223,8 +212,7 @@ class UserAuth(_UserAuthBase, TimestampedModel, table=True):
         pw = password
         if isinstance(password, SecretStr):
             pw = password.get_secret_value()
-        pw = self.add_salt(pw, self.salt)
-        password_correct = crypt_context_pwd.verify(pw, self.basic_password_hashed)
+        password_correct = _hashing.verify_password(pw, self.basic_password_hashed)
         if not password_correct and raise_exception_if_wrong:
             raise raise_exception_if_wrong
         return password_correct
@@ -243,8 +231,7 @@ class UserAuth(_UserAuthBase, TimestampedModel, table=True):
         log.debug(f"TOKEN {token}")
         if "." in token:
             token = token.split(".", maxsplit=1)[1]  # remove the token id
-        token = self.add_salt(token, self.salt)
-        token_correct = crypt_context_api_token.verify(token, self.api_token_hashed)
+        token_correct = _hashing.verify_api_token(token, self.api_token_hashed)
         if not token_correct and raise_exception_if_wrong:
             log.debug("Token verification failed")
             raise raise_exception_if_wrong
@@ -285,10 +272,6 @@ class UserAuth(_UserAuthBase, TimestampedModel, table=True):
             self.expires_at_epoch_time
             < datetime.datetime.now(tz=datetime.UTC).timestamp() + leeway_sec
         )
-
-    @classmethod
-    def add_salt(cls, pw: str, salt: str):
-        return f"{pw}{salt}"
 
 
 class UserAuthPublic(BaseModel):

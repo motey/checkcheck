@@ -199,6 +199,45 @@ def test_change_own_password_success():
         expected_http_code=401,
     )
 
+def test_change_to_long_password():
+    """Regression: a password longer than bcrypt's 72-byte limit used to crash
+    hashing (passlib/bcrypt). With argon2 it must hash, log in, and verify."""
+    long_pw = "L0ng-" + ("x" * 200)  # well over 72 bytes
+    with _AsUser(AUTH_TEST_USER_NAME, AUTH_TEST_USER_PW):
+        req(
+            "api/user/me/password",
+            "put",
+            f={
+                "old_password": AUTH_TEST_USER_PW,
+                "new_password": long_pw,
+                "new_password_repeated": long_pw,
+            },
+        )
+        # The long password must actually authenticate...
+        authorize_for_access_token(AUTH_TEST_USER_NAME, long_pw, set_as_global_default_login=True)
+        me = req("api/user/me")
+        assert me["user_name"] == AUTH_TEST_USER_NAME
+
+        # ...and a 72-byte truncation of it must NOT (proves no silent truncation).
+        req(
+            "api/auth/basic/login/token",
+            "post",
+            f={"username": AUTH_TEST_USER_NAME, "password": long_pw[:72]},
+            suppress_auth=True,
+            expected_http_code=401,
+        )
+
+        # Reset back so later tests keep using AUTH_TEST_USER_PW.
+        req(
+            "api/user/me/password",
+            "put",
+            f={
+                "old_password": long_pw,
+                "new_password": AUTH_TEST_USER_PW,
+                "new_password_repeated": AUTH_TEST_USER_PW,
+            },
+        )
+
 # ── API key management ────────────────────────────────────────────────────────
 
 def test_api_key_create():

@@ -37,12 +37,30 @@ declare global {
 
     // ChecklistColorScheme
     type ChecklistColorSchemeType = components["schemas"]["ChecklistColorScheme"]
-    
+
+    // Sharing (backend Phases 3–10)
+    type ShareReadType = components["schemas"]["ShareRead"]
+    type ShareUpsertType = components["schemas"]["ShareUpsertRequest"]
+    type SharePermission = components["schemas"]["SharePermission"]      // "view"|"check"|"edit"
+    type ShareStatus = components["schemas"]["ShareStatus"]              // pending|accepted|declined
+    type PublicLinkReadType = components["schemas"]["PublicLinkRead"]
+    type PublicLinkCreateRes = components["schemas"]["PublicLinkCreateResult"]  // carries token ONCE
+    type PublicLinkCreateReq = components["schemas"]["PublicLinkCreateRequest"]
+    type PublicLinkUpdateReq = components["schemas"]["PublicLinkUpdateRequest"]
+    type GroupShareResult = components["schemas"]["GroupShareResult"]
+    type TransferOwnershipResultType = components["schemas"]["TransferOwnershipResult"]
+    type InviteReadType = components["schemas"]["InviteRead"]
+    type NotificationReadType = components["schemas"]["NotificationRead"]
+    type UserSearchResult = components["schemas"]["UserSearchResult"]
+    type UserType = components["schemas"]["User"]
+    type PublicConfigType = components["schemas"]["PublicConfig"]        // P0.2 feature flags
+
     // Sync
     type SyncNotificationUpdateProp =
         | "item_state" | "item_text" | "item_position" | "item_created" | "item_deleted"
         | "checklist" | "checklist_position" | "checklist_created" | "checklist_deleted"
         | "checklist_label"
+        | "share_added" | "share_removed" | "share_invited" | "notification"
     type SyncNotificationType = {
         timestamp: number
         cl_id: string

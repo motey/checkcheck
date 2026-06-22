@@ -1,10 +1,12 @@
 import { createSharedComposable, useDebounceFn } from "@vueuse/core";
 import { useCheckListsStore } from "@/stores/checklist";
 import { useCheckListsItemStore } from "@/stores/checklist_item";
+import { useShareStore } from "@/stores/share";
 
 export const useSync = createSharedComposable(() => {
   const checkListStore = useCheckListsStore();
   const checkListItemStore = useCheckListsItemStore();
+  const shareStore = useShareStore();
 
   // Collapse bursts of item-level notifications (e.g. rapid moves) into a
   // single refresh per checklist.  One debouncer is created per checklist id
@@ -134,6 +136,30 @@ export const useSync = createSharedComposable(() => {
       case "checklist_label":
       case "checklist_position":
         checkListStore.refresh(clId);
+        break;
+
+      // ── Sharing ────────────────────────────────────────────────────────
+
+      case "share_added":
+      case "share_removed":
+        // The card's collaborator set changed, which may have changed *our*
+        // effective permission. Re-read the card we already hold so
+        // `my_permission` re-gates the UI immediately (the open ShareModal, once
+        // it exists in F2, refreshes its own collaborator list off the same
+        // event). A collaborator who was just added/removed gets a separate
+        // `checklist_created` / `checklist_deleted` instead.
+        if (checkListStore.get(clId)) checkListStore.refresh(clId);
+        // If the ShareModal is open for this card, re-read its collaborator list.
+        shareStore.refreshIfOpen(clId);
+        break;
+
+      case "share_invited":
+        // F6: bump the invite store (`inviteStore.refresh()`) once it exists.
+        break;
+
+      case "notification":
+        // F5: bump the notification store (`notificationStore.refreshUnread()`)
+        // once it exists.
         break;
     }
   }

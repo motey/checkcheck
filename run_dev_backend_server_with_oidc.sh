@@ -4,6 +4,13 @@
 
 #exit on error
 set -e
+
+# Make every `pdm run` below use the project's own venv ($BACKEND_DIR/.venv)
+# rather than reusing whatever virtualenv is active in the caller's shell.
+# Otherwise pdm may run against an interpreter that lacks the installed deps
+# (e.g. oidc_provider_mock), which surfaces as a ModuleNotFoundError on boot.
+export PDM_IGNORE_ACTIVE_VENV=1
+
 # Store process IDs
 PIDS=()
 

@@ -7,7 +7,7 @@
 # Prerequisites:
 #   - Docker installed and daemon running
 #   - Backend venv set up: source build_server_dev_env.sh
-#   - Playwright browsers installed: cd CheckCheck/frontend && bunx playwright install chromium
+#   - Playwright browsers installed: cd CheckCheck/frontend && bun run test:e2e:install
 #
 # Usage:
 #   ./run_e2e_tests_postgres.sh              # headless
@@ -85,5 +85,5 @@ bun run test:e2e "$@"
 e2e_exit=$?
 echo ""
 echo "To open the HTML report, run:"
-echo "  cd CheckCheck/frontend && bunx playwright show-report"
+echo "  cd CheckCheck/frontend && bun run test:e2e:report"
 exit $e2e_exit

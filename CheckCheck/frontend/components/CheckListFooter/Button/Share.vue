@@ -1,21 +1,21 @@
 <template>
-  <UTooltip text="Collaborate" :popper="{ arrow: true }">
+  <UTooltip v-if="publicConfig.sharingEnabled" text="Collaborate" :popper="{ arrow: true }">
     <CheckListColoredButton
         variant="ghost"
         :padded="false"
         icon="i-lucide-users"
+        data-testid="share-button"
         :checkListId="checkListId"
-        @click.stop="shareDialog()"
+        @click.stop="openShareDialog()"
       />
   </UTooltip>
 </template>
 
 <script setup lang="ts">
-const runtimeConfig = useRuntimeConfig();
-const appConfig = useAppConfig();
-import { useCheckListsStore } from "@/stores/checklist";
+import { ShareModal } from "#components";
+import { usePublicConfigStore } from "@/stores/publicConfig";
 
-const checkListsStore = useCheckListsStore();
+const publicConfig = usePublicConfigStore();
 
 const props = defineProps({
   checkListId: {
@@ -24,10 +24,11 @@ const props = defineProps({
   },
 });
 
-function shareDialog() {
-  (async () => {
-    console.log("NOT IMPLEMENTED")
-  })();
+const overlay = useOverlay();
+const shareModal = overlay.create(ShareModal);
+
+function openShareDialog() {
+  shareModal.open({ checkListId: props.checkListId });
 }
 </script>
 

@@ -1,12 +1,12 @@
 <template>
   <UContainer class="flex mb-0 grow break-after-column" @mouseover="hover = true" @mouseleave="hover = false">
     <div class="flex-none">
-      <span :class="{ nonActive: !hover }" class="list-item-drag-handle" title="Drag to reorder" :id="checkListItem!.id" v-if="parentEditMode">
+      <span :class="{ nonActive: !hover }" class="list-item-drag-handle" title="Drag to reorder" :id="checkListItem!.id" v-if="parentEditMode && canEdit">
         <UIcon  name="i-mdi-drag" class="w-6 h-6 cursor-row-resize" />
       </span>
     </div>
-    <div class="flex-none w-4">
-      <UCheckbox v-model="checkListItem!.state.checked" @click.stop="toggleCheck()" size="xl"  />
+    <div class="flex-none w-4" :title="canCheck ? undefined : 'View only'">
+      <UCheckbox v-model="checkListItem!.state.checked" :disabled="!canCheck" @click.stop="toggleCheck()" size="xl"  />
     </div>
     <div v-if="!parentEditMode" :class="[' pl-2', { 'line-clamp-3': !parentEditMode, 'strikethrough': checkListItem?.state.checked }]" class=""
       v-html="highlightText(checkListItem!.text, searchQuery)" />
@@ -19,6 +19,7 @@
       autoresize
       :rows="1"
       :padded="false"
+      :disabled="!canEdit"
       :style="{ color: textColor }"
       class="w-full grow pl-2 cursor-auto m-0"
       :class="{ strikethrough: checkListItem?.state.checked }"
@@ -58,7 +59,14 @@ const checkListsItemStore = useCheckListsItemStore();
 const route = useRoute();
 const searchQuery = computed(() => (route.query.search as string) || null);
 const emit = defineEmits(["checkedItem"]);
+
+// Permission gating — driven by the parent card's my_permission (P0.1).
+const { can } = usePermissions();
+const canCheck = computed(() => can(props.parentCheckList, "check"));
+const canEdit = computed(() => can(props.parentCheckList, "edit"));
+
 function toggleCheck() {
+  if (!canCheck.value) return;
   (async () => {
     await checkListsItemStore.updateState(props.parentCheckList.id, props.checkListItem!.id, {
       checked: !props.checkListItem!.state.checked,
@@ -85,7 +93,7 @@ watch(
 
 const debouncedUpdateCheckListItemText = useDebounceFn(
   (val: string) => {
-    if (!props.checkListItem) return;
+    if (!props.checkListItem || !canEdit.value) return;
     (async () => {
       await checkListsItemStore.update(props.parentCheckList.id, props.checkListItem!.id, { text: val } as CheckListUpdateType);
     })();
