@@ -3,12 +3,14 @@ import { useCheckListsStore } from "@/stores/checklist";
 import { useCheckListsItemStore } from "@/stores/checklist_item";
 import { useShareStore } from "@/stores/share";
 import { useNotificationStore } from "@/stores/notification";
+import { useInviteStore } from "@/stores/invite";
 
 export const useSync = createSharedComposable(() => {
   const checkListStore = useCheckListsStore();
   const checkListItemStore = useCheckListsItemStore();
   const shareStore = useShareStore();
   const notificationStore = useNotificationStore();
+  const inviteStore = useInviteStore();
 
   // Collapse bursts of item-level notifications (e.g. rapid moves) into a
   // single refresh per checklist.  One debouncer is created per checklist id
@@ -156,7 +158,12 @@ export const useSync = createSharedComposable(() => {
         break;
 
       case "share_invited":
-        // F6: bump the invite store (`inviteStore.refresh()`) once it exists.
+        // A card was shared with this user in invite mode (it lands as a pending
+        // invite they must accept/decline rather than appearing in their grid).
+        // Re-read the inbox so the bell's Invites section updates live. NOTE:
+        // authed board SSE only — the anonymous /p/<token> viewer never reaches
+        // here (it uses usePublicCard's own EventSource).
+        inviteStore.refresh();
         break;
 
       case "notification":

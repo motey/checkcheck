@@ -557,9 +557,73 @@ link opened).
 
 ---
 
-## Phase F6 — Invite inbox (backend Phase 8) — 📋 PLANNED
+## Phase F6 — Invite inbox (backend Phase 8) — ✅ DONE
 **Goal:** when the server runs in invite mode (`SHARING_REQUIRE_INVITE_ACCEPT`), a user can
 accept/decline cards shared with them. (When off, the inbox is always empty — harmless.)
+
+> **Shipped:**
+> - **`stores/invite.ts` (new)** — mirrors the established store idiom
+>   (`const { $checkapi } = useNuxtApp()`, path/body, try/catch + console.error,
+>   reconcile in place). State: `pending: InviteReadType[]`. `refresh()` (GET
+>   `/api/user/me/invites`). `accept(clId)` → POST `…/invites/accept` returns the
+>   full card (`CheckListApiWithSubObj`); rather than a redundant GET it reconciles
+>   the **returned** card into the checklist store (push-if-absent + bump
+>   `total_backend_count`, else splice), fetches its item preview
+>   (`fetchMultipleChecklistsItemsPreview([id])`) so it lands in the grid, then
+>   drops it from `pending` — reusing useSync's `checklist_created` path's effect
+>   without the extra round-trip. The `share_added` SSE the backend fires alongside
+>   accept just re-reads the now-present card (harmless → no double count).
+>   `decline(clId)` → POST `…/invites/decline` (204) → drop from `pending`. A
+>   private `drop(clId)` helper removes a row by `checklist_id`.
+> - **`composables/useSync.ts`** — the `share_invited` case (was a documented
+>   no-op) now calls `inviteStore.refresh()` so the inbox updates live when a card
+>   is shared in invite mode. Imported the store like `useNotificationStore`.
+>   Authed board SSE only — the anon `/p/<token>` viewer never reaches here.
+> - **`components/InviteInbox.vue` (new)** — fills the `#invites` slot seam F5
+>   left in `NotificationBell.vue` (rendered directly where the slot was; the
+>   popover's `#content` is lazy, so the seam component can't fetch on its own
+>   mount — see below). A clearly separated **Invites** region above the feed:
+>   each row shows inviter (defensive `display_name → user_name → "Someone"`) +
+>   list name (`"name"` or "a list" when null) + a permission badge + relative
+>   time, with inline **Accept** / **Decline** buttons. A `busy` ref disables all
+>   buttons + shows the active row's spinner so a double-click can't fire two
+>   calls; on success the store drops the row (reconcile-in-place). Renders
+>   **nothing** when `pending.length === 0` (the common case — invites only exist
+>   in invite mode), so the badge isn't double-counted (the `card_invited`
+>   notification already drives the bell's `unreadCount`).
+> - **`components/NotificationBell.vue`** — replaced the `#invites` slot with
+>   `<InviteInbox />` and added `inviteStore.refresh()` to the existing
+>   `onMounted` (gated on `sharingEnabled`, alongside `refreshUnread()`). The
+>   refresh **must** live here, not in `InviteInbox`: `UPopover`'s `#content` is
+>   rendered lazily (only when open), so a child's `onMounted` wouldn't fire until
+>   the dropdown is first opened — fetching up front keeps the Invites section
+>   ready the instant it opens. An empty list is cheap + correct when the flag is
+>   off (the plan's "always-call" simplicity).
+> - **E2E invite-mode harness (the gated second pass):** the default E2E backend
+>   boots with `SHARING_REQUIRE_INVITE_ACCEPT` **off**, where a share is accepted
+>   instantly and **no** pending invite exists — so accept/decline can't be
+>   exercised by the default run. `e2e/start_e2e_server.py` already lets the
+>   caller's env win (it never sets the flag, and `spawn` inherits `process.env`),
+>   so the invite-flow pass — mirroring the backend's second pytest pass — is:
+>   `SHARING_REQUIRE_INVITE_ACCEPT=1 ./run_e2e_tests.sh invites` (the `invites`
+>   filename filter limits the run to the new spec so the other specs don't run in
+>   the wrong mode). Added an explicit log line in `start_e2e_server.py` so the
+>   invite-mode pass is visible/intentional.
+> - **Tests:** `tests/e2e/invites.spec.ts` (new, 2 tests). A describe-level
+>   `test.skip(!process.env.SHARING_REQUIRE_INVITE_ACCEPT, …)` makes the **default**
+>   full run skip the file cleanly (verified: `2 skipped` instead of failing).
+>   With the flag on (verified: `2 passed`): (1) admin shares a card with
+>   testuser01 → the `share_invited` SSE bumps the inbox live → the Invites row
+>   appears, the card is asserted **absent** from the grid while pending, **Accept**
+>   makes the card appear in the grid and removes the row; (2) **Decline** removes
+>   the row, the card **never** enters the grid, and the owner's `GET …/shares`
+>   shows a `status: "declined"` row. Both assert **`Error 4xx` toast count is 0**
+>   (the F2–F5 lesson — `plugins/api.ts` toasts every non-2xx). Second user is
+>   `testuser01` in a fresh `browser.newContext()`; every page is navigated to
+>   `about:blank` in `afterEach` (live SSE blocks teardown). Restored
+>   `CheckCheck/openapi.json` after the run (the e2e server rewrites it on boot).
+>   Typecheck clean apart from the 2 pre-existing errors (`nuxt.config.ts:77`,
+>   `stores/color.ts:29`).
 
 ### Store: `stores/invite.ts`
 - `pending: InviteReadType[]`, `refresh()` → `GET /api/user/me/invites`.
@@ -617,7 +681,7 @@ page — the largest, most isolated piece) → **F5** (notifications) → **F6**
 | Public links ✅ | `components/ShareModal/PublicLinks.vue` (fleshed out from stub), `stores/share.ts` (links cache + `linksFor`/`listLinks`/`createLink`/`updateLink`/`deleteLink`); tests `tests/e2e/sharing-public-links.spec.ts` |
 | Public viewer ✅ | `pages/p/[token].vue` (new), `composables/usePublicCard.ts` (new — public data source + anonymous SSE + write actions), `components/PublicChecklistItem.vue` (new — standalone item row), `plugins/api.ts` (skip toast + 401→/login redirect for `/api/public/` requests), `types/index.ts` (`UnlockRequestType`/`UnlockResultType`); tests `tests/e2e/public-viewer.spec.ts` |
 | Notifications ✅ | `stores/notification.ts` (new), `components/NotificationBell.vue` (new — `#invites` slot seam for F6), `components/Navbar.vue` (mount it), `composables/useSync.ts` (wire `notification` case), `types/index.ts` (`NotificationType`/`UnreadCountResultType`); tests `tests/e2e/notifications.spec.ts` |
-| Invites | `stores/invite.ts` (new), invite UI in the bell / `SideMenuNav.vue` |
+| Invites ✅ | `stores/invite.ts` (new), `components/InviteInbox.vue` (new — fills the bell's `#invites` seam), `components/NotificationBell.vue` (render `<InviteInbox/>` + refresh on mount), `composables/useSync.ts` (wire `share_invited` case), `CheckCheck/backend/e2e/start_e2e_server.py` (honour+log `SHARING_REQUIRE_INVITE_ACCEPT` for the gated invite-mode pass); tests `tests/e2e/invites.spec.ts` (env-gated invite-mode pass) |
 | Tests | `CheckCheck/frontend/tests/*` (Playwright) |
 
 ---

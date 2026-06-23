@@ -32,9 +32,10 @@
           </UButton>
         </div>
 
-        <!-- F6 seam: an "Invites" section will slot in here, above the feed,
-             without rewriting the feed below. -->
-        <slot name="invites" />
+        <!-- Invite inbox (F6): a distinct "Invites" section above the feed,
+             accept/decline inline. Renders nothing when there are no pending
+             invites (the common case — invites only exist in invite mode). -->
+        <InviteInbox />
 
         <!-- Feed (newest-first as the backend returns it) -->
         <div class="max-h-[60vh] overflow-y-auto">
@@ -77,10 +78,12 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
 import { useNotificationStore } from "@/stores/notification";
+import { useInviteStore } from "@/stores/invite";
 import { usePublicConfigStore } from "@/stores/publicConfig";
 import { useAppRoute } from "~/composables/useAppRoute";
 
 const store = useNotificationStore();
+const inviteStore = useInviteStore();
 const publicConfig = usePublicConfigStore();
 const { openCard } = useAppRoute();
 
@@ -92,7 +95,14 @@ const badgeText = computed(() => (store.unreadCount > 99 ? "99+" : String(store.
 onMounted(() => {
   // Only meaningful when sharing is on, but the unread-count call is cheap and
   // harmless either way; gate to avoid a needless request when off.
-  if (publicConfig.sharingEnabled) store.refreshUnread();
+  if (publicConfig.sharingEnabled) {
+    store.refreshUnread();
+    // Load the invite inbox up front so the Invites section is ready the moment
+    // the dropdown opens (the #content slot is rendered lazily, so InviteInbox's
+    // own mount can't be relied on to fetch). An empty list is correct + cheap
+    // when the server isn't in invite mode.
+    inviteStore.refresh();
+  }
 });
 
 // Drive the useSync live re-list off the open flag, and load the feed when the

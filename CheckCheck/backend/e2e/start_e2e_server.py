@@ -70,6 +70,21 @@ def _configure_env() -> None:
     os.environ["AUTH_ACCESS_TOKEN_EXPIRES_MINUTES"] = "1000"
     os.environ["LOG_LEVEL"] = "WARNING"
     os.environ["APP_PROVISIONING_DATA_YAML_FILES"] = json.dumps([str(PROVISIONING)])
+    # Invite-mode E2E pass: SHARING_REQUIRE_INVITE_ACCEPT is left untouched here so
+    # the caller's environment wins. The default pass leaves it unset (→ False, the
+    # production default: shares are accepted instantly). The invite-flow pass —
+    # mirroring the backend's second pytest pass — runs:
+    #   SHARING_REQUIRE_INVITE_ACCEPT=1 ./run_e2e_tests.sh invites
+    # which boots this backend in invite mode (a share becomes a pending invite the
+    # target must accept/decline). The `invites` filename filter limits the run to
+    # tests/e2e/invites.spec.ts so the other specs don't run in the wrong mode.
+    if os.environ.get("SHARING_REQUIRE_INVITE_ACCEPT"):
+        print(
+            f"ℹ  SHARING_REQUIRE_INVITE_ACCEPT={os.environ['SHARING_REQUIRE_INVITE_ACCEPT']} "
+            "(invite-mode E2E pass)",
+            file=sys.stderr,
+            flush=True,
+        )
 
 
 def _server_target() -> None:
