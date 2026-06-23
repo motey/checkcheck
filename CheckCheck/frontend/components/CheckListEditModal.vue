@@ -7,7 +7,7 @@
     }"
   >
     <template #content>
-      <div class="relative max-h-[92dvh] overflow-y-auto overflow-x-hidden overscroll-contain">
+      <div class="relative flex flex-col max-h-[92dvh] overflow-hidden overscroll-contain">
         <!-- Explicit close affordance (the editor otherwise fills the modal). -->
         <UButton
           icon="i-lucide-x"

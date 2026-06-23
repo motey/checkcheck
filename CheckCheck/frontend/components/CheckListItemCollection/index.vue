@@ -3,7 +3,9 @@
     <li v-for="item in draggableItems" :key="item.id"
       class="px-0 py-0 sm:px-0 sm:py-0 md:px-0 md:py-0 lg:px-0 lg:py-0">
       <CheckListItem class="px-0 py-0 sm:px-0 sm:py-0 md:px-0 md:py-0 lg:px-0 lg:py-0 text-sm font-light"
-        :parentCheckList="parentCheckList" :checkListItem="item" :parentEditMode="true"></CheckListItem>
+        :ref="(el) => registerItemRef(item.id, el)"
+        :parentCheckList="parentCheckList" :checkListItem="item" :parentEditMode="true"
+        @add-item-after="addItemAfter"></CheckListItem>
     </li>
     <li v-if="filterCheckedItems!=true" class="no-drag px-0 py-0 sm:px-0 sm:py-0 md:px-0 md:py-0 lg:px-0 lg:py-0">
       <CheckListItemCollectionAddNewButton  :parentCheckList="parentCheckList">
@@ -49,6 +51,30 @@ watchEffect(() => {
   const newList = sourceItems.map(item => ({ ...item }));
   checklistItems.value.splice(0, checklistItems.value.length, ...newList);
 });
+
+// Track child item components so we can move focus to a freshly created item.
+const itemComponentRefs = new Map<string, { focusTextarea: () => void }>();
+function registerItemRef(id: string, el: any) {
+  if (el) itemComponentRefs.set(id, el);
+  else itemComponentRefs.delete(id);
+}
+
+// Enter on an item textarea: insert a new item right after it and focus it.
+async function addItemAfter(afterItemId: string) {
+  const list = checkListsItemStore.getCheckListItems(props.parentCheckList.id);
+  const idx = list.findIndex((i) => i.id === afterItemId);
+  if (idx === -1) return;
+  const current = list[idx]!;
+  const next = list[idx + 1];
+  const newIndex = next
+    ? (current.position.index + next.position.index) / 2
+    : current.position.index + 1;
+  const created = await checkListsItemStore.create(props.parentCheckList.id, {
+    position: { index: newIndex },
+  } as CheckListItemCreateType);
+  await nextTick();
+  itemComponentRefs.get(created.id)?.focusTextarea?.();
+}
 
 const [ItemsView, draggableItems] = useDragAndDrop(checklistItems, {
   dragHandle: ".list-item-drag-handle",

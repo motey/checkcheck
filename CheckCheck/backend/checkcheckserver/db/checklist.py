@@ -29,10 +29,12 @@ from checkcheckserver.model.checklist import (
     CheckList,
     CheckListUpdate,
     CheckListCreate,
+    SharedFilter,
 )
 from checkcheckserver.model.checklist_collaborator import (
     CheckListCollaborator,
     CheckListCollaboratorCreate,
+    ShareStatus,
 )
 from checkcheckserver.db._base_crud import create_crud_base
 from checkcheckserver.api.paginator import QueryParamsInterface
@@ -61,11 +63,25 @@ class CheckListCRUD(
         user_id: uuid.UUID,
         join_CheckListPosition: bool = True,
     ):
-        query = query.join(
-            CheckListCollaborator,
-            isouter=True,
-        ).where(
-            or_(CheckList.owner_id == user_id, CheckListCollaborator.user_id == user_id)
+        # Access = owner OR a collaborator row for this user. Expressed as an
+        # EXISTS rather than an (outer) join so a card with several collaborators
+        # does not multiply into one result row per collaborator (which would
+        # duplicate owned-and-shared cards in list() and overcount in count()).
+        # Status is intentionally NOT filtered here — accepted-only gating comes
+        # from the CheckListPosition inner-join below (pending invites have no
+        # position row), so this predicate keeps the historical access semantics.
+        is_collaborator = (
+            select(CheckListCollaborator.checklist_id)
+            .where(
+                and_(
+                    CheckListCollaborator.checklist_id == CheckList.id,
+                    CheckListCollaborator.user_id == user_id,
+                )
+            )
+            .exists()
+        )
+        query = query.where(
+            or_(CheckList.owner_id == user_id, is_collaborator)
         )
         if join_CheckListPosition:
             query = query.join(
@@ -77,17 +93,55 @@ class CheckListCRUD(
             )
         return query
 
+    def _add_shared_filter(
+        self,
+        query: sqlEpression.Select,
+        user_id: uuid.UUID,
+        shared: Optional[SharedFilter],
+    ):
+        """Narrow ``query`` to a sharing relationship. Must be applied on top of
+        ``_add_user_has_access_query`` (which already restricts non-owned rows to
+        the caller's accepted-collaborator rows via the position inner-join)."""
+        if shared is None:
+            return query
+        if shared == SharedFilter.with_me:
+            # Cards owned by someone else; the access query guarantees the caller
+            # is an accepted collaborator on every non-owned row it returns.
+            return query.where(CheckList.owner_id != user_id)
+        # shared == by_me: cards the caller owns that have >=1 accepted
+        # collaborator. EXISTS subquery avoids row multiplication from the join.
+        has_collaborator = (
+            select(CheckListCollaborator.checklist_id)
+            .where(
+                and_(
+                    CheckListCollaborator.checklist_id == CheckList.id,
+                    CheckListCollaborator.status == ShareStatus.accepted,
+                )
+            )
+            .exists()
+        )
+        return query.where(
+            and_(CheckList.owner_id == user_id, has_collaborator)
+        )
+
     async def count(
         self,
         user_id: uuid.UUID,
         archived: Optional[bool] = None,
+        label_id: Optional[uuid.UUID] = None,
         search: Optional[str] = None,
+        shared: Optional[SharedFilter] = None,
     ) -> int:
         query = select(func.count()).select_from(CheckList)
 
         if archived is not None:
             query = query.where(CheckListPosition.archived == archived)
         query = self._add_user_has_access_query(query, user_id)
+        query = self._add_shared_filter(query, user_id, shared)
+        if label_id is not None:
+            query = query.join(CheckListLabel).where(
+                CheckListLabel.label_id == label_id
+            )
         if search is not None:
             needle = f"%{search}%"
             item_match = (
@@ -153,12 +207,14 @@ class CheckListCRUD(
         archived: Optional[bool] = None,
         label_id: Optional[uuid.UUID] = None,
         search: Optional[str] = None,
+        shared: Optional[SharedFilter] = None,
         pagination: QueryParamsInterface = None,
     ) -> List[CheckList | CheckListApiWithSubObj]:
         query = select(CheckList)
         query = self._add_user_has_access_query(
             query, user_id, join_CheckListPosition=True
         )
+        query = self._add_shared_filter(query, user_id, shared)
 
         if archived is not None:
             query = query.where(CheckListPosition.archived == archived)
@@ -185,7 +241,13 @@ class CheckListCRUD(
                     item_match,
                 )
             )
-        query = query.order_by(desc(CheckListPosition.index))
+        # Pinned checklists must come first across pagination so they all reach
+        # the top group in the client. coalesce guards legacy NULL `pinned` rows
+        # (Postgres would otherwise sort NULLs first under desc()).
+        query = query.order_by(
+            desc(func.coalesce(CheckListPosition.pinned, False)),
+            desc(CheckListPosition.index),
+        )
         if pagination:
             query = pagination.append_to_query(query)
         if include_sub_obj:

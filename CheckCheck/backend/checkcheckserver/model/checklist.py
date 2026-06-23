@@ -1,4 +1,5 @@
 from typing import AsyncGenerator, List, Optional, Literal, Sequence, Annotated
+import enum
 from pydantic import (
     validate_email,
     StringConstraints,
@@ -29,6 +30,18 @@ from checkcheckserver.log import get_logger
 
 log = get_logger()
 config = Config()
+
+
+class SharedFilter(str, enum.Enum):
+    """Sharing-based list filter for the checklist grid. Mutually exclusive with
+    itself; ANDs with label/search/archived filters.
+
+    ``with_me`` — cards owned by someone else that the caller accepted a share on.
+    ``by_me``   — cards the caller owns that have at least one accepted collaborator.
+    """
+
+    with_me = "with_me"
+    by_me = "by_me"
 
 
 class CheckListBase(BaseTable):

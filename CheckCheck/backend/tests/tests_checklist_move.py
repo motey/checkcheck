@@ -46,6 +46,34 @@ def test_checklist_move_under_and_above():
     for cl_id in (id1, id2, id3):
         req(f"api/checklist/{cl_id}", "delete")
 
+def test_checklist_list_orders_pinned_first():
+    """A pinned checklist must appear before unpinned ones in the list endpoint,
+    even when its index is the lowest (it would otherwise sort last)."""
+    cl1 = req("api/checklist", "post", b={"name": "Pin-CL1"})  # lowest index
+    cl2 = req("api/checklist", "post", b={"name": "Pin-CL2"})
+    cl3 = req("api/checklist", "post", b={"name": "Pin-CL3"})  # highest index
+    id1, id2, id3 = cl1["id"], cl2["id"], cl3["id"]
+
+    # Unpinned, indices ascending -> list (desc index) yields cl3, cl2, cl1.
+    def order_positions(*ids):
+        items = req("api/checklist", q={"limit": 200, "offset": 0})["items"]
+        order = {it["id"]: i for i, it in enumerate(items)}
+        return [order[i] for i in ids]
+
+    p3, p2, p1 = order_positions(id3, id2, id1)
+    assert p3 < p2 < p1, f"Expected cl3<cl2<cl1 by index, got {p3} {p2} {p1}"
+
+    # Pin the lowest-index checklist; it must now lead the others.
+    req(f"api/checklist/{id1}/position", "patch", b={"pinned": True})
+    p1, p3, p2 = order_positions(id1, id3, id2)
+    assert p1 < p3 and p1 < p2, (
+        f"Pinned cl1 (pos {p1}) should precede unpinned cl3 ({p3}) and cl2 ({p2})"
+    )
+
+    for cl_id in (id1, id2, id3):
+        req(f"api/checklist/{cl_id}", "delete")
+
+
 def test_checklist_move_under_places_below_target():
     """move/under always places the moved checklist at a lower index than the target."""
     cl_a = req("api/checklist", "post", b={"name": "Move-EdgeA"})

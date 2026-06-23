@@ -1,12 +1,26 @@
 import { defineStore } from "pinia";
 import { findNewPlacementForItem, sortBySubset } from "~/utils/helpers";
 
+// Active filters for the server-side "filtered view" (text search and/or the
+// shared=with_me|by_me filter, optionally narrowed by a label). Held in the
+// store so fetchMoreFiltered() can request the next page with the same filters.
+export type FilteredViewParams = {
+  query: string | null;
+  labelId: string | null;
+  shared: "with_me" | "by_me" | null;
+};
+
 export type CheckListState = {
   checkLists: CheckListType[];
   total_backend_count: number;
   searchResults: CheckListType[] | null;
   searchTotalCount: number;
+  searchOffset: number;
+  searchParams: FilteredViewParams | null;
 };
+
+// Page size for the paginated filtered view (search / shared filters).
+const FILTERED_PAGE_SIZE = 20;
 
 export const useCheckListsStore = defineStore("checkList", {
   state: () =>
@@ -15,6 +29,8 @@ export const useCheckListsStore = defineStore("checkList", {
       total_backend_count: -1,
       searchResults: null,
       searchTotalCount: 0,
+      searchOffset: 0,
+      searchParams: null,
     } as CheckListState),
   getters: {
     get: (state) => {
@@ -38,7 +54,7 @@ export const useCheckListsStore = defineStore("checkList", {
         }
         const filtered = state.checkLists.filter((item) => {
           if (archived !== null && item.position.archived !== archived) return false;
-          if (pinned !== null && item.position.pinned !== pinned) return false;
+          if (pinned !== null && (item.position.pinned ?? false) !== pinned) return false;
           if (label_id !== null && !item.labels.some((label) => label.id === label_id)) return false;
           return true;
         });
@@ -47,7 +63,12 @@ export const useCheckListsStore = defineStore("checkList", {
     },
   },
   actions: {
-    async reorderCheckLists(newOrder: CheckListType[], movedItem: CheckListType) {
+    async reorderCheckLists(newOrder: CheckListType[], movedItem: CheckListType, targetPinned?: boolean) {
+      // Cross-list drag (pinned <-> normal): flip the pinned flag before the
+      // index move so the subsequent pinned-aware _sort() places it correctly.
+      if (targetPinned !== undefined && (movedItem.position.pinned ?? false) !== targetPinned) {
+        await this.setPinned(movedItem.id, targetPinned);
+      }
       const placement = findNewPlacementForItem(movedItem, newOrder);
       if (placement.placement == "above") {
         await this.moveCheckListAboveOtherCheckList(movedItem, placement.target_neighbor_item as CheckListType);
@@ -57,10 +78,18 @@ export const useCheckListsStore = defineStore("checkList", {
       if (newOrder.length === this.checkLists.length) {
         this.checkLists = sortBySubset(this.checkLists, newOrder) as CheckListType[];
       } else {
-        // Subset drag (search results) — position already updated by the move action above.
+        // Subset drag — only one group (pinned OR normal), or a search subset.
+        // The moved item's position is already updated above; re-sort the
+        // full lists by the same pinned-then-index key so both groups stay
+        // intact (replacing searchResults with newOrder would drop the other
+        // group's results).
         await this._sort();
         if (this.searchResults !== null) {
-          this.searchResults = [...newOrder];
+          this.searchResults.sort(
+            (a, b) =>
+              Number(b.position.pinned ?? false) - Number(a.position.pinned ?? false) ||
+              b.position.index - a.position.index
+          );
         }
       }
     },
@@ -138,6 +167,13 @@ export const useCheckListsStore = defineStore("checkList", {
       const checkList = await this.fetch(checkListId);
       checkList.position.archived = state;
       checkList.position = await this.updatePosition(checkListId, checkList.position);
+    },
+    async setPinned(checkListId: string, pinned: boolean = true) {
+      if (!checkListId) throw new Error("Checklistid empty");
+      const checkList = await this.fetch(checkListId);
+      checkList.position.pinned = pinned;
+      checkList.position = await this.updatePosition(checkListId, checkList.position);
+      this._sort();
     },
     async fetchNextPage() {
       const { $checkapi } = useNuxtApp();
@@ -265,29 +301,71 @@ export const useCheckListsStore = defineStore("checkList", {
       checkList.position = resChecklistPosition;
       return checkList.position;
     },
-    async searchChecklists(query: string, labelId: string | null = null) {
+    // Open (or replace) the server-side filtered view. Active whenever there is
+    // text search and/or a shared filter; an optional label narrows it further.
+    // Loads the first page; call fetchMoreFiltered() to page through the rest.
+    async searchChecklists(
+      query: string | null,
+      labelId: string | null = null,
+      shared: "with_me" | "by_me" | null = null
+    ) {
+      this.searchParams = { query: query || null, labelId, shared };
+      this.searchOffset = 0;
+      this.searchResults = [];
+      this.searchTotalCount = 0;
+      await this._fetchFilteredPage();
+    },
+    // Append the next page of the active filtered view (no-op once every match
+    // is loaded, or when no filtered view is active).
+    async fetchMoreFiltered() {
+      if (this.searchResults === null || this.searchParams === null) return;
+      if (this.searchResults.length >= this.searchTotalCount) return;
+      await this._fetchFilteredPage();
+    },
+    async _fetchFilteredPage() {
+      if (this.searchParams === null) return;
       const { $checkapi } = useNuxtApp();
       const checkListItemStore = useCheckListsItemStore();
+      const { query, labelId, shared } = this.searchParams;
       let resPage: CheckListsPageType;
       try {
         resPage = await $checkapi("/api/checklist", {
           method: "get",
-          query: { search: query, archived: false, limit: 100, offset: 0, ...(labelId ? { label_id: labelId } : {}) },
+          query: {
+            archived: false,
+            limit: FILTERED_PAGE_SIZE,
+            offset: this.searchOffset,
+            ...(query ? { search: query } : {}),
+            ...(labelId ? { label_id: labelId } : {}),
+            ...(shared ? { shared } : {}),
+          },
         });
       } catch (error) {
-        console.error("Could not search checklists 'GET /api/checklist?search='", error);
+        console.error("Could not load filtered checklists 'GET /api/checklist'", error);
         return;
       }
       await checkListItemStore.fetchMultipleChecklistsItemsPreview(resPage.items.map((i) => i.id));
-      this.searchResults = resPage.items;
+      const existingIds = new Set((this.searchResults ?? []).map((c) => c.id));
+      this.searchResults = [
+        ...(this.searchResults ?? []),
+        ...resPage.items.filter((c) => !existingIds.has(c.id)),
+      ];
       this.searchTotalCount = resPage.total_count;
+      this.searchOffset += resPage.items.length;
     },
     clearSearch() {
       this.searchResults = null;
       this.searchTotalCount = 0;
+      this.searchOffset = 0;
+      this.searchParams = null;
     },
     async _sort() {
-      this.checkLists.sort((a, b) => b.position.index - a.position.index);
+      // Pinned first, then by descending index within each group.
+      this.checkLists.sort(
+        (a, b) =>
+          Number(b.position.pinned ?? false) - Number(a.position.pinned ?? false) ||
+          b.position.index - a.position.index
+      );
     },
   },
 });

@@ -38,6 +38,7 @@ from checkcheckserver.model.checklist import (
     CheckListApi,
     CheckListApiCreate,
     CheckListApiWithSubObj,
+    SharedFilter,
 )
 from checkcheckserver.db.checklist import CheckListCRUD
 from checkcheckserver.db.checklist_position import (
@@ -97,6 +98,11 @@ async def list_checklists(
     archived: Optional[bool] = Query(False),
     label_id: Optional[uuid.UUID] = None,
     search: Optional[str] = Query(None),
+    shared: Optional[SharedFilter] = Query(
+        None,
+        description="Restrict to cards shared *with* the caller ('with_me') or "
+        "shared *by* the caller ('by_me'). ANDs with label_id/search/archived.",
+    ),
     checklist_crud: CheckListCRUD = Depends(CheckListCRUD.get_crud),
     checklist_label_crud: ChecklistLabelCRUD = Depends(ChecklistLabelCRUD.get_crud),
     checklist_collaborator_crud: CheckListCollaboratorCRUD = Depends(
@@ -112,11 +118,14 @@ async def list_checklists(
         include_sub_obj=True,
         label_id=label_id,
         search=search,
+        shared=shared,
     )
     total_count = await checklist_crud.count(
         user_id=current_user.id,
         archived=archived,
+        label_id=label_id,
         search=search,
+        shared=shared,
     )
     # Labels are per-user; the ORM relationship returns every collaborator's
     # labels on a shared card, so scope each card's labels to the caller. Done

@@ -14,6 +14,30 @@
         </NuxtLink>
       </UTooltip>
 
+      <!-- Shared section -->
+      <div v-if="!collapsed" class="px-2 pt-4 pb-1">
+        <span class="text-xs font-semibold text-muted uppercase tracking-wider">Shared</span>
+      </div>
+      <div v-else class="border-t my-2 mx-1" />
+
+      <UTooltip
+        v-for="opt in sharedOptions"
+        :key="opt.value"
+        :text="opt.label"
+        :disabled="!collapsed"
+        side="right"
+      >
+        <NuxtLink
+          :data-testid="`shared-filter-${opt.value}`"
+          :to="sharedLinkTo(opt.value)"
+          class="flex items-center gap-3 px-2 py-1.5 rounded-lg text-sm transition-colors hover:bg-elevated"
+          :class="route.query.shared === opt.value ? 'bg-elevated font-medium' : 'text-muted'"
+        >
+          <UIcon :name="opt.icon" class="shrink-0 size-5" />
+          <span v-if="!collapsed" class="truncate">{{ opt.label }}</span>
+        </NuxtLink>
+      </UTooltip>
+
       <!-- Labels section -->
       <template v-if="labelStore.labels.length">
         <div v-if="!collapsed" class="px-2 pt-4 pb-1">
@@ -70,8 +94,32 @@ const labelStore = useCheckListsLabelStore();
 const colorStore = useCheckListsColorSchemeStore();
 
 const isHome = computed(
-  () => route.path === "/" && !route.query.label && !route.query.editlabels && !route.query.search
+  () =>
+    route.path === "/" &&
+    !route.query.label &&
+    !route.query.editlabels &&
+    !route.query.search &&
+    !route.query.shared
 );
+
+// Mutually-exclusive share filters (a card is either owned by you or not, so it
+// can never be both). Driven by ?shared=with_me|by_me, ANDing with any label.
+const sharedOptions = [
+  { value: "with_me", label: "Shared with me", icon: "i-lucide-users" },
+  { value: "by_me", label: "Shared by me", icon: "i-lucide-share-2" },
+] as const;
+
+// Toggle: clicking the active filter clears it; otherwise activate it (keeping
+// the rest of the query, e.g. an active label, so the filters add up).
+function sharedLinkTo(value: string) {
+  const query = { ...route.query };
+  if (query.shared === value) {
+    delete query.shared;
+  } else {
+    query.shared = value;
+  }
+  return { path: "/", query };
+}
 
 function labelDotStyle(label: LabelType) {
   const color = colorStore.colors.find((c) => c.id === label.color_id);

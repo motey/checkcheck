@@ -5,11 +5,16 @@
     :class="[
       hasColor ? '' : 'bg-elevated',
       previewModeActive ? 'p-4 min-h-32 shadow-sm hover:shadow-md cursor-pointer' : 'p-5 sm:p-6',
+      editModeActive ? 'max-h-[92dvh] overflow-hidden' : '',
     ]"
-    class="checklist list-drag-handle textareas-inherit-color flex flex-col gap-1 border border-default rounded-xl transition-shadow"
+    class="checklist relative list-drag-handle textareas-inherit-color flex flex-col gap-1 border border-default rounded-xl transition-shadow"
   >
 
-    <div v-if="!editModeActive" data-testid="card-title" class="flex-none text-base font-semibold leading-snug break-words" v-html="highlightText(checkList!.name, searchQuery)" />
+    <!-- In the editor the modal renders its own close button at top-right, so
+         shift the pin left of it; on board previews there is no close button. -->
+    <CheckListFooterButtonPin :checkListId="checkListId" :scrollIntoViewOnPin="previewModeActive" :class="['absolute top-2 z-10', editModeActive ? 'right-10' : 'right-2']" />
+
+    <div v-if="!editModeActive" data-testid="card-title" class="flex-none pr-8 text-base font-semibold leading-snug break-words" v-html="highlightText(checkList!.name, searchQuery)" />
     <UTextarea
       v-if="editModeActive"
       autoresize
@@ -19,45 +24,50 @@
       :disabled="!canEdit"
       placeholder="Enter a checklist title..."
       v-model="localName"
-      class="flex-initial w-full grow text-xl sm:text-2xl font-semibold"
+      class="flex-none w-full pr-16 text-xl sm:text-2xl font-semibold"
       @focus="nameFocused = true"
       @blur="nameFocused = false"
     />
-    <p v-if="!editModeActive && checkList!.text" class="flex-none line-clamp-3 text-sm opacity-80 whitespace-pre-wrap break-words" v-html="highlightText(checkList!.text, searchQuery)" />
-    <UTextarea
-      v-if="editModeActive"
-      ref="notesTextField"
-      :autofocus="true"
-      autoresize
-      variant="none"
-      :rows="0"
-      :padded="false"
-      :disabled="!canEdit"
-      placeholder="Enter some notes..."
-      v-model="localText"
-      class="w-full flex-none text-sm opacity-90"
-      @focus="textFocused = true"
-      @blur="textFocused = false"
-    />
-    <div class="checklist-items-collection mt-1">
-      <CheckListItemCollectionSeperated
-        v-if="checkList?.checked_items_seperated"
-        :parentCheckList="checkList"
-        :showMaxItems="showMaxItems"
-        :editModeActive="editModeActive"
+    <!-- In edit mode this region scrolls on its own so the title above and the
+         footer below stay pinned within the modal viewport. In preview/board
+         mode it uses display:contents and behaves as if it weren't here. -->
+    <div :class="editModeActive ? 'flex-1 min-h-0 overflow-y-auto overscroll-contain -mx-1 px-1' : 'contents'">
+      <p v-if="!editModeActive && checkList!.text" class="flex-none line-clamp-3 text-sm opacity-80 whitespace-pre-wrap break-words" v-html="highlightText(checkList!.text, searchQuery)" />
+      <UTextarea
+        v-if="editModeActive"
+        ref="notesTextField"
+        :autofocus="true"
+        autoresize
+        variant="none"
+        :rows="0"
+        :padded="false"
+        :disabled="!canEdit"
+        placeholder="Enter some notes..."
+        v-model="localText"
+        class="w-full flex-none text-sm opacity-90"
+        @focus="textFocused = true"
+        @blur="textFocused = false"
       />
-      <CheckListItemCollection
-        v-else-if="editModeActive"
-        :parentCheckList="checkList!"
-        :showMaxItems="showMaxItems"
-        :filterCheckedItems="undefined"
-      />
-      <CheckListItemCollectionPreview
-        v-else
-        :parentCheckList="checkList!"
-        :showMaxItems="showMaxItems"
-        :filterCheckedItems="undefined"
-      />
+      <div class="checklist-items-collection mt-1">
+        <CheckListItemCollectionSeperated
+          v-if="checkList?.checked_items_seperated"
+          :parentCheckList="checkList"
+          :showMaxItems="showMaxItems"
+          :editModeActive="editModeActive"
+        />
+        <CheckListItemCollection
+          v-else-if="editModeActive"
+          :parentCheckList="checkList!"
+          :showMaxItems="showMaxItems"
+          :filterCheckedItems="undefined"
+        />
+        <CheckListItemCollectionPreview
+          v-else
+          :parentCheckList="checkList!"
+          :showMaxItems="showMaxItems"
+          :filterCheckedItems="undefined"
+        />
+      </div>
     </div>
 
     <div class="checklist-footer flex-none mt-3 pt-2 border-t border-current/10">

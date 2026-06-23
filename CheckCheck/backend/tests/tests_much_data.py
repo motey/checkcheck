@@ -1,125 +1,152 @@
 from typing import List, Dict
-import json
-import time
-import requests
+import os
 import random
-from utils import req, dict_must_contain, list_contains_dict_that_must_contain, dictyfy
-from statics import (
-    ADMIN_USER_EMAIL,
-    ADMIN_USER_NAME,
+import threading
+from concurrent.futures import ThreadPoolExecutor
+
+import requests
+
+from utils import (
+    req,
+    dict_must_contain,
+    get_access_token,
+    server_config,
 )
-NO_CHECKLISTS = 10
-MAX_NO_CHECKLIST_ITEMS = 30
+
+# How much data to generate. Override via env to stress-test harder, e.g.
+#   CHECKCHECK_MUCH_DATA_LISTS=500 CHECKCHECK_MUCH_DATA_ITEMS=50 python -m pytest ...
+NO_CHECKLISTS = int(os.environ.get("CHECKCHECK_MUCH_DATA_LISTS", "40"))
+MAX_NO_CHECKLIST_ITEMS = int(os.environ.get("CHECKCHECK_MUCH_DATA_ITEMS", "30"))
+
+# A small local word pool. The old test downloaded MIT's 10k-word list over the
+# internet on every run, which dominated the runtime (and is flaky/offline-
+# hostile). The generated content is throwaway, so any words will do.
+_WORDS: List[str] = (
+    "apple banana cherry delta echo forest garden harbor island jungle kettle "
+    "lemon meadow nectar ocean pepper quartz river summit timber umbra valley "
+    "willow xenon yonder zephyr amber bronze cobalt copper crimson emerald "
+    "golden indigo ivory jade lavender magenta maroon olive orchid scarlet "
+    "silver teal violet anchor beacon bridge canyon cottage desert dynamo "
+    "engine falcon glacier hammer harvest ladder lantern lighthouse marble "
+    "mountain orchard pebble pillar prairie quarry ranch ridge sapling thicket "
+    "tunnel village wagon meadowlark cardinal sparrow falconry otter badger "
+    "beaver bobcat caribou cheetah dolphin elephant ferret gazelle hedgehog "
+    "iguana jaguar koala lynx mongoose narwhal ocelot panther raccoon salmon"
+).split()
+
+
+def get_random_words(
+    rng: random.Random, max_amount: int = 100, fixed_amount: int = None
+) -> str:
+    if fixed_amount is None:
+        fixed_amount = rng.randint(1, max_amount)
+    return " ".join(rng.choice(_WORDS) for _ in range(fixed_amount))
+
+
+def _is_postgres() -> bool:
+    return "postgres" in str(server_config.SQL_DATABASE_URL).lower()
+
+
+# Each worker thread gets its own keep-alive HTTP session so connections are
+# reused (the bare ``requests`` module opens a fresh TCP connection per call)
+# and ``requests.Session`` is not shared across threads (it isn't thread-safe).
+_thread_local = threading.local()
+
+
+def _session() -> requests.Session:
+    sess = getattr(_thread_local, "session", None)
+    if sess is None:
+        sess = requests.Session()
+        token = get_access_token()
+        if token:
+            sess.headers["Authorization"] = f"Bearer {token}"
+        _thread_local.session = sess
+    return sess
+
 
 def test_much_data():
-    # count current list amount
+    seed = None  # set to a fixed value for reproducible runs
+    rng = random.Random(seed)
 
-    seed = None  # for reproducable runs enable seed
-    # seed = "123456"
-    if seed:
-        random.seed(seed)
-    words_resp = requests.get("https://www.mit.edu/~ecprice/wordlist.10000")
-    words: List[str] = words_resp.text.split("\n")
-
-    def get_random_words(max_amount: int = 100, fixed_amount: int = None):
-        return_words = []
-        if fixed_amount is None:
-            fixed_amount = random.randint(1, max_amount)
-        for i in range(0, fixed_amount):
-            return_words.append(random.choice(words))
-        return " ".join(return_words)
-
-    from checkcheckserver.api.routes.routes_color_scheme import (
-        list_colors,
-        ChecklistColorScheme,
-    )
-
-    colors: List[Dict] = [c["id"] for c in req(f"api/color", method="get")]
+    colors: List[Dict] = [c["id"] for c in req("api/color", method="get")]
     colors.append(None)
 
-    def get_random_color_id():
-        return random.choice(colors)
-
-    from checkcheckserver.api.routes.routes_checklist_label import (
-        create_label,
-        list_labels,
-        LabelCreate,
-    )
-
-    for word in get_random_words(fixed_amount=8).split(" "):
-        label_create = LabelCreate(color_id=get_random_color_id(), display_name=word)
-        print(f"label_create: {label_create}")
-        cl = req(
-            f"api/label",
+    # ── Labels ────────────────────────────────────────────────────────────────
+    for word in get_random_words(rng, fixed_amount=8).split(" "):
+        req(
+            "api/label",
             method="post",
-            b=dictyfy(label_create),
+            b={"color_id": rng.choice(colors), "display_name": word},
         )
-    label_ids = [c["id"] for c in req(f"api/label", method="get")]
+    label_ids = [c["id"] for c in req("api/label", method="get")]
 
-    def get_random_label_ids():
-        no_of_labels = random.randint(0, int(len(label_ids) / 2))
-        return random.sample(label_ids, no_of_labels)
+    # ── Pre-compute every list + its items up front (cheap, no I/O) so the
+    #    HTTP creation phase is pure request dispatch we can parallelise. ───────
+    def make_spec(i: int) -> Dict:
+        no_labels = rng.randint(0, len(label_ids) // 2)
+        return {
+            "create": {
+                "name": (
+                    f"{i}" + get_random_words(rng, max_amount=10)
+                    if rng.choice([True, False])
+                    else None
+                ),
+                "text": (
+                    f"{i}" + get_random_words(rng)
+                    if rng.choice([True, False])
+                    else None
+                ),
+                "color_id": rng.choice(colors),
+                "checked_items_collapsed": rng.choice([True, False]),
+                "checked_items_seperated": rng.choice([True, False]),
+            },
+            "labels": rng.sample(label_ids, no_labels),
+            "items": [
+                {
+                    "text": f"{j}" + get_random_words(rng, max_amount=30),
+                    "state": {"checked": rng.choice([True, False])},
+                }
+                for j in range(rng.randint(0, MAX_NO_CHECKLIST_ITEMS))
+            ],
+        }
 
-    checklists = []
-    from checkcheckserver.api.routes.routes_checklist import (
-        create_checklist,
-        CheckListApiCreate,
-    )
+    specs = [make_spec(i) for i in range(NO_CHECKLISTS)]
 
-    for i in range(0, NO_CHECKLISTS):
-
-        cl = req(
-            f"api/checklist",
-            method="post",
-            b=dictyfy(
-                CheckListApiCreate(
-                    name=(
-                        f"{i}" + get_random_words(max_amount=10)
-                        if random.choice([True, False])
-                        else None
-                    ),
-                    text=(
-                        f"{i}" + get_random_words()
-                        if random.choice([True, False])
-                        else None
-                    ),
-                    color_id=get_random_color_id(),
-                    checked_items_collapsed=random.choice([True, False]),
-                    checked_items_seperated=random.choice([True, False]),
-                )
-            ),
-        )
-        from checkcheckserver.api.routes.routes_checklist_label import (
-            add_label_to_checklist,
-        )
-
-        for label_id in get_random_label_ids():
-            # add label to checklist
-            print("label", label_id)
-            req(f"/api/checklist/{cl['id']}/label/{label_id}", method="put")
-        checklists.append(cl)
-        for j in range(0, random.randint(0, MAX_NO_CHECKLIST_ITEMS)):
-            # from checkcheckserver.api.routes.routes_checklist_item import create_checklist_item
-            print(i, j)
+    def create_list(spec: Dict) -> Dict:
+        sess = _session()
+        cl = req("api/checklist", method="post", b=spec["create"], session=sess)
+        for label_id in spec["labels"]:
             req(
-                f"api/checklist/{cl['id']}/item",
-                method="post",
-                b={
-                    "text": f"{j}" + get_random_words(max_amount=30),
-                    "state": {"checked": random.choice([True, False])},
-                },
+                f"/api/checklist/{cl['id']}/label/{label_id}",
+                method="put",
+                session=sess,
             )
+        # Items within one list must be created sequentially: each item's
+        # position index is derived from the current last item server-side.
+        for item in spec["items"]:
+            req(f"api/checklist/{cl['id']}/item", method="post", b=item, session=sess)
+        return cl
 
+    # Fan out across lists. Postgres handles concurrent writes well, so default
+    # to 8 workers there. SQLite (the default local-dev DB) serialises writes and
+    # raises "database is locked" under concurrency, so default to serial there.
+    # Override with CHECKCHECK_MUCH_DATA_WORKERS to tune either way.
+    default_workers = "8" if _is_postgres() else "1"
+    workers = int(os.environ.get("CHECKCHECK_MUCH_DATA_WORKERS", default_workers))
+    if workers > 1:
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            list(pool.map(create_list, specs))
+    else:
+        for spec in specs:
+            create_list(spec)
+
+    # ── Single-list item CRUD smoke checks (unchanged behaviour) ───────────────
     checklists: List[Dict] = req("api/checklist")["items"]
-    first_checklist = checklists[0]
-    first_checklist_id = first_checklist["id"]
-    # hint: import only for quick code access to endpoint
-    from checkcheckserver.api.routes.routes_checklist_item import create_checklist_item
+    first_checklist_id = checklists[0]["id"]
 
     res = req(
         f"api/checklist/{first_checklist_id}/item", method="post", b={"text": "Milk"}
     )
-    print("res", res)
     dict_must_contain(
         res,
         required_keys_and_val={"text": "Milk"},
@@ -127,23 +154,15 @@ def test_much_data():
     )
 
     for i in range(1, 10):
-
-        res = req(
+        req(
             f"api/checklist/{first_checklist_id}/item",
             method="post",
             b={"text": f"Item {i}"},
         )
-    from checkcheckserver.api.routes.routes_checklist_item import list_checklist_items
 
-    checklistitems = req(
-        f"api/checklist/{first_checklist_id}/item",
-        method="get",
-    )["items"]
-
-    from checkcheckserver.api.routes.routes_checklist_item import update_checklist_item
+    checklistitems = req(f"api/checklist/{first_checklist_id}/item")["items"]
 
     new_text = checklistitems[2]["text"] + " updated"
-
     res = req(
         f'api/checklist/{first_checklist_id}/item/{checklistitems[2]["id"]}',
         method="patch",
@@ -151,29 +170,18 @@ def test_much_data():
     )
     dict_must_contain(res, required_keys_and_val={"text": new_text})
 
-    from checkcheckserver.api.routes.routes_checklist_item import delete_checklist_item
-
     before_count = len(checklistitems)
-    res = req(
+    req(
         f'api/checklist/{first_checklist_id}/item/{checklistitems[2]["id"]}',
         method="delete",
     )
-    checklistitems = req(
-        f"api/checklist/{first_checklist_id}/item",
-        method="get",
-    )["items"]
+    checklistitems = req(f"api/checklist/{first_checklist_id}/item")["items"]
     assert before_count - 1 == len(checklistitems)
-    # print("checklistitems", checklistitems)
-    res = req(
+
+    req(
         f"api/checklist/{first_checklist_id}/item",
         method="post",
         b={"text": "item 2 new"},
     )
-    checklistitems = req(
-        f"api/checklist/{first_checklist_id}/item",
-        method="get",
-    )["items"]
-    # print("checklistitems", checklistitems)
-    new_first_item = checklistitems[0]
-    print("new_last_item", new_first_item)
-    # dict_must_contain(new_first_item, required_keys_and_val={"text": "item 2 new"})
+    checklistitems = req(f"api/checklist/{first_checklist_id}/item")["items"]
+    assert checklistitems  # list still readable after the churn

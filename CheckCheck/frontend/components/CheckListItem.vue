@@ -20,6 +20,7 @@
     />
 
     <UTextarea
+      ref="textareaComp"
       placeholder="Enter some text..."
       v-model="localText"
       v-if="parentEditMode"
@@ -33,6 +34,7 @@
       :class="{ strikethrough: checkListItem?.state.checked }"
       @focus="textFocused = true"
       @blur="textFocused = false"
+      @keydown.enter="onEnter"
     />
   </div>
 </template>
@@ -63,10 +65,29 @@ onMounted(() => {
 */
 const hover = ref(false);
 const textFocused = ref(false);
+const textareaComp = ref();
 const checkListsItemStore = useCheckListsItemStore();
 const route = useRoute();
 const searchQuery = computed(() => (route.query.search as string) || null);
-const emit = defineEmits(["checkedItem"]);
+const emit = defineEmits(["checkedItem", "addItemAfter"]);
+
+// Enter adds a new item below; Shift+Enter (and IME confirm) inserts a newline.
+function onEnter(e: KeyboardEvent) {
+  if (e.shiftKey || e.isComposing) return;
+  e.preventDefault();
+  if (!canEdit.value) return;
+  emit("addItemAfter", props.checkListItem!.id);
+}
+
+// Called by the parent collection after it inserts the freshly created item.
+function focusTextarea() {
+  const el = textareaComp.value?.$el?.querySelector?.("textarea") as HTMLTextAreaElement | null;
+  if (!el) return;
+  el.focus();
+  const end = el.value.length;
+  el.setSelectionRange(end, end);
+}
+defineExpose({ focusTextarea });
 
 // Permission gating — driven by the parent card's my_permission (P0.1).
 const { can } = usePermissions();
@@ -126,9 +147,15 @@ watch(localText, (t) => debouncedUpdateCheckListItemText(t));
 ::v-deep(.strikethrough textarea) {
   text-decoration: line-through;
 }
-textarea {
+:deep(textarea) {
   max-height: none !important;
   height: auto !important;
+  /* Size to content natively so a wrapped item grows instead of showing a
+     scrollbar — Nuxt UI's JS autoresize mismeasures rows before the textarea
+     has its final wrapped width inside the modal. overflow:hidden guarantees
+     no scrollbar ever appears on an item. */
+  field-sizing: content;
+  overflow: hidden !important;
   overflow-wrap: break-word;
   word-break: break-word; /* For older browsers */
   white-space: pre-wrap;  /* Preserves line breaks + allows wrapping */
