@@ -1,6 +1,4 @@
 import { defineStore } from "pinia";
-import Decimal from "decimal.js";
-import { useCheckListsStore } from "@/stores/checklist";
 import { findNewPlacementForItem, sortBySubset } from "~/utils/helpers";
 
 export type CheckListItemState = {
@@ -21,9 +19,6 @@ export const useCheckListsItemStore = defineStore("checkListitem", {
       total_backend_count_checked_per_checklist: {},
     } as CheckListItemState),
   getters: {
-    checklist_ids(state) {
-      return Object.keys(state.checkListsItems);
-    },
     getCheckListItems: (state) => {
       return (checkListId: string, checked: boolean | null = null, limit: number | null = null) => {
         if (limit === 0) return [];
@@ -32,12 +27,6 @@ export const useCheckListsItemStore = defineStore("checkListitem", {
         return limit !== null ? filtered.slice(0, limit) : filtered;
       };
     },
-    getCheckListItemCount:
-      (state) =>
-      (checkListId: string, checked: boolean | null = null) => {
-        const items = state.checkListsItems[checkListId] ?? [];
-        return checked === null ? items.length : items.filter((item) => item.state.checked === checked).length;
-      },
     getItemCount:
       (state) =>
       (checkListId: string, checked: boolean | null = null) => {
@@ -67,56 +56,6 @@ export const useCheckListsItemStore = defineStore("checkListitem", {
         this.checkListsItems[checkListId]!,
         newOrder
       ) as CheckListItemType[];
-    },
-    accessListItems(
-      checkListId: string,
-      checked: boolean | null = null,
-      limit: number | null | undefined = null
-    ): ComputedRef<CheckListItemType[]> {
-      const store = this;
-      return computed({
-        get() {
-          const result: CheckListItemType[] = [];
-          if (limit === 0) return result;
-          for (const item of store.checkListsItems[checkListId]!) {
-            if (checked !== null && checked !== undefined) {
-              if (item.state.checked === checked) result.push(item);
-            } else {
-              result.push(item);
-            }
-            if (limit && result.length >= limit) break;
-          }
-          return result;
-        },
-        set(newOrder: CheckListItemType[]) {
-          sortBySubset(store.checkListsItems[checkListId]!, newOrder);
-        },
-      });
-    },
-    accessListItemsCount(
-      checkListId: string,
-      checked: boolean | null = null,
-      limit: number | null | undefined = null
-    ): ComputedRef<CheckListItemType[]> {
-      const store = this;
-      return computed({
-        get() {
-          const result: CheckListItemType[] = [];
-          if (limit === 0) return result;
-          for (const item of store.checkListsItems[checkListId]!) {
-            if (checked !== null && checked !== undefined) {
-              if (item.state.checked === checked) result.push(item);
-            } else {
-              result.push(item);
-            }
-            if (limit && result.length >= limit) break;
-          }
-          return result;
-        },
-        set(newOrder: CheckListItemType[]) {
-          sortBySubset(store.checkListsItems[checkListId]!, newOrder);
-        },
-      });
     },
     async create(checkListId: string, checklistitem?: CheckListItemCreateType) {
       if (!checkListId) throw new Error("Checklistid empty");
@@ -296,22 +235,6 @@ export const useCheckListsItemStore = defineStore("checkListitem", {
         throw error;
       }
     },
-    async refreshPosition(checkListId: string, checklistidItemId: string) {
-      const { $checkapi } = useNuxtApp();
-      try {
-        const resPos = await $checkapi("/api/checklist/{checklist_id}/item/{checklist_item_id}/position", {
-          path: { checklist_id: checkListId, checklist_item_id: checklistidItemId },
-          method: "get",
-        });
-        const index = this.checkListsItems[checkListId]!.findIndex((item) => item.id == checklistidItemId);
-        if (index !== -1) this.checkListsItems[checkListId]![index]!.position = resPos;
-        if (this.checkListsItems[checkListId]!.length > 1) this._sort(checkListId);
-        return resPos;
-      } catch (error) {
-        console.error("Could not refresh item position 'GET /checklist/" + checkListId + "/item/" + checklistidItemId + "/position'", error);
-        throw error;
-      }
-    },
     async refreshState(checkListId: string, checklistidItemId: string) {
       const { $checkapi } = useNuxtApp();
       try {
@@ -374,62 +297,6 @@ export const useCheckListsItemStore = defineStore("checkListitem", {
       if (idx !== -1) this.checkListsItems[checkListId]![idx]!.position = resPos;
       this._sort(checkListId);
       return resPos;
-    },
-    async moveCheckListItemToBottom(checkListId: string, itemToMove: CheckListItemType): Promise<CheckListItemPositionType> {
-      const { $checkapi } = useNuxtApp();
-      let resPos: CheckListItemPositionType;
-      try {
-        resPos = await $checkapi("/api/checklist/{checklist_id}/item/{checklist_item_id}/move/bottom", {
-          path: { checklist_id: checkListId, checklist_item_id: itemToMove.id },
-          method: "put",
-        });
-      } catch (error) {
-        console.error("Could not move item to bottom", error);
-        throw error;
-      }
-      const idx = this.checkListsItems[checkListId]!.findIndex((i) => i.id === itemToMove.id);
-      if (idx !== -1) this.checkListsItems[checkListId]![idx]!.position = resPos;
-      this._sort(checkListId);
-      return resPos;
-    },
-    async moveCheckListItemToTop(checkListId: string, itemToMove: CheckListItemType): Promise<CheckListItemPositionType> {
-      const { $checkapi } = useNuxtApp();
-      let resPos: CheckListItemPositionType;
-      try {
-        resPos = await $checkapi("/api/checklist/{checklist_id}/item/{checklist_item_id}/move/top", {
-          path: { checklist_id: checkListId, checklist_item_id: itemToMove.id },
-          method: "put",
-        });
-      } catch (error) {
-        console.error("Could not move item to top", error);
-        throw error;
-      }
-      const idx = this.checkListsItems[checkListId]!.findIndex((i) => i.id === itemToMove.id);
-      if (idx !== -1) this.checkListsItems[checkListId]![idx]!.position = resPos;
-      this._sort(checkListId);
-      return resPos;
-    },
-    async moveCheckListItem(
-      checkListId: string,
-      itemToMove: CheckListItemType,
-      insertAfterItem: CheckListItemType,
-      commitToBackend: boolean = true
-    ) {
-      const currentIndex = this.checkListsItems[checkListId]!.findIndex((item) => item.id == itemToMove.id);
-      if (currentIndex === -1) throw new Error("itemToMove not found in the list");
-      this.checkListsItems[checkListId]!.splice(currentIndex, 1);
-
-      const insertAfterIndex = this.checkListsItems[checkListId]!.findIndex((item) => item.id == insertAfterItem.id);
-      if (insertAfterIndex === -1) throw new Error("insertAfterItem not found in the list");
-      this.checkListsItems[checkListId]!.splice(insertAfterIndex + 1, 0, itemToMove);
-
-      const prevPositionIndex = insertAfterItem.position.index;
-      const nextPositionIndex =
-        insertAfterIndex + 2 < this.checkListsItems[checkListId]!.length
-          ? this.checkListsItems[checkListId]![insertAfterIndex + 2]!.position.index
-          : prevPositionIndex - 1;
-      itemToMove.position.index = (nextPositionIndex - prevPositionIndex) / 2 + prevPositionIndex;
-      if (commitToBackend) this.updatePosition(checkListId, itemToMove.id, itemToMove.position);
     },
     async _sort(checkListId: string) {
       this.checkListsItems[checkListId]!.sort((a, b) => a.position.index - b.position.index);

@@ -28,11 +28,6 @@ export const useCheckListsColorSchemeStore = defineStore("checkListColorScheme",
       const checkListStore = useCheckListsStore();
       await checkListStore.update(checkListId, { color_id: colorId });
     },
-    async getChecklistColor(checkListId: string) {
-      const checkListStore = useCheckListsStore();
-      const checklist = await checkListStore.fetch(checkListId);
-      return checklist.color;
-    },
     async _sort() {
       // Placeholder: sort by hue once backend provides sort_order on color schemes.
       this.colors.sort((a, b) => a.backgroundcolor_dark_hex.localeCompare(b.backgroundcolor_dark_hex));

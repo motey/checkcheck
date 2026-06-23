@@ -14,12 +14,6 @@ export const useUserStore = defineStore("user", {
     myId(state): string | null {
       return state.me?.id ?? null;
     },
-    // Belt-and-suspenders ownership check (next to card.my_permission === "owner").
-    // Used by the share UI so we never offer to share a card with its owner/self.
-    isOwnerOf: (state) => {
-      return (card?: CheckListType | null): boolean =>
-        !!card && !!state.me && card.owner_id === state.me.id;
-    },
   },
   actions: {
     async fetchMe(): Promise<UserType | null> {

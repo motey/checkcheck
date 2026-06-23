@@ -17,9 +17,6 @@ export const useCheckListsStore = defineStore("checkList", {
       searchTotalCount: 0,
     } as CheckListState),
   getters: {
-    checklist_ids(state) {
-      return state.checkLists.map((item) => item.id);
-    },
     get: (state) => {
       return (checkListId: string) =>
         state.checkLists.find((cl) => cl.id === checkListId);
