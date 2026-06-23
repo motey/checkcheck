@@ -1,6 +1,6 @@
 <template>
-  <div v-if="colorsReady" class="flex flex-wrap gap-2">
-    <UIcon name="i-lucide-tags"></UIcon>
+  <div v-if="colorsReady && labels.length" class="flex flex-wrap items-center gap-2">
+    <UIcon name="i-lucide-tags" class="shrink-0 text-dimmed"></UIcon>
     <CheckListFooterLabelsItem
       v-for="label in labels"
       :labelId="label.id"

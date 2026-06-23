@@ -3,24 +3,19 @@
     <CheckListColoredButton variant="ghost" icon="i-lucide-tags" :checkListId="checkListId" @click.stop />
 
     <template #content>
-      <UContainer v-if="isOpen" class="bg-transparent p-4 lg:p-2 sm:p-2">
+      <div v-if="isOpen" class="p-2">
         <UInput v-model="query" placeholder="Enter Label name..." />
         <div v-if="loading" class="grid gap-2 mt-2">
-          <div  class="flex gap-2"><USkeleton class="h-4 w-[16px]" /><USkeleton class="h-4 w-[90px]" /></div>
-          <div  class="flex gap-2"><USkeleton class="h-4 w-[16px]" /><USkeleton class="h-4 w-[90px]" /></div>
-          <div  class="flex gap-2"><USkeleton class="h-4 w-[16px]" /><USkeleton class="h-4 w-[90px]" /></div>
+          <div class="flex gap-2"><USkeleton class="h-4 w-[16px]" /><USkeleton class="h-4 w-[90px]" /></div>
+          <div class="flex gap-2"><USkeleton class="h-4 w-[16px]" /><USkeleton class="h-4 w-[90px]" /></div>
+          <div class="flex gap-2"><USkeleton class="h-4 w-[16px]" /><USkeleton class="h-4 w-[90px]" /></div>
         </div>
         <div v-else>
-          <UCheckboxGroup
-            v-model="selectedItems"
-            value-key="id"
-            :items="filteredItems"
-            class="pl-1 lg:pl-1 sm:pl-1 pt-2 lg:pt-2 sm:pt-2"
-          />
+          <UCheckboxGroup v-model="selectedItems" value-key="id" :items="filteredItems" class="pl-1 pt-2" />
 
           <USeparator
             v-if="query && !filteredItems.some((obj) => obj.label === query)"
-            class="p-0 lg:p-0 sm:p-0 pt-2 lg:pt-2 sm:pt-2"
+            class="pt-2"
           ></USeparator>
         </div>
         <UTooltip text="Create New Label">
@@ -30,13 +25,13 @@
             color="neutral"
             variant="link"
             size="md"
-            class="p-0 lg:p-0 sm:p-0 pt-2 lg:pt-2 sm:pt-2 pl-0.5 lg:pl-0.5 sm:pl-0.5"
+            class="pt-2 pl-0.5"
             @click="createLabel"
           >
             {{ query }}
           </UButton>
         </UTooltip>
-      </UContainer>
+      </div>
     </template>
   </UPopover>
 </template>
