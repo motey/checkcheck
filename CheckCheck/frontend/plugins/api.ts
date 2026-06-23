@@ -20,6 +20,17 @@ export default defineNuxtPlugin({
       return url.includes('/api/public/')
     }
 
+    // Per-call opt-out (F7): a call site that owns its own error UX (a friendly,
+    // status-specific toast, or a deliberate silent swallow) passes
+    // `skipErrorToast: true` in its fetch options. The global handler runs BEFORE
+    // any per-call onResponseError, so without this opt-out a handled 4xx would
+    // stack a generic "Error <code>" toast ON TOP of the call site's friendly one.
+    // This generalises the `/api/public/` path-suppression above into an explicit,
+    // intentional flag (see CARD_SHARING_PLAN_FRONTEND.md "Possible changes → #1").
+    // It does NOT suppress the 401→/login redirect (handled in onResponse) — a
+    // session expiry should always bounce to login regardless of this flag.
+    const skipsErrorToast = (ctx: any): boolean => Boolean(ctx?.options?.skipErrorToast)
+
     // Handle 401 responses: redirect to login (server handles session cleanup)
     const handleUnauthorized = () => {
       const current = router.currentRoute.value // Must access .value for reactivity
@@ -55,7 +66,7 @@ export default defineNuxtPlugin({
             ;(localOptions?.onResponse as any)?.(ctx)
           },
           onResponseError(ctx) {
-            if (!isPublicShareRequest(ctx)) handleError(ctx)
+            if (!isPublicShareRequest(ctx) && !skipsErrorToast(ctx)) handleError(ctx)
             ;(localOptions?.onResponseError as any)?.(ctx)
           }
         }))

@@ -154,6 +154,52 @@ test.describe("F2 share-management dialog", () => {
     await page.keyboard.press("Escape");
   });
 
+  test("owner revoke removes the card live from the collaborator's open board", async ({
+    page,
+    browser,
+  }) => {
+    // Two simultaneous sessions: the owner revokes a collaborator through the
+    // dialog while the collaborator has the board open. The backend pins
+    // `checklist_deleted` to the revoked user, so their grid must drop the card
+    // LIVE over SSE — without a reload. (The leave-self path is covered below;
+    // this asserts the owner-driven revoke fans out to the *victim's* other tab.)
+    const { id, title } = await createCard(page);
+    await shareWithTestUser(page, id, "edit");
+
+    // Collaborator session — confirm the shared card is on their board first.
+    const { ctx, page: userPage } = await loginAsTestUser(browser);
+    secondCtx = ctx;
+    const collabCard = userPage.locator(".checklist-preview").filter({ hasText: title });
+    await expect(collabCard, "shared card should be on the collaborator's board").toBeVisible({
+      timeout: 8_000,
+    });
+
+    // Owner opens the dialog and revokes the collaborator.
+    await page.goto("/");
+    await openShareModal(page, title);
+    const dialog = page.locator('[role="dialog"]').filter({ hasText: "Share this list" });
+    await expect(dialog).toBeVisible({ timeout: 5_000 });
+    const row = dialog
+      .locator("[data-testid=share-collaborator-row]")
+      .filter({ hasText: TEST_USER_DISPLAY });
+    await expect(row, "collaborator row should be listed").toBeVisible({ timeout: 5_000 });
+    await row.getByRole("button", { name: "Remove" }).click();
+    await expect(row, "row should disappear from the owner's dialog").toHaveCount(0, {
+      timeout: 5_000,
+    });
+
+    // The collaborator's grid loses the card live (SSE), no reload involved.
+    await expect(collabCard, "card should vanish from the collaborator's board live").toHaveCount(
+      0,
+      { timeout: 8_000 }
+    );
+    // And no stray generic error toast surfaced on either side (F7).
+    await expect(page.getByText(/Error 4\d\d/)).toHaveCount(0);
+    await expect(userPage.getByText(/Error 4\d\d/)).toHaveCount(0);
+
+    await page.keyboard.press("Escape");
+  });
+
   test("non-owner sees a read-only list and can leave the list", async ({ page, browser }) => {
     const { id, title } = await createCard(page);
     await shareWithTestUser(page, id, "edit");

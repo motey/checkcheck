@@ -9,6 +9,13 @@ import { defineStore } from "pinia";
 // `openForChecklistId` lets useSync refresh the list live: while the ShareModal
 // is mounted it records its checklist id, and a `share_added`/`share_removed`
 // SSE event for that id re-reads the list (see refreshIfOpen).
+//
+// Every call here passes `skipErrorToast: true` (F7): this store fully owns its
+// error UX — the ShareModal call sites surface friendly, status-aware messages
+// ("You can only share with groups you belong to", "This user already has
+// access", …), and the read/search calls deliberately swallow. Without the
+// opt-out the global handler in `plugins/api.ts` would stack a generic
+// "Error <code>" toast on top of those (it runs before any per-call handler).
 
 export type ShareState = {
   // Collaborator lists keyed by checklist id (owner row excluded — see backend).
@@ -59,6 +66,7 @@ export const useShareStore = defineStore("share", {
         res = await $checkapi("/api/checklist/{checklist_id}/shares", {
           path: { checklist_id: checkListId },
           method: "get",
+          skipErrorToast: true,
         });
       } catch (error) {
         console.error("Could not list shares 'GET /checklist/" + checkListId + "/shares'", error);
@@ -80,6 +88,7 @@ export const useShareStore = defineStore("share", {
           path: { checklist_id: checkListId, user_id: userId },
           method: "put",
           body: { permission },
+          skipErrorToast: true,
         });
       } catch (error) {
         console.error("Could not upsert share 'PUT .../shares/" + userId + "'", error);
@@ -99,6 +108,7 @@ export const useShareStore = defineStore("share", {
         await $checkapi("/api/checklist/{checklist_id}/shares/{user_id}", {
           path: { checklist_id: checkListId, user_id: userId },
           method: "delete",
+          skipErrorToast: true,
         });
       } catch (error) {
         console.error("Could not revoke share 'DELETE .../shares/" + userId + "'", error);
@@ -121,6 +131,7 @@ export const useShareStore = defineStore("share", {
           path: { checklist_id: checkListId },
           method: "post",
           body: { new_owner_id: newOwnerId },
+          skipErrorToast: true,
         });
       } catch (error) {
         console.error("Could not transfer ownership 'POST .../transfer-ownership'", error);
@@ -137,6 +148,7 @@ export const useShareStore = defineStore("share", {
         return await $checkapi("/api/user/search", {
           method: "get",
           query: { q, limit },
+          skipErrorToast: true,
         });
       } catch (error) {
         console.error("Could not search users 'GET /api/user/search'", error);
@@ -148,7 +160,10 @@ export const useShareStore = defineStore("share", {
       if (this.myGroups !== null) return this.myGroups;
       const { $checkapi } = useNuxtApp();
       try {
-        this.myGroups = await $checkapi("/api/user/me/groups", { method: "get" });
+        this.myGroups = await $checkapi("/api/user/me/groups", {
+          method: "get",
+          skipErrorToast: true,
+        });
       } catch (error) {
         console.error("Could not list groups 'GET /api/user/me/groups'", error);
         this.myGroups = [];
@@ -168,6 +183,7 @@ export const useShareStore = defineStore("share", {
           path: { checklist_id: checkListId, group },
           method: "put",
           body: { permission },
+          skipErrorToast: true,
         });
       } catch (error) {
         console.error("Could not share with group 'PUT .../shares/group/" + group + "'", error);
@@ -191,6 +207,7 @@ export const useShareStore = defineStore("share", {
         res = await $checkapi("/api/checklist/{checklist_id}/public-links", {
           path: { checklist_id: checkListId },
           method: "get",
+          skipErrorToast: true,
         });
       } catch (error) {
         console.error("Could not list public links 'GET .../public-links'", error);
@@ -214,6 +231,7 @@ export const useShareStore = defineStore("share", {
           path: { checklist_id: checkListId },
           method: "post",
           body,
+          skipErrorToast: true,
         });
       } catch (error) {
         console.error("Could not create public link 'POST .../public-links'", error);
@@ -240,6 +258,7 @@ export const useShareStore = defineStore("share", {
           path: { checklist_id: checkListId, link_id: linkId },
           method: "patch",
           body: patch,
+          skipErrorToast: true,
         });
       } catch (error) {
         console.error("Could not update public link 'PATCH .../public-links/" + linkId + "'", error);
@@ -258,6 +277,7 @@ export const useShareStore = defineStore("share", {
         await $checkapi("/api/checklist/{checklist_id}/public-links/{link_id}", {
           path: { checklist_id: checkListId, link_id: linkId },
           method: "delete",
+          skipErrorToast: true,
         });
       } catch (error) {
         console.error("Could not delete public link 'DELETE .../public-links/" + linkId + "'", error);

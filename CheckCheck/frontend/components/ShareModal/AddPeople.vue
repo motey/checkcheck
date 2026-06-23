@@ -126,8 +126,19 @@ async function add(user: UserSearchResult) {
     });
     // Drop the freshly-added user from the visible results.
     results.value = results.value.filter((u) => u.id !== user.id);
-  } catch {
-    toast.add({ title: "Could not share with this user", color: "error" });
+  } catch (err) {
+    // The candidate list already filters out the owner, the current user, and
+    // existing collaborators, so these 4xx branches are belt-and-suspenders
+    // against a stale list / a race — but a clearer message still helps.
+    // Backend: 400 = target is the owner (incl. yourself); 404 = no such user.
+    const status = (err as any)?.statusCode ?? (err as any)?.response?.status;
+    const title =
+      status === 400
+        ? "The owner already has full access to this list"
+        : status === 404
+        ? "That user could not be found"
+        : "Could not share with this user";
+    toast.add({ title, color: "error" });
   } finally {
     addingId.value = null;
   }

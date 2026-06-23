@@ -122,6 +122,27 @@ test.describe("F1 permission-aware gating", () => {
     await userPage.keyboard.press("Escape");
   });
 
+  test("check collaborator can tick but not edit text", async ({ page, browser }) => {
+    // The middle rung of the ladder: a `check` collaborator may toggle item state
+    // but must NOT edit item text or add new items (that needs `edit`). view/edit
+    // are covered above; this asserts the in-between level the plan calls out
+    // ("view can't check, check can't edit").
+    const { title } = await shareCardWithTestUser(page, "check");
+
+    const { ctx, page: userPage } = await loginAsTestUser(browser);
+    secondCtx = ctx;
+
+    const dialog = await openSharedCard(userPage, title);
+
+    // Checkbox IS toggleable at `check`…
+    await expect(dialog.locator('[role="checkbox"]').first()).toBeEnabled();
+    // …but text editing and add-new are NOT (those require `edit`).
+    await expect(dialog.locator("li textarea").first()).toBeDisabled();
+    await expect(dialog.getByText("Add new item")).toHaveCount(0);
+
+    await userPage.keyboard.press("Escape");
+  });
+
   test("edit collaborator can modify items", async ({ page, browser }) => {
     const { title } = await shareCardWithTestUser(page, "edit");
 

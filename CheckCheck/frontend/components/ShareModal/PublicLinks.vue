@@ -79,8 +79,8 @@
         />
       </div>
       <p class="text-xs text-[var(--ui-text-muted)]">
-        The viewer page (<code>/p/&lt;token&gt;</code>) is not live yet — the link
-        won't resolve until that ships, but it is already valid.
+        Anyone with this link can open the list at
+        <code>/p/&lt;token&gt;</code> — no account needed.
       </p>
     </div>
 

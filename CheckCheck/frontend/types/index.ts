@@ -1,6 +1,21 @@
 import type { components } from "#open-fetch-schemas/checkapi";
 import type { PropType } from "vue";
 import type { CheckapiRequestBody, CheckapiResponse } from "#open-fetch";
+// ofetch's own ResponseType (NOT the DOM-lib global of the same name) — the
+// augmentation below must restate FetchOptions' type parameters identically, so
+// the constraint has to point at this exact symbol.
+import type { ResponseType as OFetchResponseType } from "ofetch";
+
+// Per-call opt-out for the global error toast in `plugins/api.ts` (F7). Call
+// sites that own their own error UX pass `skipErrorToast: true` so a handled 4xx
+// doesn't stack a generic "Error <code>" toast on top of their friendly message.
+// ofetch preserves unknown option keys into `context.options` at runtime; this
+// augmentation just makes the typed `$checkapi` accept the key.
+declare module "ofetch" {
+    interface FetchOptions<R extends OFetchResponseType = OFetchResponseType, T = any> {
+        skipErrorToast?: boolean
+    }
+}
 
 export { }
 declare global {

@@ -1,5 +1,16 @@
 # Card Sharing — Frontend Implementation Plan & Tracker
 
+> ## ✅ Frontend sharing work is COMPLETE (F0–F7 all DONE).
+> Every phase has shipped: cross-cutting foundations (F0), permission-aware
+> gating (F1), the share-management dialog (F2), public-link management (F3), the
+> anonymous `/p/<token>` viewer (F4), the notification feed (F5), the invite inbox
+> (F6), and polish + E2E (F7). The two backend prereqs (P0.1 `my_permission` /
+> `owner_id`, P0.2 `/api/public-config`) landed first. Typecheck is clean apart
+> from 2 unrelated pre-existing errors (`nuxt.config.ts:77`, `stores/color.ts:29`);
+> the Playwright suite is green (the invite-mode spec is an env-gated second pass:
+> `SHARING_REQUIRE_INVITE_ACCEPT=1 ./run_e2e_tests.sh invites`). See each phase's
+> "Shipped" note + the file map at the bottom for the details.
+
 Companion to `CARD_SHARING_PLAN.md`. The **backend is complete** (Phases 1–10: per-user
 shares, user/group search, public URL links with password + expiry, public-link join,
 invite/accept flow, and an in-app notification feed). This document plans the **Nuxt 4
@@ -645,7 +656,67 @@ accept/decline cards shared with them. (When off, the inbox is always empty — 
 
 ---
 
-## Phase F7 — Polish & E2E — 📋 PLANNED
+## Phase F7 — Polish & E2E — ✅ DONE
+
+> **Gap-analysis up front:** most of F7's nominal scope had already shipped
+> incidentally across F1–F6 (gating tests, share-modal tests, public-link tests,
+> public-viewer tests, notification tests, the env-gated invite pass; and every
+> sharing surface was already flag-gated — Share button on `sharingEnabled`,
+> AddPeople on `userSearchEnabled`, PublicLinks on `publicLinksEnabled`,
+> NotificationBell on `sharingEnabled`, InviteInbox renders nothing when empty).
+> So F7 was deliberately small: the one *substantive* fix, one copy straggler,
+> and two genuine E2E gaps. No committed-phase coverage was re-implemented.
+>
+> **Shipped:**
+> - **Targeted error toasts — the real fix.** Every ShareModal call site already
+>   had a friendly catch (AddPeople, PeopleList, ShareWithGroup with the exact
+>   "You can only share with groups you belong to", TransferOwnership, PublicLinks,
+>   ShareModal "Leave"). But `plugins/api.ts` toasts **every** non-2xx and its
+>   `onResponseError` runs **before** any per-call handler — so a handled 4xx in
+>   these flows stacked a generic **"Error <code>" toast on top of** the friendly
+>   one (a latent double-toast the committed phases never caught, since they only
+>   asserted zero error toasts on *happy* paths). Generalised the existing
+>   `isPublicShareRequest` path-suppression into an explicit per-call
+>   **`skipErrorToast`** opt-out (the parked "Possible changes → #1"): `plugins/api.ts`
+>   skips its generic toast when `ctx.options.skipErrorToast` is set, and
+>   **`stores/share.ts` passes it on every call** (the store fully owns its error
+>   UX — friendly call-site toasts or deliberate swallow). It does **not** suppress
+>   the 401→`/login` redirect (still handled in `onResponse`). Recommended this
+>   over brittle path-matching and over pure call-site catches (which can't
+>   suppress the global toast at all). Runtime-verified that ofetch's
+>   `resolveFetchOptions` spreads `...input`, so the custom key survives into
+>   `context.options`; typing needed a one-line module augmentation. **Gotcha:**
+>   augmenting ofetch's generic `FetchOptions` requires restating its type params
+>   identically — an unqualified `ResponseType` resolves to the **DOM-lib** global,
+>   not ofetch's, tripping `TS2428`; import ofetch's `ResponseType` and use that
+>   exact symbol in the constraint. Also made `AddPeople.vue`'s upsert message
+>   status-aware (400 = owner/self, 404 = no such user).
+> - **Empty/disabled-states audit:** confirmed every sharing surface degrades
+>   gracefully with each P0.2 flag off (no dead buttons, nothing 404s on the happy
+>   path) — all of it shipped in F2–F5. The one straggler fixed: `PublicLinks.vue`
+>   still said the viewer page "is not live yet" (stale since F4 shipped `/p/<token>`)
+>   — reworded to describe the live anonymous viewer.
+> - **Optimistic-vs-refetch:** confirmed consistent, nothing to change. The share
+>   store reconciles in place (splice/unshift); `transferOwnership` and the
+>   `share_added`/`share_removed` SSE both call `checkListStore.refresh()`, which
+>   re-reads the full card incl. `my_permission` and splices it in → the UI
+>   re-gates immediately. `shareWithGroup`'s full re-list is necessary (it adds
+>   multiple users we don't hold locally). No blind refetch / missing re-gate found.
+> - **E2E — only the two genuine gaps, no duplication.** The per-phase specs
+>   already cover the rest (F1 view/edit gating, F2 add/revoke/transfer/leave, F3
+>   links, F4 viewer, F5 notifications, F6 invites). Added: (1) **`check`-level
+>   gating** in `sharing-gating.spec.ts` — the in-between rung the plan names
+>   ("check can't edit"): checkbox **enabled**, item textarea **disabled**, no
+>   add-new; (2) **owner-revoke propagates live to the collaborator's open board**
+>   in `sharing-modal.spec.ts` — two simultaneous sessions, owner revokes through
+>   the dialog, the victim's grid drops the card **live over SSE** (no reload),
+>   with `Error 4xx` toast count asserted 0 on **both** sides. Full affected run:
+>   `./run_e2e_tests.sh sharing-gating sharing-modal` → **8 passed**. Typecheck
+>   clean apart from the 2 pre-existing errors (`nuxt.config.ts:77`,
+>   `stores/color.ts:29`). Restored `CheckCheck/openapi.json` after the run (the
+>   e2e server rewrites it on boot).
+
+The original F7 checklist (all addressed above):
 - **Empty/disabled states:** every section degrades gracefully when its server flag is off (P0.2) —
   no dead buttons.
 - **Error toasts:** reuse the central `plugins/api.ts` handler; add targeted messages for the
@@ -682,6 +753,7 @@ page — the largest, most isolated piece) → **F5** (notifications) → **F6**
 | Public viewer ✅ | `pages/p/[token].vue` (new), `composables/usePublicCard.ts` (new — public data source + anonymous SSE + write actions), `components/PublicChecklistItem.vue` (new — standalone item row), `plugins/api.ts` (skip toast + 401→/login redirect for `/api/public/` requests), `types/index.ts` (`UnlockRequestType`/`UnlockResultType`); tests `tests/e2e/public-viewer.spec.ts` |
 | Notifications ✅ | `stores/notification.ts` (new), `components/NotificationBell.vue` (new — `#invites` slot seam for F6), `components/Navbar.vue` (mount it), `composables/useSync.ts` (wire `notification` case), `types/index.ts` (`NotificationType`/`UnreadCountResultType`); tests `tests/e2e/notifications.spec.ts` |
 | Invites ✅ | `stores/invite.ts` (new), `components/InviteInbox.vue` (new — fills the bell's `#invites` seam), `components/NotificationBell.vue` (render `<InviteInbox/>` + refresh on mount), `composables/useSync.ts` (wire `share_invited` case), `CheckCheck/backend/e2e/start_e2e_server.py` (honour+log `SHARING_REQUIRE_INVITE_ACCEPT` for the gated invite-mode pass); tests `tests/e2e/invites.spec.ts` (env-gated invite-mode pass) |
+| Polish & E2E ✅ | `plugins/api.ts` (per-call `skipErrorToast` opt-out generalising the `/api/public/` suppression), `stores/share.ts` (pass `skipErrorToast` on every call + header comment), `types/index.ts` (`FetchOptions.skipErrorToast` augmentation — import ofetch's own `ResponseType`), `components/ShareModal/AddPeople.vue` (status-aware upsert message), `components/ShareModal/PublicLinks.vue` (stale "viewer not live yet" copy fixed); tests `tests/e2e/sharing-gating.spec.ts` (+ `check`-level test), `tests/e2e/sharing-modal.spec.ts` (+ live owner-revoke propagation test) |
 | Tests | `CheckCheck/frontend/tests/*` (Playwright) |
 
 ---
