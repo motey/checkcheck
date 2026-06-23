@@ -483,9 +483,61 @@ public. Anonymous edits emit sync so the owner sees them live.
 
 ---
 
-## Phase F5 — Notifications feed (backend Phase 9) — 📋 PLANNED
+## Phase F5 — Notifications feed (backend Phase 9) — ✅ DONE
 **Goal:** a navbar bell with an unread badge and a dropdown feed (card shared / invited / public
 link opened).
+
+> **Shipped:**
+> - **`stores/notification.ts` (new)** — mirrors the established store idiom
+>   (`const { $checkapi } = useNuxtApp()` + path/query/body + try/catch +
+>   `console.error`). State: `unreadCount`, `items: NotificationReadType[]`,
+>   `open` (dropdown flag). `refreshUnread()` (GET `.../unread-count`),
+>   `list({unread_only?, limit?})` (GET `.../notifications`), `markRead(id)` (POST
+>   `.../{id}/read` — reconciles in place: stamps the local item's `read_at` and
+>   decrements `unreadCount`, guarded so an idempotent re-mark can't drive the
+>   badge negative), `markAllRead()` (POST `.../read-all` — stamps all + zeroes
+>   the badge), and `setOpen(bool)` so useSync can re-list while the dropdown is
+>   open. Per F7 "optimistic vs refetch", mutations reconcile locally rather than
+>   refetching.
+> - **`types/index.ts`** gained `NotificationType` (`card_shared`/`card_invited`/
+>   `public_link_opened`) and `UnreadCountResultType` aliases (`NotificationReadType`
+>   already existed from F0); re-ran `bunx nuxi prepare`.
+> - **`composables/useSync.ts`** — the `notification` case (was a documented
+>   no-op) now always calls `notificationStore.refreshUnread()` and, when the
+>   dropdown is open, `notificationStore.list({limit:30})` for a live feed.
+>   Imported the store like `useShareStore`. This is the **authed board's** SSE
+>   only — the anonymous `/p/<token>` viewer's own EventSource never touches the
+>   store (noted inline).
+> - **`components/NotificationBell.vue` (new)**, mounted in `Navbar.vue` next to
+>   `ColorModeSwitch`/Logout. A `UPopover` whose trigger is a `i-lucide-bell`
+>   `UButton` wrapped in a `UChip` (badge shows `unreadCount`, capped at `99+`,
+>   hidden at 0). The dropdown header has the title + a "Mark all read" action
+>   (only when there are unread); rows render newest-first from `payload`
+>   (`actor_display_name` / `checklist_name`) + `type`, read **defensively**
+>   (payload may be null / keys absent → sensible per-`type` fallback string, e.g.
+>   "Someone shared a list with you"), with a per-`type` icon, a relative
+>   timestamp, and unread rows visually distinct (elevated bg + bold + dot).
+>   Clicking a card-related row (`cl_id` present) → `markRead(id)` then
+>   `useAppRoute().openCard(cl_id)` (the same `/card/:cardId` overlay route the
+>   board uses) and closes the popover; rows without a `cl_id` just mark read.
+>   `refreshUnread()` on mount; opening the popover sets the store `open` flag
+>   (drives the useSync re-list) and calls `list({limit:30})`.
+> - **Feature-gate:** the whole `UPopover` is `v-if="publicConfig.sharingEnabled"`
+>   — when sharing is off no notifications are ever produced, so the bell renders
+>   nothing (publicConfig is loaded once in `pages/index.vue` onMounted).
+> - **F6 seam:** the dropdown exposes a named `#invites` slot directly above the
+>   feed, so the invite inbox (F6) can slot in as a distinct section without a
+>   rewrite.
+> - **Tests:** `tests/e2e/notifications.spec.ts` (new, 2 tests, green). With
+>   testuser01's board open (SSE connected), admin shares a card via the API → the
+>   `notification` SSE fans out → the bell badge (`data-testid=notification-bell-chip`)
+>   shows "1" **live**; opening the dropdown shows the row; "Mark all read" clears
+>   the badge. A second test clicks the `card_shared` row and asserts the URL
+>   becomes `/card/<id>`. Both assert **`Error 4xx` toast count is 0** (the
+>   F2/F3/F4 lesson — `plugins/api.ts` toasts every non-2xx). Second user is
+>   `testuser01` in a fresh `browser.newContext()`; every page is navigated to
+>   `about:blank` in `afterEach` (live SSE blocks teardown). Restored
+>   `CheckCheck/openapi.json` after the run (the e2e server rewrites it on boot).
 
 ### Store: `stores/notification.ts`
 - `unreadCount`, `items: NotificationReadType[]`.
@@ -564,7 +616,7 @@ page — the largest, most isolated piece) → **F5** (notifications) → **F6**
 | Share dialog ✅ | `stores/share.ts` (new), `stores/publicConfig.ts` (new), `components/ShareModal/*` (new), `components/CheckListFooter/Button/Share.vue` (wire up), `composables/useSync.ts` (refreshIfOpen), `pages/index.vue` (load config), `types/index.ts` (TransferOwnershipResultType); tests `tests/e2e/sharing-modal.spec.ts` |
 | Public links ✅ | `components/ShareModal/PublicLinks.vue` (fleshed out from stub), `stores/share.ts` (links cache + `linksFor`/`listLinks`/`createLink`/`updateLink`/`deleteLink`); tests `tests/e2e/sharing-public-links.spec.ts` |
 | Public viewer ✅ | `pages/p/[token].vue` (new), `composables/usePublicCard.ts` (new — public data source + anonymous SSE + write actions), `components/PublicChecklistItem.vue` (new — standalone item row), `plugins/api.ts` (skip toast + 401→/login redirect for `/api/public/` requests), `types/index.ts` (`UnlockRequestType`/`UnlockResultType`); tests `tests/e2e/public-viewer.spec.ts` |
-| Notifications | `stores/notification.ts` (new), `components/NotificationBell.vue` (new), `Navbar.vue` (mount it) |
+| Notifications ✅ | `stores/notification.ts` (new), `components/NotificationBell.vue` (new — `#invites` slot seam for F6), `components/Navbar.vue` (mount it), `composables/useSync.ts` (wire `notification` case), `types/index.ts` (`NotificationType`/`UnreadCountResultType`); tests `tests/e2e/notifications.spec.ts` |
 | Invites | `stores/invite.ts` (new), invite UI in the bell / `SideMenuNav.vue` |
 | Tests | `CheckCheck/frontend/tests/*` (Playwright) |
 

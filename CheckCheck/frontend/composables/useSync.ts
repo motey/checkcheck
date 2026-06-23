@@ -2,11 +2,13 @@ import { createSharedComposable, useDebounceFn } from "@vueuse/core";
 import { useCheckListsStore } from "@/stores/checklist";
 import { useCheckListsItemStore } from "@/stores/checklist_item";
 import { useShareStore } from "@/stores/share";
+import { useNotificationStore } from "@/stores/notification";
 
 export const useSync = createSharedComposable(() => {
   const checkListStore = useCheckListsStore();
   const checkListItemStore = useCheckListsItemStore();
   const shareStore = useShareStore();
+  const notificationStore = useNotificationStore();
 
   // Collapse bursts of item-level notifications (e.g. rapid moves) into a
   // single refresh per checklist.  One debouncer is created per checklist id
@@ -158,8 +160,13 @@ export const useSync = createSharedComposable(() => {
         break;
 
       case "notification":
-        // F5: bump the notification store (`notificationStore.refreshUnread()`)
-        // once it exists.
+        // A new notification landed for this user. Always refresh the cheap
+        // unread badge; if the dropdown is open, also re-list the visible feed so
+        // the new row shows live. NOTE: this is the AUTHED board's SSE only — the
+        // anonymous /p/<token> viewer uses usePublicCard's own EventSource and
+        // never touches this store.
+        notificationStore.refreshUnread();
+        if (notificationStore.open) notificationStore.list({ limit: 30 });
         break;
     }
   }

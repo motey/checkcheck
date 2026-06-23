@@ -17,6 +17,7 @@
       </div>
 
       <div class="flex items-center gap-2 shrink-0">
+        <NotificationBell />
         <ColorModeSwitch />
         <UButton variant="ghost" color="neutral" size="sm" @click="logout">Logout</UButton>
       </div>

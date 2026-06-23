@@ -53,6 +53,8 @@ declare global {
     type TransferOwnershipResultType = components["schemas"]["TransferOwnershipResult"]
     type InviteReadType = components["schemas"]["InviteRead"]
     type NotificationReadType = components["schemas"]["NotificationRead"]
+    type NotificationType = components["schemas"]["NotificationType"]   // card_shared|card_invited|public_link_opened
+    type UnreadCountResultType = components["schemas"]["UnreadCountResult"]
     type UserSearchResult = components["schemas"]["UserSearchResult"]
     type UserType = components["schemas"]["User"]
     type PublicConfigType = components["schemas"]["PublicConfig"]        // P0.2 feature flags
