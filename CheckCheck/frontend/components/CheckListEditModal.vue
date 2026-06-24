@@ -15,7 +15,7 @@
           variant="ghost"
           size="sm"
           aria-label="Close"
-          class="absolute top-2 right-2 z-10"
+          class="absolute top-2 right-2 z-10 bg-default/60 backdrop-blur-sm rounded-full"
           @click="open = false"
         />
         <!-- CheckList has a top-level await (loads the card + its items on

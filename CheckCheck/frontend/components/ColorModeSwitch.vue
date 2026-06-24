@@ -1,12 +1,15 @@
 <template>
-  <div class="flex space-x-2">
+  <div data-testid="theme-toggle" class="flex items-center gap-0.5">
     <UButton
       v-for="mode in modes"
       :key="mode.value"
-      :label="`${mode.emoji} ${mode.label}`"
+      :icon="mode.icon"
       size="sm"
+      square
       :color="colorMode.preference === mode.value ? 'primary' : 'neutral'"
-      :variant="colorMode.preference === mode.value ? 'solid' : 'outline'"
+      :variant="colorMode.preference === mode.value ? 'solid' : 'ghost'"
+      :aria-label="mode.label"
+      :data-active="colorMode.preference === mode.value ? 'true' : undefined"
       @click="setTheme(mode.value)"
     />
   </div>
@@ -16,9 +19,9 @@
 const colorMode = useColorMode();
 
 const modes = [
-  { value: "light", label: "Light", emoji: "🌞" },
-  { value: "dark", label: "Dark", emoji: "🌙" },
-  { value: "system", label: "System", emoji: "🖥️" },
+  { value: "light", label: "Light", icon: "i-lucide-sun" },
+  { value: "dark", label: "Dark", icon: "i-lucide-moon" },
+  { value: "system", label: "System", icon: "i-lucide-monitor" },
 ];
 
 function setTheme(mode: string) {

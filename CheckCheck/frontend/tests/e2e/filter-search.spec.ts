@@ -129,7 +129,7 @@ test.describe("search", () => {
     await expect(page.getByText(noMatchName)).toBeVisible();
 
     // Type the unique part of matchName — only that checklist should survive.
-    const searchInput = page.getByPlaceholder("Search...");
+    const searchInput = page.locator("[data-testid=search-input]");
     await searchInput.fill(`SearchMatch-${tag}`);
 
     // Wait for the debounced search (300 ms) to fire and results to render.
@@ -148,7 +148,7 @@ test.describe("search", () => {
     await page.goto("/");
     await page.waitForSelector("[data-testid=checklist-board]");
 
-    const searchInput = page.getByPlaceholder("Search...");
+    const searchInput = page.locator("[data-testid=search-input]");
     await searchInput.fill(name);
     await expect(page).toHaveURL(/search=/, { timeout: 2_000 });
 
@@ -211,7 +211,7 @@ test.describe("combined label and search filter", () => {
     await expect(page.getByText(nameC)).not.toBeVisible();
 
     // Now add the search text — the watcher will call searchChecklists(query, labelId).
-    const searchInput = page.getByPlaceholder("Search...");
+    const searchInput = page.locator("[data-testid=search-input]");
     // Search for the unique token that only nameA (and nameC) contain.
     await searchInput.fill(`Combined-Match-${tag}`);
 

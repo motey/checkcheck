@@ -33,8 +33,11 @@
       :filterCheckedItems="true"
     />
     
+    <!-- On a phone preview keep the card short: don't expand the checked
+         section (the "+N checked items" hint above still surfaces it; the full
+         list is one tap away in the editor). -->
     <CheckListItemCollectionPreview
-      v-else
+      v-else-if="!isMobile"
       :parentCheckList="checkList"
       :showMaxItems="showCheckedItemCount"
       :filterCheckedItems="true"
@@ -44,9 +47,12 @@
 
 <script setup lang="ts">
 import { computed } from "vue";
+import { useMediaQuery } from "@vueuse/core";
 import { useCheckListsStore } from "@/stores/checklist";
 import { useCheckListsItemStore } from "@/stores/checklist_item";
 import { Collapse } from "vue-collapsed";
+
+const isMobile = useMediaQuery("(max-width: 639px)");
 
 const checkListStore = useCheckListsStore();
 const checkListItemStore = useCheckListsItemStore();

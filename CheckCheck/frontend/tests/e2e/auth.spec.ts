@@ -85,7 +85,11 @@ test.describe("logout", () => {
     await page.locator('form button[type="submit"]').click();
     await page.waitForURL("/", { timeout: 10_000 });
 
-    await page.getByRole("button", { name: "Logout" }).click();
+    // Logout now lives inside the avatar user menu (UDropdownMenu items
+    // teleport to the body, so the trigger is opened first and the item is
+    // located at the page level by its testid).
+    await page.locator("[data-testid=user-menu]").click();
+    await page.locator("[data-testid=logout-button]").click();
     await page.waitForURL("/login", { timeout: 10_000 });
     await expect(page).toHaveURL("/login");
   });

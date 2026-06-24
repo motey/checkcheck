@@ -1,5 +1,5 @@
 <template>
-  <div class="flex items-start gap-1.5 py-0.5" @mouseover="hover = true" @mouseleave="hover = false">
+  <div class="checklist-item-row flex items-start gap-1.5 py-0.5" @mouseover="hover = true" @mouseleave="hover = false">
     <span
       v-if="parentEditMode && canEdit"
       :class="{ nonActive: !hover }"
@@ -9,12 +9,12 @@
     >
       <UIcon name="i-lucide-grip-vertical" class="w-5 h-5 cursor-row-resize" />
     </span>
-    <div class="flex-none flex items-center self-stretch min-h-6" :title="canCheck ? undefined : 'View only'">
-      <UCheckbox v-model="checkListItem!.state.checked" :disabled="!canCheck" @click.stop="toggleCheck()" size="md" />
+    <div class="flex-none flex items-center self-stretch min-h-5 sm:min-h-6" :title="canCheck ? undefined : 'View only'">
+      <UCheckbox v-model="checkListItem!.state.checked" :disabled="!canCheck" @click.stop="toggleCheck()" :size="isMobile ? 'sm' : 'md'" />
     </div>
     <div
       v-if="!parentEditMode"
-      class="min-w-0 flex-1 pt-0.5 break-words whitespace-pre-wrap line-clamp-3"
+      class="min-w-0 flex-1 pt-0.5 break-words whitespace-pre-wrap line-clamp-1"
       :class="{ strikethrough: checkListItem?.state.checked }"
       v-html="highlightText(checkListItem!.text, searchQuery)"
     />
@@ -41,7 +41,7 @@
 
 <script setup lang="ts">
 import { ref } from "vue";
-import { useDebounceFn } from "@vueuse/core";
+import { useDebounceFn, useMediaQuery } from "@vueuse/core";
 import type { PropType } from "vue";
 import { useCheckListsItemStore } from "@/stores/checklist_item";
 import { useTextareaAutosize } from '@vueuse/core'
@@ -66,6 +66,9 @@ onMounted(() => {
 const hover = ref(false);
 const textFocused = ref(false);
 const textareaComp = ref();
+// Phones get a smaller, lighter checkbox (Keep-like density) without shrinking
+// the item text; desktop keeps the larger md checkbox.
+const isMobile = useMediaQuery("(max-width: 639px)");
 const checkListsItemStore = useCheckListsItemStore();
 const route = useRoute();
 const searchQuery = computed(() => (route.query.search as string) || null);
@@ -140,6 +143,18 @@ watch(localText, (t) => debouncedUpdateCheckListItemText(t));
 .nonActive {
     opacity: 0.3;
   /*visibility: hidden;*/
+}
+/* On touch there is no hover: keep drag handles fully visible and give the
+   checkbox/text row a thumb-friendly hit area (>=40px). */
+@media (hover: none) {
+  .nonActive {
+    opacity: 1;
+  }
+  .checklist-item-row {
+    padding-top: 0.125rem;
+    padding-bottom: 0.125rem;
+    min-height: 26px;
+  }
 }
 .strikethrough {
   text-decoration: line-through;

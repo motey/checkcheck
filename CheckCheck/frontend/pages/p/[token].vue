@@ -3,7 +3,7 @@
     <!-- Standalone header (no board/sidebar chrome) -->
     <header class="w-full max-w-2xl flex items-center justify-between mb-4">
       <NuxtLink to="/" class="flex items-center gap-2">
-        <Logo class="h-7 w-auto" />
+        <Logo size="full" />
       </NuxtLink>
       <ColorModeSwitch />
     </header>

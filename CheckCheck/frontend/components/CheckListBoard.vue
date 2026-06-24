@@ -1,29 +1,127 @@
 <template>
   <div>
-    <!-- Pinned collection — shown above the normal list when non-empty -->
-    <div v-show="dragPinned.length" data-testid="pinned-section">
-      <h2 class="px-3 sm:px-5 pt-3 text-xs font-semibold uppercase tracking-wide opacity-60">Pinned</h2>
-      <ul ref="pinnedBoard" data-testid="pinned-board" class="grid gap-3 sm:gap-4 grid-cols-[repeat(auto-fill,minmax(15rem,1fr))]">
-        <li v-for="checkList in dragPinned" :key="checkList.id" class="w-full checklist-preview">
+    <!-- First-load skeleton — shown until the initial fetch resolves so the
+         board doesn't pop in from blank. Transient/visual; not tested. -->
+    <ul
+      v-if="!initialLoadDone"
+      class="grid gap-2.5 sm:gap-4 grid-cols-[repeat(auto-fill,minmax(10rem,1fr))] sm:grid-cols-[repeat(auto-fill,minmax(15rem,1fr))]"
+    >
+      <li v-for="n in 8" :key="n" class="w-full">
+        <USkeleton class="h-32 w-full rounded-xl" />
+      </li>
+    </ul>
+
+    <!-- Empty states — gated behind the initial load so they don't flash on the
+         brief blank first paint before data arrives. -->
+    <template v-else>
+      <div
+        v-if="isEmpty && (searchQuery || labelFilter)"
+        data-testid="board-empty-search"
+        class="flex flex-col items-center justify-center text-center gap-3 py-20 px-6"
+      >
+        <UIcon name="i-lucide-search-x" class="size-12 text-dimmed" />
+        <p class="text-muted">
+          No results<template v-if="searchQuery"> for &ldquo;{{ searchQuery }}&rdquo;</template>.
+        </p>
+      </div>
+
+      <div
+        v-else-if="isEmpty && sharedFilter"
+        data-testid="board-empty-shared"
+        class="flex flex-col items-center justify-center text-center gap-3 py-20 px-6"
+      >
+        <UIcon name="i-lucide-users" class="size-12 text-dimmed" />
+        <p class="text-muted">
+          Nothing shared {{ sharedFilter === "by_me" ? "by you" : "with you" }} yet.
+        </p>
+      </div>
+
+      <div
+        v-else-if="isEmpty"
+        data-testid="board-empty"
+        class="flex flex-col items-center justify-center text-center gap-3 py-20 px-6"
+      >
+        <UIcon name="i-lucide-clipboard-list" class="size-12 text-dimmed" />
+        <p class="text-muted">You don&rsquo;t have any lists yet.</p>
+        <UButton
+          data-testid="board-empty-cta"
+          icon="i-lucide-plus"
+          color="primary"
+          @click="createAndOpen"
+        >
+          Create your first list
+        </UButton>
+      </div>
+    </template>
+
+    <!-- Boards stay mounted (v-show) so the FormKit DnD refs persist and the
+         board testids never leave the DOM; hidden only during the first-load
+         skeleton. When empty after load they render as an (empty) grid that
+         sits under the empty-state message — the testids stay visible so specs
+         that wait on them don't hang on an empty board. -->
+    <div v-show="initialLoadDone">
+      <!-- Pinned collection — shown above the normal list when non-empty -->
+      <div v-show="dragPinned.length" data-testid="pinned-section">
+        <h2 class="px-3 sm:px-5 pt-3 text-xs font-semibold uppercase tracking-wide opacity-60">Pinned</h2>
+        <ul
+          ref="pinnedBoard"
+          data-testid="pinned-board"
+          class="grid gap-2.5 sm:gap-4 grid-cols-[repeat(auto-fill,minmax(10rem,1fr))] sm:grid-cols-[repeat(auto-fill,minmax(15rem,1fr))]"
+        >
+          <li v-for="checkList in dragPinned" :key="checkList.id" class="w-full checklist-preview">
+            <CheckList :checkListId="checkList.id" @click="openCheckListEditor(checkList.id)" :previewModeActive="true" />
+          </li>
+        </ul>
+      </div>
+
+      <h2 v-show="dragPinned.length" class="px-3 sm:px-5 pt-3 text-xs font-semibold uppercase tracking-wide opacity-60">Others</h2>
+      <ul
+        ref="normalBoard"
+        data-testid="checklist-board"
+        class="grid gap-2.5 sm:gap-4 grid-cols-[repeat(auto-fill,minmax(10rem,1fr))] sm:grid-cols-[repeat(auto-fill,minmax(15rem,1fr))]"
+      >
+        <li v-for="checkList in dragNormal" :key="checkList.id" class="w-full checklist-preview">
           <CheckList :checkListId="checkList.id" @click="openCheckListEditor(checkList.id)" :previewModeActive="true" />
+        </li>
+        <!-- Pagination trigger. The IntersectionObserver (v-element-visibility)
+             drives auto-paging; the visible affordance is just a subtle spinner
+             while loading, with a fallback button only when no observer exists. -->
+        <li
+          class="no-drag text-center py-4"
+          ref="loadMoreTrigger"
+          v-element-visibility="onLoadingTriggerVisibility"
+          v-if="hasMoreToLoad"
+        >
+          <span v-if="loadingInProcess" class="inline-flex items-center gap-2 text-sm text-muted">
+            <UIcon name="i-lucide-loader-circle" class="size-4 animate-spin" />
+            Loading more&hellip;
+          </span>
+          <UButton
+            v-else-if="!hasObserver"
+            icon="i-lucide-refresh-cw"
+            color="neutral"
+            variant="ghost"
+            size="sm"
+            @click="loadMore"
+          >
+            Load more
+          </UButton>
         </li>
       </ul>
     </div>
 
-    <h2 v-show="dragPinned.length" class="px-3 sm:px-5 pt-3 text-xs font-semibold uppercase tracking-wide opacity-60">Others</h2>
-    <ul ref="normalBoard" data-testid="checklist-board" class="grid gap-3 sm:gap-4 grid-cols-[repeat(auto-fill,minmax(15rem,1fr))]">
-      <li v-for="checkList in dragNormal" :key="checkList.id" class="w-full checklist-preview">
-        <CheckList :checkListId="checkList.id" @click="openCheckListEditor(checkList.id)" :previewModeActive="true" />
-      </li>
-      <li
-        class="no-drag text-center py-4"
-        ref="loadMoreTrigger"
-        v-element-visibility="onLoadingTriggerVisibility"
-        v-if="hasMoreToLoad"
-      >
-        <UButton icon="i-lucide-refresh-cw" :loading="loadingInProcess" variant="ghost"> Load more... </UButton>
-      </li>
-    </ul>
+    <!-- Mobile FAB: new list. The navbar keeps the canonical new-card-button
+         (Phase 2); this is the prominent bottom-right affordance on phones. -->
+    <UButton
+      data-testid="board-fab-new"
+      class="sm:hidden fixed right-4 z-40 rounded-full shadow-lg"
+      style="bottom: calc(1rem + env(safe-area-inset-bottom))"
+      icon="i-lucide-plus"
+      size="xl"
+      color="primary"
+      aria-label="New Check List"
+      @click="createAndOpen"
+    />
   </div>
 </template>
 
@@ -38,9 +136,11 @@ import type { DragendEventData } from "@formkit/drag-and-drop";
 import { vElementVisibility } from "@vueuse/components";
 import { useDebounceFn } from "@vueuse/core";
 import { useAppRoute } from "~/composables/useAppRoute";
+import { useCreateCheckList } from "~/composables/useCreateCheckList";
 
 const route = useRoute();
 const { openCard } = useAppRoute();
+const { createAndOpen } = useCreateCheckList();
 const checkListStore = useCheckListsStore();
 const checkListsColorSchemeStore = useCheckListsColorSchemeStore();
 const checkListsLabelStore = useCheckListsLabelStore();
@@ -57,8 +157,31 @@ const hasMoreToLoad = computed(() =>
 const loadingTriggerIsVisible = ref(false);
 const loadingInProcess = ref(false);
 
+// Gates the empty states: fetchNextPage() is async, so the board is briefly
+// empty on first paint. We only know whether the board is truly empty once the
+// initial fetch has resolved.
+const initialLoadDone = ref(false);
+// Whether IntersectionObserver-driven auto-paging is available; if not, we fall
+// back to a manual "Load more" button.
+const hasObserver = ref(true);
+
+// Current filter context (drives which empty state, if any, is shown).
+const searchQuery = computed(() => (route.query.search as string) || null);
+const labelFilter = computed(() => (route.query.label as string) || null);
+const sharedFilter = computed(() => (route.query.shared as string) || null);
+
+const isEmpty = computed(() => dragPinned.value.length === 0 && dragNormal.value.length === 0);
+
 onMounted(async () => {
-  await checkListStore.fetchNextPage();
+  hasObserver.value = typeof IntersectionObserver !== "undefined";
+  try {
+    await checkListStore.fetchNextPage();
+  } finally {
+    // Always reveal the board once the initial fetch settles — even if it
+    // rejected. Gating on success would leave the board hidden permanently on a
+    // transient error. Colours/labels are board chrome and don't block paint.
+    initialLoadDone.value = true;
+  }
   await checkListsColorSchemeStore.fetchColors();
   await checkListsLabelStore.fetchLabels();
 });
@@ -150,6 +273,20 @@ async function onLoadingTriggerVisibility(state: boolean) {
   }
 }
 
+// Manual one-page fetch for the no-observer fallback button. (The observer path
+// uses onLoadingTriggerVisibility, which keeps paging while the trigger stays
+// in view.)
+async function loadMore() {
+  if (loadingInProcess.value || !hasMoreToLoad.value) return;
+  loadingInProcess.value = true;
+  if (searchResults.value !== null) {
+    await checkListStore.fetchMoreFiltered();
+  } else {
+    await checkListStore.fetchNextPage();
+  }
+  loadingInProcess.value = false;
+}
+
 function openCheckListEditor(checkListId: string) {
   openCard(checkListId);
 }
@@ -165,8 +302,10 @@ ul {
     padding: 20px;
   }
 }
+/* Lift on the same 150ms / cubic-bezier curve as the card's shadow+ring
+   transition (Tailwind's transition-shadow) so they move together. */
 .checklist-preview {
-  transition: transform 0.15s ease;
+  transition: transform 0.15s cubic-bezier(0.4, 0, 0.2, 1);
 }
 .checklist-preview:hover {
   transform: translateY(-2px);

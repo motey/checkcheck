@@ -9,7 +9,7 @@
         <UTooltip text="No color">
           <button
             type="button"
-            class="size-6 rounded-full border-2 flex items-center justify-center hover:scale-110 transition-transform"
+            class="color-swatch size-6 rounded-full border-2 flex items-center justify-center hover:scale-110 transition-transform"
             :class="{ 'ring-2 ring-offset-1 ring-primary': modelValue == null }"
             :style="{ borderColor: isDark ? '#666' : '#ccc', backgroundColor: isDark ? '#333' : '#eee' }"
             @click.stop="select(null)"
@@ -25,7 +25,7 @@
         >
           <button
             type="button"
-            class="size-6 rounded-full border-2 hover:scale-110 transition-transform"
+            class="color-swatch size-6 rounded-full border-2 hover:scale-110 transition-transform"
             :class="{ 'ring-2 ring-offset-1 ring-primary': color.id === modelValue }"
             :style="optionStyle(color)"
             @click.stop="select(color.id)"
@@ -67,3 +67,14 @@ function select(colorId: string | null) {
   if (props.closeOnSelect !== false) open.value = false;
 }
 </script>
+
+<style scoped>
+/* Larger swatches on touch for comfortable tapping; the selected ring stays
+   inside the popover's padding so it isn't clipped. */
+@media (hover: none) {
+  .color-swatch {
+    width: 2rem;
+    height: 2rem;
+  }
+}
+</style>

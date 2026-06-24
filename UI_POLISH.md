@@ -172,6 +172,10 @@ search box.
   DnD and DOM order) but tighten the min column width responsively (`minmax(13rem,1fr)` on
   mobile) for a clean 1–2 column phone layout, and tune the `gap`. This is the low-risk win.
   ([CheckListBoard.vue:14](CheckCheck/frontend/components/CheckListBoard.vue#L14))
+  - **Shipped as a single clean column on phones.** Going to a true Keep-style **two** columns
+    needs much narrower cards, which drags in the card-density work (hide the footer, truncate,
+    compact spacing) — so the two-column step was deliberately deferred to **Phase 4a**, where it
+    lands together with those fixes rather than shipping a cramped two-up card in the interim.
   - **True Google-Keep masonry is deliberately NOT in this phase.** CSS grid aligns rows, so
     uneven cards leave vertical gaps — but every masonry option (CSS `columns-*`, JS masonry
     like Muuri, experimental `grid masonry`) conflicts with `@formkit/drag-and-drop` and the
@@ -208,21 +212,74 @@ search box.
 
 ---
 
-## Phase 4 — Cards & checklist items (touch ergonomics)
+## Phase 4 — Cards & checklist items (touch ergonomics & mobile density)
+
+Two strands: (4a) a denser, more Google-Keep-like board on small screens, and (4b) the
+touch-ergonomics fixes. 4a is the bulk of the work and the strands are coupled — the density
+fixes (4a) are exactly what make a narrower card viable, so do them together.
+
+### 4a. Mobile density — two columns + a calmer card
+
+- **Two columns on phones (moved here from Phase 3).** The board still renders **one** column
+  on a ~390px phone because the mobile grid min is `minmax(13rem,1fr)` (208px), so two columns
+  (~416px) don't fit. Drop the mobile min to ~`minmax(10rem,1fr)` (keep `15rem` at `sm+`) for a
+  Keep-style two-up layout from ~340px up. ([CheckListBoard.vue:6,14](CheckCheck/frontend/components/CheckListBoard.vue#L6))
+  - Same CSS-grid engine → DnD, DOM order, and the `checklist-board` / `pinned-board` /
+    `pinned-section` testids are untouched. **This is still a one-line change; the work below is
+    making the card content survive the narrower width.**
+  - This buys two columns with **aligned rows** (a short card next to a tall one leaves a gap),
+    *not* Keep's gapless packing. True masonry that closes those gaps is **Phase 8** (it breaks
+    the DOM-order reorder assumption). Accept the row gaps here.
+- **Card actions in the editor only (declutter the board).** Every preview card currently
+  renders the full `CheckListFooter` — a centered 5-button `UButtonGroup` (Archive / Color /
+  Share / Label / More) plus the selected-labels row — on the board.
+  ([CheckList.vue:73-75](CheckCheck/frontend/components/CheckList.vue#L73), [CheckListFooter/index.vue](CheckCheck/frontend/components/CheckListFooter/index.vue))
+  That's the single biggest source of clutter and it can't fit a ~185px two-column card. Hide
+  the footer in **preview mode** and surface those actions only inside the open editor (Keep's
+  model). The **Pin** toggle stays on the card (it's the one board-level action; already
+  separate at [CheckList.vue:15](CheckCheck/frontend/components/CheckList.vue#L15)). On desktop,
+  optionally reveal a condensed action row on hover; on touch they live in the editor. This also
+  **dissolves the old footer-overflow problem** — there's no footer on the card to overflow.
+  - **Test impact (decisive — read before building):** `share-button` is reached **from the
+    board preview** today — `sharing-modal.spec.ts` / `shares.spec.ts` do
+    `page.locator(".checklist-preview")…locator("[data-testid=share-button]").click()`. Hiding
+    the footer in preview breaks them. Either (a) keep a hover-revealed action affordance on the
+    card that still carries `share-button` (desktop), or (b) update those specs to open the
+    editor first and click `share-button` there. Decide this up front; keep `archive-button` /
+    other footer testids reachable the same way.
+- **Earlier truncation of long content.** On the board, long cards dominate a two-column layout
+  and widen the row gaps. Tighten preview only (not the editor):
+  - Title: clamp to 2 lines ([CheckList.vue:17](CheckCheck/frontend/components/CheckList.vue#L17)).
+  - Notes: `line-clamp-3` → `line-clamp-2` on mobile ([CheckList.vue:35](CheckCheck/frontend/components/CheckList.vue#L35)).
+  - Item text: truncate each preview item to one line (it can currently wrap arbitrarily).
+  - Fewer preview items on phones: `previewItemCount` drives `showMaxItems`; lower it on mobile
+    so a long list shows e.g. 4–5 items + the existing "+N items" hint
+    ([CheckList.vue:102-104](CheckCheck/frontend/components/CheckList.vue#L102), the "+N items"
+    affordance is in [CheckListItemCollection/Preview.vue](CheckCheck/frontend/components/CheckListItemCollection/Preview.vue)).
+- **Compact spacing on small screens.** Preview cards are `p-4 min-h-32`
+  ([CheckList.vue:7](CheckCheck/frontend/components/CheckList.vue#L7)). On mobile use `p-3` and
+  drop/relax `min-h-32` so a 1–2 item card isn't padded out to a fixed tall block (wasted space
+  + worse row gaps). Tighten the board `gap` a touch at mobile width too.
+- **Collapse completed items in the preview.** When a card splits checked items
+  ([Seperated.vue](CheckCheck/frontend/components/CheckListItemCollection/Seperated.vue)), don't
+  expand the "checked" section in preview on mobile — keep cards short; the full list is one tap
+  away in the editor.
+- **Labels as dots on mobile preview (optional).** The selected-labels row adds height; consider
+  collapsing it to small color dots on phones and showing full label chips only in the editor.
+
+### 4b. Touch ergonomics
 
 - **Drag handle discoverability.** Item drag handles fade to `opacity: 0.3` until hover
   ([CheckListItem.vue:140](CheckCheck/frontend/components/CheckListItem.vue#L140)); on touch
   there's no hover, so handles stay faint. Show them at full opacity on touch
   (`@media (hover: none)`).
 - **Checkbox tap targets.** Items are `py-0.5`; checkbox + text rows are tight for thumbs.
-  Bump vertical padding on touch and ensure the row hit area ≥ 40px.
+  Bump vertical padding on touch and ensure the row hit area ≥ 40px. On a compact two-column
+  card this also matters for **tap disambiguation** — tapping a checkbox must toggle without
+  opening the card editor, so the checkbox hit area needs to be clearly its own target.
 - **Color picker swatches** (`size-6`) are small for touch and the selected ring
   (`ring-offset`) can clip inside the popover. Bump to `size-7`/`size-8` on touch and verify
   the ring isn't clipped. ([ColorSwatchPicker.vue:28](CheckCheck/frontend/components/ColorSwatchPicker.vue#L28))
-- **Footer button row** (`CheckListFooter`) crams Archive / Color / Share / Label / More into a
-  `UButtonGroup`. Confirm it doesn't overflow on a narrow (1-column) card; if it does, let it
-  wrap or move secondary actions into the More menu at small widths.
-  ([CheckListFooter/index.vue](CheckCheck/frontend/components/CheckListFooter/index.vue))
 - **Editor modal close button** floats over scrolling content
   ([CheckListEditModal.vue:12](CheckCheck/frontend/components/CheckListEditModal.vue#L12)).
   Give it a subtle backing (`bg-default/60 backdrop-blur rounded-full`) so it stays legible over
@@ -231,14 +288,20 @@ search box.
   uses `text-dimmed` so it doesn't look like real content.
 
 **Tests:**
-- **Keep green (no new tests):** this phase is ergonomics/CSS, so no new assertions are
-  warranted — but it touches markup the drag specs depend on. `item-movement.spec.ts` selects
-  the item handle by the `list-item-drag-handle` class, and `card-editor.spec.ts` opens/closes
-  the editor and toggles checkboxes (`public-item-checkbox` analogues + `card-title`). Padding,
-  swatch-size, and the close-button restyle must keep those classes/testids and the
-  `aria-label="Close"`. Re-run `item-movement`, `card-editor`, `pin`, and `shares` after.
-- The footer-overflow change (wrap vs. move-to-More on narrow cards) only matters at mobile
-  width; the desktop suite won't catch a regression there — verify manually.
+- **The footer-in-editor-only change is the one with real test risk** (see the inline note
+  above): `share-button` is currently clicked from the board preview by `sharing-modal.spec.ts`
+  and `shares.spec.ts`. Pick the approach (hover-revealed action on the card vs. open-editor-first
+  in the specs) and update those specs accordingly. Keep `aria-label="Close"` on the modal.
+- **Otherwise mostly ergonomics/CSS (no new assertions warranted)** — but it touches markup the
+  drag specs depend on. `item-movement.spec.ts` selects the item handle by the
+  `list-item-drag-handle` class; `card-editor.spec.ts` opens/closes the editor and toggles
+  checkboxes (`card-title` + checkbox testids). Truncation, padding, swatch-size and the
+  close-button restyle must keep those classes/testids. Re-run `item-movement`, `card-editor`,
+  `pin`, `shares`, and `sharing-modal` after.
+- The two-column grid keeps the board testids + DOM order, so the movement/pin specs are safe —
+  re-run them. The density/truncation effects only show at mobile width; the desktop suite won't
+  catch regressions there — **verify manually at 390×844** (and confirm a long list no longer
+  makes one column dramatically taller than its neighbour).
 
 ---
 

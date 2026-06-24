@@ -2,7 +2,7 @@
   <ul ref="ItemsView" class="px-0 py-0 sm:px-0 sm:py-0 md:px-0 md:py-0 lg:px-0 lg:py-0">
     <li v-for="item in draggableItems" :key="item.id"
       class="px-0 py-0 sm:px-0 sm:py-0 md:px-0 md:py-0 lg:px-0 lg:py-0">
-      <CheckListItem class="px-0 py-0 sm:px-0 sm:py-0 md:px-0 md:py-0 lg:px-0 lg:py-0 text-sm font-light"
+      <CheckListItem class="px-0 py-0 sm:px-0 sm:py-0 md:px-0 md:py-0 lg:px-0 lg:py-0 text-[13px] sm:text-sm"
         :ref="(el) => registerItemRef(item.id, el)"
         :parentCheckList="parentCheckList" :checkListItem="item" :parentEditMode="true"
         @add-item-after="addItemAfter"></CheckListItem>
