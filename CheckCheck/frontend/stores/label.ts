@@ -114,6 +114,25 @@ export const useCheckListsLabelStore = defineStore("checkListLabelStore", {
         throw error;
       }
     },
+    async sortLabels(orderedLabelIds: string[]) {
+      // `orderedLabelIds` is the desired display order (top -> bottom). Labels
+      // are displayed by descending sort_order (see _sort), while the backend
+      // assigns ascending sort_order (10, 20, …) to the ids in the order it is
+      // given. Reverse so the top-most label ends up with the highest
+      // sort_order and the persisted order matches the visual order.
+      const { $checkapi } = useNuxtApp();
+      try {
+        const fresh_labels = await $checkapi("/api/label/sort", {
+          method: "put",
+          body: [...orderedLabelIds].reverse(),
+        });
+        this.labels = fresh_labels;
+        this._sort();
+      } catch (error) {
+        console.error("Could not sort labels 'PUT /api/label/sort'", error);
+        throw error;
+      }
+    },
     async _sort() {
       this.labels.sort((a, b) => b.sort_order! - a.sort_order!);
     },

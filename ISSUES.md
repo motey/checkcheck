@@ -54,7 +54,3 @@ or load the caller's position explicitly and attach it, mirroring how labels are
 already re-scoped per user in the `list_checklists` route. Add a regression test
 that lists a card shared with two users and asserts each caller sees **their own**
 position (distinct pinned/archived/index).
-
-## Re-ordering labels does not work
-
-one can re-order labels in the label editor. but is has no effect on the actuall label list.

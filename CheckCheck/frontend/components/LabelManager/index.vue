@@ -78,7 +78,15 @@ const [ItemsView, draggableItems] = useDragAndDrop([...checkListsLabelStore.labe
   dragHandle: ".label-item-drag-handle",
   draggable: (el) => !(el && el.classList.contains("no-drag")),
   plugins: [animations()],
+  onDragend: persistOrder,
 });
+
+// After a drag finishes, draggableItems holds the new top -> bottom order.
+// Persist it so the reordering survives a reload (otherwise it is purely
+// client-side and has no effect on the actual label list).
+async function persistOrder() {
+  await checkListsLabelStore.sortLabels(draggableItems.value.map((label) => label.id));
+}
 
 watch(
   () => checkListsLabelStore.labels,
