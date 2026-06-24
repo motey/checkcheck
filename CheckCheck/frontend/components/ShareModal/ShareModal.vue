@@ -5,7 +5,7 @@
         <div class="flex items-start justify-between gap-4">
           <div>
             <h2 class="text-lg font-semibold">{{ title }}</h2>
-            <p class="text-sm text-[var(--ui-text-muted)]">{{ description }}</p>
+            <p class="text-sm text-muted">{{ description }}</p>
           </div>
           <UButton
             icon="i-lucide-x"
@@ -23,15 +23,15 @@
              makes that "or" relationship obvious. -->
         <template v-if="isOwner">
           <!-- Invite specific people -->
-          <div class="flex flex-col gap-3 rounded-lg border border-[var(--ui-border)] p-4">
+          <div class="flex flex-col gap-3 rounded-lg border border-default p-4">
             <div class="flex items-start gap-3">
               <UIcon
                 name="i-lucide-user-plus"
-                class="mt-0.5 size-5 shrink-0 text-[var(--ui-text-muted)]"
+                class="mt-0.5 size-5 shrink-0 text-muted"
               />
               <div class="flex flex-col">
                 <h3 class="text-sm font-semibold">Invite specific people</h3>
-                <p class="text-xs text-[var(--ui-text-muted)]">
+                <p class="text-xs text-muted">
                   Share with individual people and choose what each one can do.
                 </p>
               </div>
@@ -46,16 +46,16 @@
           <!-- Share with a group -->
           <div
             v-if="hasGroups"
-            class="flex flex-col gap-3 rounded-lg border border-[var(--ui-border)] p-4"
+            class="flex flex-col gap-3 rounded-lg border border-default p-4"
           >
             <div class="flex items-start gap-3">
               <UIcon
                 name="i-lucide-users"
-                class="mt-0.5 size-5 shrink-0 text-[var(--ui-text-muted)]"
+                class="mt-0.5 size-5 shrink-0 text-muted"
               />
               <div class="flex flex-col">
                 <h3 class="text-sm font-semibold">Share with a group</h3>
-                <p class="text-xs text-[var(--ui-text-muted)]">
+                <p class="text-xs text-muted">
                   Grant every member of one of your groups access at once.
                 </p>
               </div>
@@ -66,16 +66,16 @@
           <!-- Create a public link -->
           <div
             v-if="publicConfig.publicLinksEnabled"
-            class="flex flex-col gap-3 rounded-lg border border-[var(--ui-border)] p-4"
+            class="flex flex-col gap-3 rounded-lg border border-default p-4"
           >
             <div class="flex items-start gap-3">
               <UIcon
                 name="i-lucide-link"
-                class="mt-0.5 size-5 shrink-0 text-[var(--ui-text-muted)]"
+                class="mt-0.5 size-5 shrink-0 text-muted"
               />
               <div class="flex flex-col">
                 <h3 class="text-sm font-semibold">Create a public link</h3>
-                <p class="text-xs text-[var(--ui-text-muted)]">
+                <p class="text-xs text-muted">
                   Anyone with the link can open this list anonymously — no account needed.
                 </p>
               </div>
@@ -84,15 +84,15 @@
           </div>
 
           <!-- Advanced: transfer ownership (not a "way to share" — set apart) -->
-          <div class="flex flex-col gap-3 rounded-lg border border-[var(--ui-border)] p-4">
+          <div class="flex flex-col gap-3 rounded-lg border border-default p-4">
             <div class="flex items-start gap-3">
               <UIcon
                 name="i-lucide-crown"
-                class="mt-0.5 size-5 shrink-0 text-[var(--ui-text-muted)]"
+                class="mt-0.5 size-5 shrink-0 text-muted"
               />
               <div class="flex flex-col">
                 <h3 class="text-sm font-semibold">Transfer ownership</h3>
-                <p class="text-xs text-[var(--ui-text-muted)]">
+                <p class="text-xs text-muted">
                   Hand this list to another collaborator. You'll be demoted to an
                   <strong>edit</strong> collaborator and lose owner controls.
                 </p>
@@ -107,13 +107,13 @@
              non-owner can't be shown "People with access". We just confirm
              access and offer to leave. -->
         <template v-else>
-          <p class="text-sm text-[var(--ui-text-muted)]">
+          <p class="text-sm text-muted">
             You're a collaborator on this list with
             <strong>{{ card?.my_permission ?? "view" }}</strong> access. Only the
             owner can manage who it's shared with.
           </p>
 
-          <div class="border-t border-[var(--ui-border)] pt-4">
+          <div class="border-t border-default pt-4">
             <UButton
               color="error"
               variant="soft"
@@ -124,7 +124,7 @@
             >
               Leave list
             </UButton>
-            <p class="mt-2 text-xs text-[var(--ui-text-muted)]">
+            <p class="mt-2 text-xs text-muted">
               You'll lose access to this list. The owner can re-share it with you later.
             </p>
           </div>

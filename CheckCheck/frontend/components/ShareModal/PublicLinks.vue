@@ -1,9 +1,9 @@
 <template>
   <div class="flex flex-col gap-3">
     <!-- Create link form ----------------------------------------------------- -->
-    <div class="flex flex-col gap-2 rounded-md border border-[var(--ui-border)] p-3">
+    <div class="flex flex-col gap-2 rounded-md border border-default p-3">
       <div class="flex flex-wrap items-center gap-2">
-        <label class="text-xs text-[var(--ui-text-muted)] w-16">Level</label>
+        <label class="text-xs text-muted w-16">Level</label>
         <USelect
           v-model="level"
           :items="LEVEL_OPTIONS"
@@ -14,7 +14,7 @@
       </div>
 
       <div class="flex flex-wrap items-center gap-2">
-        <label class="text-xs text-[var(--ui-text-muted)] w-16">Expires</label>
+        <label class="text-xs text-muted w-16">Expires</label>
         <UInput
           v-model="expiry"
           type="date"
@@ -23,11 +23,11 @@
           :min="today"
           data-testid="public-link-expiry"
         />
-        <span class="text-xs text-[var(--ui-text-muted)]">optional — never if blank</span>
+        <span class="text-xs text-muted">optional — never if blank</span>
       </div>
 
       <div class="flex flex-wrap items-center gap-2">
-        <label class="text-xs text-[var(--ui-text-muted)] w-16">Password</label>
+        <label class="text-xs text-muted w-16">Password</label>
         <UInput
           v-model="password"
           type="password"
@@ -37,7 +37,7 @@
           autocomplete="new-password"
           data-testid="public-link-password"
         />
-        <span class="text-xs text-[var(--ui-text-muted)]">optional passphrase</span>
+        <span class="text-xs text-muted">optional passphrase</span>
       </div>
 
       <UButton
@@ -54,10 +54,10 @@
     <!-- Freshly-created link: the only time the token (URL) is shown ---------- -->
     <div
       v-if="freshUrl"
-      class="flex flex-col gap-2 rounded-md border border-[var(--ui-success)] bg-[var(--ui-bg-elevated)] p-3"
+      class="flex flex-col gap-2 rounded-md border border-success bg-elevated p-3"
       data-testid="public-link-fresh"
     >
-      <p class="text-xs font-medium text-[var(--ui-text-highlighted)]">
+      <p class="text-xs font-medium text-highlighted">
         Copy this link now — the server never returns it again.
       </p>
       <div class="flex items-center gap-2">
@@ -78,21 +78,21 @@
           @click="freshUrl && copy(freshUrl, 'fresh')"
         />
       </div>
-      <p class="text-xs text-[var(--ui-text-muted)]">
+      <p class="text-xs text-muted">
         Anyone with this link can open the list at
         <code>/p/&lt;token&gt;</code> — no account needed.
       </p>
     </div>
 
     <!-- Existing links ------------------------------------------------------- -->
-    <p class="text-xs text-[var(--ui-text-muted)]">
+    <p class="text-xs text-muted">
       Link URLs aren't stored on the server. You can re-copy a link you created in
       this session below; after a page reload the URL can't be recovered — delete
       the link and create a new one for a fresh URL.
     </p>
     <ul
       v-if="links.length"
-      class="rounded-md border border-[var(--ui-border)] divide-y divide-[var(--ui-border)]"
+      class="rounded-md border border-default divide-y divide-default"
     >
       <li
         v-for="link in links"
@@ -105,11 +105,11 @@
             <UBadge color="neutral" variant="subtle" size="sm">{{ link.permission }}</UBadge>
             <span
               v-if="link.password_protected"
-              class="text-xs text-[var(--ui-text-muted)]"
+              class="text-xs text-muted"
               title="Passphrase protected"
             >🔒</span>
           </div>
-          <span class="text-xs text-[var(--ui-text-muted)]">
+          <span class="text-xs text-muted">
             {{ link.expires_at ? `Expires ${formatDate(link.expires_at)}` : "Never expires" }}
           </span>
         </div>
@@ -130,7 +130,7 @@
           <UIcon
             v-else
             name="i-lucide-link-2-off"
-            class="size-4 text-[var(--ui-text-muted)]"
+            class="size-4 text-muted"
             title="URL not retrievable — delete & recreate for a fresh link"
             data-testid="public-link-row-nolink"
           />
@@ -154,7 +154,7 @@
         </div>
       </li>
     </ul>
-    <p v-else class="text-xs text-[var(--ui-text-muted)] italic">No public links yet.</p>
+    <p v-else class="text-xs text-muted italic">No public links yet.</p>
   </div>
 </template>
 

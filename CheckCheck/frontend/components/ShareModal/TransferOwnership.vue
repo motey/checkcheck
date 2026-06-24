@@ -2,7 +2,7 @@
   <div class="flex flex-col gap-2">
     <p
       v-if="candidates.length === 0"
-      class="text-xs text-[var(--ui-text-muted)] italic"
+      class="text-xs text-muted italic"
     >
       Add an accepted collaborator first to transfer ownership.
     </p>
@@ -26,7 +26,7 @@
         />
       </div>
 
-      <div v-else class="flex flex-col gap-2 rounded-md border border-[var(--ui-border)] p-3">
+      <div v-else class="flex flex-col gap-2 rounded-md border border-default p-3">
         <p class="text-sm">
           Make <strong>{{ targetName }}</strong> the owner of this list? This can't be undone by you.
         </p>

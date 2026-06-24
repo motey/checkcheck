@@ -41,8 +41,23 @@ test.describe("login page", () => {
     await page.locator("[data-testid=login-password]").fill("wrongpassword");
     await page.locator('form button[type="submit"]').click();
 
-    // UAlert in Nuxt UI 4 renders without role="alert"; target via data-testid
+    // UAlert in Nuxt UI 4 renders without role="alert"; target via data-testid.
+    // The alert must also render the detail message text (regression: the
+    // error ref used to be mis-named so the description was swallowed).
+    const alert = page.locator("[data-testid=login-error]");
+    await expect(alert).toBeVisible({ timeout: 5_000 });
+    await expect(alert).not.toHaveText(/^\s*$/);
+  });
+
+  test("shows a fallback error when auth methods fail to load", async ({ page }) => {
+    // Abort the auth-methods fetch so the onMounted handler's catch fires.
+    // This path was previously dead (it referenced an undefined `error` ref
+    // and threw instead of surfacing the message).
+    await page.route("**/api/auth/list", (route) => route.abort());
+
+    await page.goto("/login");
     await expect(page.locator("[data-testid=login-error]")).toBeVisible({ timeout: 5_000 });
+    await expect(page.locator("[data-testid=login-error]")).toContainText("Failed to load login options.");
   });
 
   test("redirects to / after a successful login", async ({ page }) => {

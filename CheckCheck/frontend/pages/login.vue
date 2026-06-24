@@ -1,5 +1,5 @@
 <template>
-  <div class="flex justify-center items-center min-h-screen bg-gray-50 dark:bg-gray-900">
+  <div class="flex justify-center items-center min-h-screen bg-muted">
     <UCard class="w-full max-w-md space-y-6">
       <template #header>
         <h1 class="text-xl font-semibold text-center">Login</h1>
@@ -8,41 +8,44 @@
       <UAlert
         v-if="errorMessage"
         data-testid="login-error"
-        color="red"
-        icon="i-heroicons-exclamation-triangle"
+        color="error"
+        icon="i-lucide-triangle-alert"
         class="mb-4"
         :description="errorMessage"
         variant="subtle"
       />
 
       <div v-if="authSchemes.length === 0">
-        <p class="text-center text-gray-500">Loading login methods...</p>
+        <p class="text-center text-muted">Loading login methods...</p>
       </div>
 
       <div
         v-for="(method, index) in authSchemes"
         :key="index"
-        class="space-y-4 border border-gray-200 dark:border-gray-800 rounded-lg p-4"
+        class="space-y-4 border border-default rounded-lg p-4"
       >
         <h2 class="text-lg font-medium text-center">{{ method.display_name }}</h2>
 
         <!-- Basic Auth Form -->
         <form v-if="method.auth_type === 'basic'" @submit.prevent="() => basicLogin()" class="space-y-4">
-          <UInput v-model="username" data-testid="login-username" label="Username" required icon="i-lucide-user" class="w-full" size="xl" />
-          <UInput
-            v-model="password"
-            data-testid="login-password"
-            label="Password"
-            type="password"
-            required
-            icon="i-lucide-key-round"
-            class="w-full"
-            size="xl"
-          />
+          <UFormField label="Username">
+            <UInput v-model="username" data-testid="login-username" required icon="i-lucide-user" class="w-full" size="xl" />
+          </UFormField>
+          <UFormField label="Password">
+            <UInput
+              v-model="password"
+              data-testid="login-password"
+              type="password"
+              required
+              icon="i-lucide-key-round"
+              class="w-full"
+              size="xl"
+            />
+          </UFormField>
           <UButton type="submit" block>Login</UButton>
           <UButton
             v-if="method.registration_endpoint"
-            color="gray"
+            color="neutral"
             variant="link"
             :to="method.registration_endpoint"
             block
@@ -75,11 +78,14 @@ const router = useRouter();
 
 onMounted(async () => {
   try {
-    const { data } = await useCheckapi("/api/auth/list");
+    // useFetch resolves (it doesn't reject) on a failed request, surfacing the
+    // failure via `error` — so check it explicitly rather than relying on catch.
+    const { data, error } = await useCheckapi("/api/auth/list");
+    if (error.value) throw error.value;
     authSchemes.value = data.value!;
   } catch (err) {
     console.error("Failed to fetch login methods:", err);
-    error.value = "Failed to load login options.";
+    errorMessage.value = "Failed to load login options.";
   }
 });
 

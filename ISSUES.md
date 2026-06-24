@@ -54,3 +54,11 @@ or load the caller's position explicitly and attach it, mirroring how labels are
 already re-scoped per user in the `list_checklists` route. Add a regression test
 that lists a card shared with two users and asserts each caller sees **their own**
 position (distinct pinned/archived/index).
+
+## Archive/Delete Cards not implemnted
+
+lets have a special "filter" for archived Checklists.
+If a checklist on the normal board is deleted by pressing on the bin button. it should be archived.
+When a checklist is deleted in the archive it should be really removed with all its items.
+There should be a "Purge Archive" button to delete everything in the archive.
+also an setting "Delete list form archive after N days/weeks/month" per user would be nice. but i am not sure how to implement that on the UI side.

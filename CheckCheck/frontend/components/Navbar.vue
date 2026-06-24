@@ -1,5 +1,5 @@
 <template>
-  <div class="sticky z-[99999] top-0 w-full border-b bg-white/75 dark:bg-gray-900/75 backdrop-blur">
+  <div class="sticky z-50 top-0 w-full border-b border-default bg-default/75 backdrop-blur">
     <div class="flex items-center gap-2 px-3 h-14">
       <!-- Hamburger: mobile only -->
       <UButton

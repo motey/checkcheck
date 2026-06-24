@@ -3,20 +3,20 @@
        only exist when the server runs in invite mode). Keeps the dropdown clean. -->
   <div
     v-if="store.pending.length > 0"
-    class="border-b border-[var(--ui-border)]"
+    class="border-b border-default"
     data-testid="invite-section"
   >
-    <div class="px-3 py-2 bg-[var(--ui-bg-elevated)]">
+    <div class="px-3 py-2 bg-elevated">
       <span class="text-sm font-semibold">Invites</span>
     </div>
 
     <div
       v-for="inv in store.pending"
       :key="inv.checklist_id"
-      class="flex items-start gap-3 px-3 py-2.5 border-t border-[var(--ui-border)] first:border-t-0"
+      class="flex items-start gap-3 px-3 py-2.5 border-t border-default first:border-t-0"
       data-testid="invite-row"
     >
-      <UIcon name="i-lucide-user-plus" class="mt-0.5 size-4 shrink-0 text-[var(--ui-text-muted)]" />
+      <UIcon name="i-lucide-user-plus" class="mt-0.5 size-4 shrink-0 text-muted" />
       <div class="flex flex-col min-w-0 flex-1 gap-1.5">
         <span class="text-sm">
           <span class="font-medium">{{ inviterOf(inv) }}</span>
@@ -25,7 +25,7 @@
         </span>
         <div class="flex items-center gap-2">
           <UBadge color="neutral" variant="subtle" size="sm">{{ inv.permission }}</UBadge>
-          <span class="text-xs text-[var(--ui-text-muted)]">{{ relativeTime(inv.created_at) }}</span>
+          <span class="text-xs text-muted">{{ relativeTime(inv.created_at) }}</span>
         </div>
         <div class="flex items-center gap-2 mt-0.5">
           <UButton

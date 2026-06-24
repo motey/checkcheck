@@ -21,14 +21,14 @@
     <!-- Results dropdown -->
     <ul
       v-if="query.trim().length >= 2"
-      class="rounded-md border border-[var(--ui-border)] divide-y divide-[var(--ui-border)]"
+      class="rounded-md border border-default divide-y divide-default"
     >
-      <li v-if="searching" class="px-3 py-2 text-sm text-[var(--ui-text-muted)]">
+      <li v-if="searching" class="px-3 py-2 text-sm text-muted">
         Searching…
       </li>
       <li
         v-else-if="results.length === 0"
-        class="px-3 py-2 text-sm text-[var(--ui-text-muted)]"
+        class="px-3 py-2 text-sm text-muted"
       >
         No users found.
       </li>
@@ -39,7 +39,7 @@
       >
         <span class="text-sm">
           {{ user.display_name || user.user_name || user.id }}
-          <span v-if="user.display_name && user.user_name" class="text-[var(--ui-text-muted)]">
+          <span v-if="user.display_name && user.user_name" class="text-muted">
             @{{ user.user_name }}
           </span>
         </span>

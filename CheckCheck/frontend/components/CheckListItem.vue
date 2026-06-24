@@ -7,7 +7,7 @@
       title="Drag to reorder"
       :id="checkListItem!.id"
     >
-      <UIcon name="i-mdi-drag" class="w-5 h-5 cursor-row-resize" />
+      <UIcon name="i-lucide-grip-vertical" class="w-5 h-5 cursor-row-resize" />
     </span>
     <div class="flex-none flex items-center self-stretch min-h-6" :title="canCheck ? undefined : 'View only'">
       <UCheckbox v-model="checkListItem!.state.checked" :disabled="!canCheck" @click.stop="toggleCheck()" size="md" />

@@ -21,7 +21,7 @@
         v-element-visibility="onLoadingTriggerVisibility"
         v-if="hasMoreToLoad"
       >
-        <UButton icon="i-heroicons-arrow-path" :loading="loadingInProcess" variant="ghost"> Load more... </UButton>
+        <UButton icon="i-lucide-refresh-cw" :loading="loadingInProcess" variant="ghost"> Load more... </UButton>
       </li>
     </ul>
   </div>

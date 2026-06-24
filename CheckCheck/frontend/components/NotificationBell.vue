@@ -18,7 +18,7 @@
     <template #content>
       <div class="w-80 max-w-[90vw] flex flex-col" data-testid="notification-panel">
         <!-- Header: title + mark-all-read -->
-        <div class="flex items-center justify-between gap-2 px-3 py-2 border-b border-[var(--ui-border)]">
+        <div class="flex items-center justify-between gap-2 px-3 py-2 border-b border-default">
           <span class="text-sm font-semibold">Notifications</span>
           <UButton
             v-if="store.unreadCount > 0"
@@ -41,7 +41,7 @@
         <div class="max-h-[60vh] overflow-y-auto">
           <p
             v-if="store.items.length === 0"
-            class="px-3 py-6 text-center text-sm text-[var(--ui-text-muted)]"
+            class="px-3 py-6 text-center text-sm text-muted"
           >
             No notifications yet.
           </p>
@@ -51,21 +51,21 @@
             :key="n.id"
             type="button"
             data-testid="notification-row"
-            class="w-full text-left flex items-start gap-3 px-3 py-2.5 border-b border-[var(--ui-border)] last:border-b-0 hover:bg-[var(--ui-bg-muted)] transition-colors"
-            :class="!n.read_at ? 'bg-[var(--ui-bg-elevated)]' : ''"
+            class="w-full text-left flex items-start gap-3 px-3 py-2.5 border-b border-default last:border-b-0 hover:bg-muted transition-colors"
+            :class="!n.read_at ? 'bg-elevated' : ''"
             @click="onRowClick(n)"
           >
-            <UIcon :name="iconFor(n.type)" class="mt-0.5 size-4 shrink-0 text-[var(--ui-text-muted)]" />
+            <UIcon :name="iconFor(n.type)" class="mt-0.5 size-4 shrink-0 text-muted" />
             <div class="flex flex-col min-w-0 flex-1">
-              <span class="text-sm" :class="!n.read_at ? 'font-medium' : 'text-[var(--ui-text-muted)]'">
+              <span class="text-sm" :class="!n.read_at ? 'font-medium' : 'text-muted'">
                 {{ messageFor(n) }}
               </span>
-              <span class="text-xs text-[var(--ui-text-muted)]">{{ relativeTime(n.created_at) }}</span>
+              <span class="text-xs text-muted">{{ relativeTime(n.created_at) }}</span>
             </div>
             <!-- Unread dot -->
             <span
               v-if="!n.read_at"
-              class="mt-1.5 size-2 shrink-0 rounded-full bg-[var(--ui-primary)]"
+              class="mt-1.5 size-2 shrink-0 rounded-full bg-primary"
               aria-hidden="true"
             />
           </button>

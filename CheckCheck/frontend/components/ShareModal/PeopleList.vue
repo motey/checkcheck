@@ -1,6 +1,6 @@
 <template>
   <div class="flex flex-col gap-2">
-    <ul class="rounded-md border border-[var(--ui-border)] divide-y divide-[var(--ui-border)]">
+    <ul class="rounded-md border border-default divide-y divide-default">
       <!-- Owner row (synthetic — the backend list excludes the owner). Only
            shown when the current user is the owner, since otherwise we don't
            have the owner's name to display. -->
@@ -16,7 +16,7 @@
 
       <li
         v-if="collaborators.length === 0 && !showSelfOwnerRow"
-        class="px-3 py-2 text-sm text-[var(--ui-text-muted)]"
+        class="px-3 py-2 text-sm text-muted"
       >
         No collaborators yet.
       </li>
