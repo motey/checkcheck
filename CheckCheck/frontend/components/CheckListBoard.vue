@@ -68,7 +68,16 @@
           data-testid="pinned-board"
           class="grid gap-2.5 sm:gap-4 grid-cols-[repeat(auto-fill,minmax(10rem,1fr))] sm:grid-cols-[repeat(auto-fill,minmax(15rem,1fr))]"
         >
-          <li v-for="checkList in dragPinned" :key="checkList.id" class="w-full checklist-preview">
+          <li
+            v-for="checkList in dragPinned"
+            :key="checkList.id"
+            class="w-full checklist-preview rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-default"
+            role="button"
+            tabindex="0"
+            :aria-label="`Open ${checkList.name || 'checklist'}`"
+            @keydown.enter.self.prevent="openCheckListEditor(checkList.id)"
+            @keydown.space.self.prevent="openCheckListEditor(checkList.id)"
+          >
             <CheckList :checkListId="checkList.id" @click="openCheckListEditor(checkList.id)" :previewModeActive="true" />
           </li>
         </ul>
@@ -80,7 +89,16 @@
         data-testid="checklist-board"
         class="grid gap-2.5 sm:gap-4 grid-cols-[repeat(auto-fill,minmax(10rem,1fr))] sm:grid-cols-[repeat(auto-fill,minmax(15rem,1fr))]"
       >
-        <li v-for="checkList in dragNormal" :key="checkList.id" class="w-full checklist-preview">
+        <li
+          v-for="checkList in dragNormal"
+          :key="checkList.id"
+          class="w-full checklist-preview rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-default"
+          role="button"
+          tabindex="0"
+          :aria-label="`Open ${checkList.name || 'checklist'}`"
+          @keydown.enter.self.prevent="openCheckListEditor(checkList.id)"
+          @keydown.space.self.prevent="openCheckListEditor(checkList.id)"
+        >
           <CheckList :checkListId="checkList.id" @click="openCheckListEditor(checkList.id)" :previewModeActive="true" />
         </li>
         <!-- Pagination trigger. The IntersectionObserver (v-element-visibility)

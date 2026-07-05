@@ -273,10 +273,13 @@ fixes (4a) are exactly what make a narrower card viable, so do them together.
   ([CheckListItem.vue:140](CheckCheck/frontend/components/CheckListItem.vue#L140)); on touch
   there's no hover, so handles stay faint. Show them at full opacity on touch
   (`@media (hover: none)`).
-- **Checkbox tap targets.** Items are `py-0.5`; checkbox + text rows are tight for thumbs.
-  Bump vertical padding on touch and ensure the row hit area ≥ 40px. On a compact two-column
-  card this also matters for **tap disambiguation** — tapping a checkbox must toggle without
-  opening the card editor, so the checkbox hit area needs to be clearly its own target.
+- **Checkbox tap targets.** *(Shipped denser than the original ≥40px target after on-device
+  review vs. Google Keep.)* Touch rows are `min-height: 26px` with `0.125rem` vertical padding
+  (`@media (hover: none)` in [CheckListItem.vue](CheckCheck/frontend/components/CheckListItem.vue)),
+  the checkbox is `size="sm"` on mobile / `md` on desktop, and item text is `text-[13px] sm:text-sm`.
+  Density was prioritized over the 40px guideline. **Tap disambiguation** is still preserved: the
+  checkbox stays its own tappable target with `@click.stop` so ticking it toggles without opening
+  the card editor. (Don't "restore" the 40px row height — that reverses a deliberate decision.)
 - **Color picker swatches** (`size-6`) are small for touch and the selected ring
   (`ring-offset`) can clip inside the popover. Bump to `size-7`/`size-8` on touch and verify
   the ring isn't clipped. ([ColorSwatchPicker.vue:28](CheckCheck/frontend/components/ColorSwatchPicker.vue#L28))

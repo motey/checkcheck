@@ -8,7 +8,7 @@
         :parentCheckList="parentCheckList" :checkListItem="item" :parentEditMode="false"></CheckListItem>
     </li>
     <div v-if="showThereIsMoreHint && showMaxItems" class="no-drag pl-4 pt-2">
-      <b>...</b> <span class="opacity-40">+ {{ thereIsMoreCount }} items</span>
+      <b>...</b> <span class="opacity-70">+ {{ thereIsMoreCount }} items</span>
     </div>
   </ul>
 </template>

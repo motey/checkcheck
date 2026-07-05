@@ -1,17 +1,17 @@
 <template>
-  <div class="min-h-screen w-full flex flex-col items-center bg-[var(--ui-bg-muted)] py-6 px-3">
+  <div class="min-h-screen w-full flex flex-col bg-muted px-3 py-6">
     <!-- Standalone header (no board/sidebar chrome) -->
-    <header class="w-full max-w-2xl flex items-center justify-between mb-4">
+    <header class="w-full max-w-2xl mx-auto flex items-center justify-between mb-8">
       <NuxtLink to="/" class="flex items-center gap-2">
         <Logo size="full" />
       </NuxtLink>
       <ColorModeSwitch />
     </header>
 
-    <main class="w-full max-w-2xl">
+    <main class="w-full max-w-2xl mx-auto flex-1 flex flex-col justify-center">
       <!-- Loading -->
       <div v-if="status === 'loading'" class="flex justify-center py-24" data-testid="public-loading">
-        <UIcon name="i-lucide-loader-circle" class="animate-spin w-8 h-8 text-[var(--ui-text-dimmed)]" />
+        <UIcon name="i-lucide-loader-circle" class="animate-spin w-8 h-8 text-dimmed" />
       </div>
 
       <!-- Locked / bad link → passphrase form (can't distinguish; same 404) -->
@@ -23,7 +23,7 @@
           </div>
         </template>
         <form class="flex flex-col gap-3" @submit.prevent="submitUnlock">
-          <p class="text-sm text-[var(--ui-text-muted)]">
+          <p class="text-sm text-muted">
             Enter the passphrase to view this list. If the link is wrong, expired or disabled,
             the passphrase won't unlock it.
           </p>
@@ -35,7 +35,7 @@
             :disabled="unlocking"
             data-testid="public-passphrase"
           />
-          <p v-if="unlockError" class="text-sm text-[var(--ui-color-error-500)]" data-testid="public-unlock-error">
+          <p v-if="unlockError" class="text-sm text-error" data-testid="public-unlock-error">
             {{ unlockError }}
           </p>
           <UButton
@@ -53,9 +53,9 @@
       <!-- Gone: bad/expired/disabled link, or the card was deleted live -->
       <UCard v-else-if="status === 'gone'" data-testid="public-gone">
         <div class="flex flex-col items-center text-center gap-3 py-8">
-          <UIcon name="i-lucide-unlink" class="w-10 h-10 text-[var(--ui-text-dimmed)]" />
+          <UIcon name="i-lucide-unlink" class="w-10 h-10 text-dimmed" />
           <h1 class="text-lg font-semibold">Link not available</h1>
-          <p class="text-sm text-[var(--ui-text-muted)]">
+          <p class="text-sm text-muted">
             This share link is invalid, expired, or has been disabled.
           </p>
           <UButton to="/" variant="subtle">Go to CheckCheck</UButton>
@@ -64,12 +64,12 @@
 
       <!-- Ready: the card, standalone -->
       <template v-else-if="status === 'ready' && card">
-        <UCard data-testid="public-card">
+        <UCard data-testid="public-card" class="border-t-4 border-t-primary">
           <template #header>
             <h1 class="text-xl font-semibold break-words" data-testid="public-card-name">
               {{ card.name || "Untitled list" }}
             </h1>
-            <p v-if="card.text" class="mt-1 text-sm text-[var(--ui-text-muted)] whitespace-pre-wrap break-words">
+            <p v-if="card.text" class="mt-1 text-sm text-muted whitespace-pre-wrap break-words">
               {{ card.text }}
             </p>
           </template>
@@ -89,24 +89,30 @@
             <button
               v-if="canEdit"
               type="button"
-              class="flex items-center gap-2 mt-1 pl-1 text-[var(--ui-text-dimmed)] hover:text-[var(--ui-text)] cursor-pointer"
+              class="flex items-center gap-1.5 mt-1 py-1 rounded-lg text-muted hover:text-default transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-default"
               data-testid="public-add-item"
               @click="addItem()"
             >
-              <span class="font-bold text-lg leading-none">+</span>
-              <span>Add new item</span>
+              <UIcon name="i-lucide-plus" class="flex-none size-5" />
+              <span class="text-sm">Add new item</span>
             </button>
 
-            <p v-if="items.length === 0 && !canEdit" class="text-sm text-[var(--ui-text-dimmed)] py-2">
+            <p v-if="items.length === 0 && !canEdit" class="text-sm text-dimmed py-2">
               This list has no items yet.
             </p>
           </div>
 
           <template #footer>
             <div class="flex items-center justify-between gap-3">
-              <span class="text-xs text-[var(--ui-text-dimmed)]" data-testid="public-permission">
+              <UBadge
+                variant="subtle"
+                color="neutral"
+                size="sm"
+                :icon="permissionIcon"
+                data-testid="public-permission"
+              >
                 {{ permissionLabel }}
-              </span>
+              </UBadge>
               <UButton
                 :loading="joining"
                 icon="i-lucide-copy-plus"
@@ -171,6 +177,18 @@ const permissionLabel = computed(() => {
       return "You can view and tick items";
     default:
       return "You're viewing a read-only list";
+  }
+});
+
+const permissionIcon = computed(() => {
+  switch (card.value?.my_permission) {
+    case "edit":
+    case "owner":
+      return "i-lucide-pencil";
+    case "check":
+      return "i-lucide-check-square";
+    default:
+      return "i-lucide-eye";
   }
 });
 

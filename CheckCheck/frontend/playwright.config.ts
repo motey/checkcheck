@@ -17,6 +17,12 @@ export default defineConfig({
     baseURL: `http://localhost:${E2E_BACKEND_PORT}`,
     trace: "on",
     screenshot: "only-on-failure",
+    // Emulate prefers-reduced-motion so the Phase 6 reduced-motion CSS disables
+    // the card hover-lift and FormKit drag reflow animations during tests. This
+    // removes animation-timing races from the drag specs (card/item movement,
+    // pin, reorder) without changing drop behaviour (drop index is geometry-based
+    // on drop, not animation-based).
+    reducedMotion: "reduce",
   },
 
   projects: [

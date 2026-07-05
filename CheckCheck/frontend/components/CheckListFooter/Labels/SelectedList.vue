@@ -1,6 +1,8 @@
 <template>
   <div v-if="colorsReady && labels.length" class="flex flex-wrap items-center gap-2">
-    <UIcon name="i-lucide-tags" class="shrink-0 text-dimmed"></UIcon>
+    <!-- Inherit the card's text colour (opacity for a muted look) rather than a
+         fixed grey token, which can fail contrast on saturated card swatches. -->
+    <UIcon name="i-lucide-tags" class="shrink-0 opacity-60"></UIcon>
     <CheckListFooterLabelsItem
       v-for="label in labels"
       :labelId="label.id"

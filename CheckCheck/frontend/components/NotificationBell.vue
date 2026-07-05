@@ -51,7 +51,7 @@
             :key="n.id"
             type="button"
             data-testid="notification-row"
-            class="w-full text-left flex items-start gap-3 px-3 py-2.5 border-b border-default last:border-b-0 hover:bg-muted transition-colors"
+            class="w-full text-left flex items-start gap-3 px-3 py-2.5 border-b border-default last:border-b-0 hover:bg-muted transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary"
             :class="!n.read_at ? 'bg-elevated' : ''"
             @click="onRowClick(n)"
           >

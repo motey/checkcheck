@@ -1,9 +1,48 @@
 @import "tailwindcss";
 @import "@nuxt/ui";
 
+/* Phase 6 — Typography.
+   A single tasteful sans (Inter) applied once via Tailwind v4's `--font-sans`
+   token so it cascades to the whole UI (Tailwind's preflight sets the document
+   font-family from this variable, and Nuxt UI reads the same token). The literal
+   family name here is picked up by @nuxt/fonts, which self-hosts the webfont at
+   build time (served from /_fonts/, no runtime CDN request). */
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI",
+    Roboto, "Helvetica Neue", Arial, sans-serif;
+}
+
+/* Phase 6 — Radii hierarchy (document once so new components follow it):
+     • Cards            rounded-xl   (CheckList.vue)
+     • Modals           rounded-2xl  (Nuxt UI modal defaults / app.config)
+     • Sidebar items    rounded-lg   (SideMenuNav.vue)
+     • Swatches / dots  rounded-full (ColorSwatchPicker.vue, label dots)
+   Prefer these tiers over one-off radii on new work. */
+
 mark.search-highlight {
   background-color: rgba(250, 204, 21, 0.45);
   color: inherit;
   border-radius: 2px;
   padding: 0 1px;
+}
+
+/* Phase 6 — Reduced motion.
+   Honour prefers-reduced-motion: reduce by neutralising the card hover-lift
+   (CheckListBoard.vue) and the FormKit drag reflow animations (@formkit/
+   drag-and-drop's animations() plugin applies inline transitions to the moving
+   list items). Collapsing transition/animation durations covers both; the hover
+   transform is removed outright so the card no longer rises on hover. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+
+  .checklist-preview:hover {
+    transform: none !important;
+  }
 }

@@ -6,10 +6,14 @@
       <UTooltip :text="'Home'" :disabled="!collapsed" side="right">
         <NuxtLink
           :to="{ path: '/', query: {} }"
-          class="flex items-center gap-3 px-2 py-1.5 rounded-lg text-sm transition-colors hover:bg-elevated"
+          class="relative flex items-center gap-3 px-2 py-1.5 rounded-lg text-sm transition-colors hover:bg-elevated focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-default"
           :class="isHome ? 'bg-elevated font-medium' : 'text-muted'"
         >
-          <UIcon name="i-lucide-house" class="shrink-0 size-5" />
+          <span
+            v-if="isHome"
+            class="absolute left-0 top-1/2 -translate-y-1/2 h-5 w-0.5 rounded-full bg-primary"
+          />
+          <UIcon name="i-lucide-house" class="shrink-0 size-5" :class="{ 'text-primary': isHome }" />
           <span v-if="!collapsed" class="truncate">Home</span>
         </NuxtLink>
       </UTooltip>
@@ -30,10 +34,18 @@
         <NuxtLink
           :data-testid="`shared-filter-${opt.value}`"
           :to="sharedLinkTo(opt.value)"
-          class="flex items-center gap-3 px-2 py-1.5 rounded-lg text-sm transition-colors hover:bg-elevated"
+          class="relative flex items-center gap-3 px-2 py-1.5 rounded-lg text-sm transition-colors hover:bg-elevated focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-default"
           :class="route.query.shared === opt.value ? 'bg-elevated font-medium' : 'text-muted'"
         >
-          <UIcon :name="opt.icon" class="shrink-0 size-5" />
+          <span
+            v-if="route.query.shared === opt.value"
+            class="absolute left-0 top-1/2 -translate-y-1/2 h-5 w-0.5 rounded-full bg-primary"
+          />
+          <UIcon
+            :name="opt.icon"
+            class="shrink-0 size-5"
+            :class="{ 'text-primary': route.query.shared === opt.value }"
+          />
           <span v-if="!collapsed" class="truncate">{{ opt.label }}</span>
         </NuxtLink>
       </UTooltip>
@@ -54,9 +66,15 @@
         >
           <NuxtLink
             :to="{ path: '/', query: { ...route.query, label: label.id } }"
-            class="flex items-center gap-3 px-2 py-1.5 rounded-lg text-sm transition-colors hover:bg-elevated"
-            :class="route.query.label === label.id ? 'bg-elevated font-medium' : 'text-muted'"
+            class="relative flex items-center gap-3 px-2 py-1.5 rounded-lg text-sm transition-colors hover:bg-elevated focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-default"
+            :class="route.query.label === label.id ? 'font-medium' : 'text-muted'"
+            :style="route.query.label === label.id ? labelRowStyle(label) : undefined"
           >
+            <span
+              v-if="route.query.label === label.id"
+              class="absolute left-0 top-1/2 -translate-y-1/2 h-5 w-0.5 rounded-full"
+              :style="{ backgroundColor: labelColors(label).accent }"
+            />
             <span class="shrink-0 size-4 rounded-full border" :style="labelDotStyle(label)" />
             <span v-if="!collapsed" class="truncate">{{ label.display_name }}</span>
           </NuxtLink>
@@ -70,7 +88,7 @@
       <UTooltip text="Edit Labels" :disabled="!collapsed" side="right">
         <NuxtLink
           :to="{ path: '/', query: { ...route.query, editlabels: 'true' } }"
-          class="flex items-center gap-3 px-2 py-1.5 rounded-lg text-sm transition-colors hover:bg-elevated text-muted"
+          class="flex items-center gap-3 px-2 py-1.5 rounded-lg text-sm transition-colors hover:bg-elevated text-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-default"
         >
           <UIcon name="i-lucide-pencil" class="shrink-0 size-5" />
           <span v-if="!collapsed" class="truncate">Edit Labels</span>
@@ -121,18 +139,31 @@ function sharedLinkTo(value: string) {
   return { path: "/", query };
 }
 
-function labelDotStyle(label: LabelType) {
+// Resolve a label's background + accent hexes for the current color mode, with a
+// neutral fallback for labels that have no color assigned.
+function labelColors(label: LabelType) {
   const color = colorStore.colors.find((c) => c.id === label.color_id);
   const dark = colorMode.value === "dark";
   if (!color) {
     return {
-      backgroundColor: dark ? "#555" : "#ddd",
-      borderColor: dark ? "#666" : "#ccc",
+      bg: dark ? "#555" : "#ddd",
+      accent: dark ? "#666" : "#ccc",
     };
   }
   return {
-    backgroundColor: dark ? color.backgroundcolor_dark_hex : color.backgroundcolor_light_hex,
-    borderColor: dark ? color.accentcolor_dark_hex : color.accentcolor_light_hex,
+    bg: dark ? color.backgroundcolor_dark_hex : color.backgroundcolor_light_hex,
+    accent: dark ? color.accentcolor_dark_hex : color.accentcolor_light_hex,
   };
+}
+
+function labelDotStyle(label: LabelType) {
+  const { bg, accent } = labelColors(label);
+  return { backgroundColor: bg, borderColor: accent };
+}
+
+// When a label filter is active, tint the whole row with that label's own color
+// so the active cue matches the card colors on the board.
+function labelRowStyle(label: LabelType) {
+  return { backgroundColor: labelColors(label).bg };
 }
 </script>

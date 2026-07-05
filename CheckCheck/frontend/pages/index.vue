@@ -38,6 +38,10 @@ import { usePublicConfigStore } from "@/stores/publicConfig";
 // URL-reflected overlay on top of the board — shareable and back-button aware.
 definePageMeta({
   alias: ["/card/:cardId"],
+  // Stable key so the board (and its FormKit drag instances) is NOT torn down
+  // and rebuilt when toggling between "/" and the "/card/<id>" alias — the card
+  // editor is an overlay on top of a persistent board, not a new page.
+  key: () => "board",
 });
 
 const sidebarCollapsed = ref(false);

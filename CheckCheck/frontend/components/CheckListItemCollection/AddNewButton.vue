@@ -1,12 +1,14 @@
 <template>
-    <div
+    <button
         v-if="canEdit"
-        class="flex items-center gap-1.5 py-1 cursor-pointer text-muted hover:text-default transition-colors"
+        type="button"
+        data-testid="add-item"
+        class="flex items-center gap-1.5 py-1 w-full text-left rounded-md cursor-pointer opacity-70 hover:opacity-100 transition-opacity focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-inset"
         @click="addNewItem()"
     >
         <UIcon name="i-lucide-plus" class="flex-none size-5" />
         <span class="flex-1 min-w-0 text-sm">Add new item</span>
-    </div>
+    </button>
 </template>
 
 <script setup lang="ts">
