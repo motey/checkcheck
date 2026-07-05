@@ -1,4 +1,4 @@
-from typing import AsyncGenerator, List, Optional, Literal, Sequence, Annotated
+from typing import AsyncGenerator, List, Optional, Literal, Sequence, Annotated, Dict
 import enum
 from pydantic import (
     validate_email,
@@ -121,6 +121,19 @@ class CheckListApi(CheckListBase):
 
 class CheckListApiCreate(CheckListBase):
     position: CheckListPositionApiCreate | None = None
+
+
+class CheckListCountsPublic(BaseTable):
+    """Aggregate card counts for the sidebar badges (one request, no N+1). Every
+    count is access-scoped to the caller and, except ``archived``, excludes
+    archived cards. ``labels`` maps each of the caller's label ids to the number
+    of its non-archived cards (labels with no cards are omitted)."""
+
+    home: int
+    shared_with_me: int
+    shared_by_me: int
+    archived: int
+    labels: Dict[uuid.UUID, int]
 
 
 class CheckListApiWithSubObj(CheckListApi):

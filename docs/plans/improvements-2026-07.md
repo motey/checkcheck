@@ -218,10 +218,45 @@ label lists.
 
 ---
 
-## Chunk 4 — Archive filter + permanent delete + archive undo (issues #4, #5)
+## Chunk 4 — Archive filter + permanent delete + archive undo (issues #4, #5) — ✅ DONE (2026-07-05)
 
 **Goal:** archived cards get a dedicated home; the trash action becomes a
 two-stage flow (soft-archive → permanent delete only from Archive).
+
+> **Outcome:** frontend-only (backend delete endpoint + `?archived=true` filter
+> both already existed). All six planned pieces landed.
+> **Store** (`stores/checklist.ts`): `FilteredViewParams` gained an `archived`
+> flag; `searchChecklists()` / `_fetchFilteredPage()` now send it (the Archive
+> view pages archived cards through the same server-side filtered view as
+> search/shared). New `delete(id)` calls `DELETE /api/checklist/{id}` and removes
+> the card from `checkLists` **and** `searchResults`, guarded by `findIndex`
+> against SSE's `checklist_deleted` double-removal. Critical fix: the `get()`
+> getter now falls back to `searchResults` — archived cards are never in the main
+> feed, so without this the Archive board's `CheckList` previews (`store.get(id)`)
+> rendered nothing.
+> **Board** (`CheckListBoard.vue`): `?archived=true` activates the filtered view;
+> the drag-source `watchEffect` resolves each result through `get()` (canonical
+> instance) and filters by the archived flag matching the view, so a restore
+> drops the card out of the Archive board immediately (avoids a stale
+> dual-instance where `checkLists` and `searchResults` hold different copies).
+> Added a `board-empty-archive` empty state.
+> **Sidebar** (`SideMenuNav.vue`): new **Archive** entry (`i-lucide-archive`,
+> `sidebar-archive-filter`) linking `?archived=true`, clearing other filters;
+> `isHome` now also excludes `?archived`.
+> **Trash button** (`CheckListFooter/Button/Archive.vue`): behaviour keys off the
+> card's own `position.archived` (robust in both board preview and editor) — a
+> live card soft-archives + shows an **Undo** toast (`undo-archive` action
+> restores via `archive(id,false)`); an archived card's button becomes **delete
+> forever** behind a `UModal` confirm (`confirm-delete`). Archiving/deleting the
+> currently-open card closes the editor (`closeCard` when `route.params.cardId`
+> matches). New `CheckListFooter/Button/Restore.vue` (`card-restore`) shows in the
+> toolbar only when archived. All planned `data-testid`s present.
+> **E2E:** `tests/e2e/archive.spec.ts` — 3 tests (archive-from-home + undo
+> restores; archive→Archive-view→restore→back-home; delete-forever with confirm →
+> gone from board + backend 404) — all passing. Note: toolbar-button clicks are
+> scoped to the editor dialog (`[role=dialog]:has(.checklist)`) because the board
+> preview renders the same testids behind the modal backdrop. Typecheck clean
+> (pre-existing unrelated errors only). Not yet committed.
 
 **Current state (confirmed):**
 - Trash button (`CheckListFooter/Button/Archive.vue`) calls
@@ -278,11 +313,37 @@ respect the existing `checklistDragInProgress` guard).
 
 ---
 
-## Chunk 5 — Label / filter counts (issue #6)
+## Chunk 5 — Label / filter counts (issue #6) — ✅ DONE (2026-07-05)
 
 **Goal:** show a total count behind every sidebar entry (Home, Shared with me,
 Shared by me, each Label, Archive). Counts **exclude archived** except the
 Archive entry itself.
+
+> **Outcome:** all three planned pieces landed.
+> **Backend:** new `GET /api/checklist/counts` → `CheckListCountsPublic`
+> (`home`, `shared_with_me`, `shared_by_me`, `archived`, `labels: {id: n}`),
+> declared **before** `/checklist/{checklist_id}` so the literal path wins. The
+> four scalars reuse `count()` (`home`/`shared_*` at `archived=False`; `archived`
+> at `archived=True`); `labels` is one grouped query — new
+> `CheckListCRUD.label_counts()` — that joins `CheckListLabel` scoped to
+> `user_id` (assignments are per-user, so a collaborator's labels never leak)
+> under `_add_user_has_access_query` + `archived=False`, `GROUP BY label_id`
+> (labels with 0 non-archived cards are omitted). Regenerated
+> `CheckCheck/openapi.json`. Backend tests `tests_checklist_counts.py` (4:
+> zero-baseline, home↔archive movement, label grouping+archive-exclusion+empty
+> omission, share access-scoping) — all passing.
+> **Frontend:** store (`stores/checklist.ts`) gained `counts` state +
+> `fetchCounts()` (best-effort: keeps prior counts on failure). Fetched once in
+> `pages/index.vue` onMount and refreshed — debounced 500ms in `useSync.ts` — on
+> the count-affecting SSE events (`checklist_created/_deleted/_position/_label`,
+> `share_added/_removed`) and on SSE reconnect. `SideMenuNav.vue` renders a
+> right-aligned `tabular-nums` badge on Home / each shared option / Archive /
+> each label (hidden when collapsed, hidden at 0, capped `99+`); text spans got
+> `flex-1 min-w-0` so the badge pins right and long labels still truncate. Types:
+> `CheckListCountsType`; testids `sidebar-count-{home,archive,shared-<v>,label-<id>}`.
+> E2E `tests/e2e/counts.spec.ts` (archive moves the count Home→Archive, undo
+> reverses) — passing alongside the Chunk 4 archive specs. Typecheck clean
+> (pre-existing unrelated errors only). Not yet committed.
 
 **Backend work** (`routes_checklist.py` + `db/checklist.py`)
 
@@ -327,9 +388,9 @@ the board's visibility rules exactly) and the SSE-driven refetch debounce.
 ## Suggested order
 
 1. ~~**Chunk 1** (docs) — clears the decks, zero code risk.~~ ✅ done
-2. **Chunk 4** (archive/delete) — biggest, establishes the Archive sidebar
-   entry that Chunk 5 decorates.
-3. **Chunk 5** (counts) — needs the Archive entry from #4.
+2. ~~**Chunk 4** (archive/delete) — biggest, establishes the Archive sidebar
+   entry that Chunk 5 decorates.~~ ✅ done
+3. ~~**Chunk 5** (counts) — needs the Archive entry from #4.~~ ✅ done
 4. ~~**Chunk 2** (API keys) — independent, any time.~~ ✅ done
 5. ~~**Chunk 3** (text wrap + mobile) — independent polish, any time.~~ ✅ done
 

@@ -165,6 +165,33 @@ class CheckListCRUD(
         results = await self.session.exec(statement=query)
         return results.first()
 
+    async def label_counts(
+        self,
+        user_id: uuid.UUID,
+    ) -> dict[uuid.UUID, int]:
+        """Per-label count of the caller's non-archived accessible cards, as one
+        grouped query (avoids an N+1 count() per label for the sidebar badges).
+
+        Label assignments are per-user (``CheckListLabel`` carries ``user_id``),
+        so the link join is scoped to the caller — a collaborator's labels on a
+        shared card never leak into the caller's counts. Access + accepted-only
+        gating come from ``_add_user_has_access_query`` (owner-or-collaborator +
+        the CheckListPosition inner-join), matching the board's visibility.
+        """
+        query = select(CheckListLabel.label_id, func.count()).select_from(CheckList)
+        query = query.where(CheckListPosition.archived == False)
+        query = self._add_user_has_access_query(query, user_id)
+        query = query.join(
+            CheckListLabel,
+            onclause=and_(
+                CheckListLabel.checklist_id == CheckList.id,
+                CheckListLabel.user_id == user_id,
+            ),
+        )
+        query = query.group_by(CheckListLabel.label_id)
+        results = await self.session.exec(statement=query)
+        return {label_id: count for label_id, count in results.all()}
+
     async def set_owner(
         self,
         checklist_id: uuid.UUID,

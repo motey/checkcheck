@@ -38,6 +38,7 @@ from checkcheckserver.model.checklist import (
     CheckListApi,
     CheckListApiCreate,
     CheckListApiWithSubObj,
+    CheckListCountsPublic,
     SharedFilter,
 )
 from checkcheckserver.db.checklist import CheckListCRUD
@@ -222,6 +223,31 @@ async def create_checklist(
     attach_my_permission(checklist_db, ChecklistAccessLevel.owner)
     await sync_crud.create(SyncNotification(cl_id=checklist_db.id, upd_prop="checklist_created"))
     return checklist_db
+
+
+@fast_api_checklist_router.get(
+    "/checklist/counts",
+    response_model=CheckListCountsPublic,
+    description="Aggregate card counts for the sidebar badges (Home, shared, "
+    "Archive, per label). One request instead of an N+1 per entry; every count "
+    "is access-scoped to the caller and excludes archived cards except the "
+    "Archive count itself.",
+)
+async def get_checklist_counts(
+    checklist_crud: CheckListCRUD = Depends(CheckListCRUD.get_crud),
+    current_user: User = Depends(get_current_user),
+) -> CheckListCountsPublic:
+    return CheckListCountsPublic(
+        home=await checklist_crud.count(user_id=current_user.id, archived=False),
+        shared_with_me=await checklist_crud.count(
+            user_id=current_user.id, archived=False, shared=SharedFilter.with_me
+        ),
+        shared_by_me=await checklist_crud.count(
+            user_id=current_user.id, archived=False, shared=SharedFilter.by_me
+        ),
+        archived=await checklist_crud.count(user_id=current_user.id, archived=True),
+        labels=await checklist_crud.label_counts(user_id=current_user.id),
+    )
 
 
 @fast_api_checklist_router.get(

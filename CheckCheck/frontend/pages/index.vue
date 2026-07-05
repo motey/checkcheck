@@ -55,6 +55,8 @@ onMounted(() => {
   userStore.fetchMe();
   // Load server feature flags once; gates the sharing UI (P0.2).
   publicConfigStore.fetch();
+  // Load the sidebar count badges once; kept fresh thereafter by useSync.
+  checkListStore.fetchCounts();
   connect();
 });
 onUnmounted(disconnect);

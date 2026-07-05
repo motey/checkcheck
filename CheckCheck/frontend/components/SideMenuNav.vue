@@ -14,7 +14,8 @@
             class="absolute left-0 top-1/2 -translate-y-1/2 h-5 w-0.5 rounded-full bg-primary"
           />
           <UIcon name="i-lucide-house" class="shrink-0 size-5" :class="{ 'text-primary': isHome }" />
-          <span v-if="!collapsed" class="truncate">Home</span>
+          <span v-if="!collapsed" class="truncate flex-1 min-w-0">Home</span>
+          <span v-if="!collapsed && countBadge(counts?.home)" data-testid="sidebar-count-home" class="shrink-0 text-xs tabular-nums text-muted">{{ countBadge(counts?.home) }}</span>
         </NuxtLink>
       </UTooltip>
 
@@ -46,7 +47,28 @@
             class="shrink-0 size-5"
             :class="{ 'text-primary': route.query.shared === opt.value }"
           />
-          <span v-if="!collapsed" class="truncate">{{ opt.label }}</span>
+          <span v-if="!collapsed" class="truncate flex-1 min-w-0">{{ opt.label }}</span>
+          <span v-if="!collapsed && countBadge(sharedCount(opt.value))" :data-testid="`sidebar-count-shared-${opt.value}`" class="shrink-0 text-xs tabular-nums text-muted">{{ countBadge(sharedCount(opt.value)) }}</span>
+        </NuxtLink>
+      </UTooltip>
+
+      <!-- Archive — soft-archived cards live here; the trash action in this view
+           becomes a permanent delete (see Archive.vue). Clears other filters. -->
+      <div class="border-t my-2 mx-1" />
+      <UTooltip text="Archive" :disabled="!collapsed" side="right">
+        <NuxtLink
+          data-testid="sidebar-archive-filter"
+          :to="{ path: '/', query: { archived: 'true' } }"
+          class="relative flex items-center gap-3 px-2 py-1.5 rounded-lg text-sm transition-colors hover:bg-elevated focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-default"
+          :class="isArchive ? 'bg-elevated font-medium' : 'text-muted'"
+        >
+          <span
+            v-if="isArchive"
+            class="absolute left-0 top-1/2 -translate-y-1/2 h-5 w-0.5 rounded-full bg-primary"
+          />
+          <UIcon name="i-lucide-archive" class="shrink-0 size-5" :class="{ 'text-primary': isArchive }" />
+          <span v-if="!collapsed" class="truncate flex-1 min-w-0">Archive</span>
+          <span v-if="!collapsed && countBadge(counts?.archived)" data-testid="sidebar-count-archive" class="shrink-0 text-xs tabular-nums text-muted">{{ countBadge(counts?.archived) }}</span>
         </NuxtLink>
       </UTooltip>
 
@@ -76,7 +98,8 @@
               :style="{ backgroundColor: labelColors(label).accent }"
             />
             <span class="shrink-0 size-4 rounded-full border" :style="labelDotStyle(label)" />
-            <span v-if="!collapsed" class="truncate">{{ label.display_name }}</span>
+            <span v-if="!collapsed" class="truncate flex-1 min-w-0">{{ label.display_name }}</span>
+            <span v-if="!collapsed && countBadge(counts?.labels?.[label.id])" :data-testid="`sidebar-count-label-${label.id}`" class="shrink-0 text-xs tabular-nums text-muted">{{ countBadge(counts?.labels?.[label.id]) }}</span>
           </NuxtLink>
         </UTooltip>
       </template>
@@ -103,6 +126,7 @@ import { computed } from "vue";
 import { useRoute } from "vue-router";
 import { useCheckListsLabelStore } from "@/stores/label";
 import { useCheckListsColorSchemeStore } from "@/stores/color";
+import { useCheckListsStore } from "@/stores/checklist";
 
 const props = defineProps<{ collapsed?: boolean }>();
 
@@ -110,6 +134,24 @@ const route = useRoute();
 const colorMode = useColorMode();
 const labelStore = useCheckListsLabelStore();
 const colorStore = useCheckListsColorSchemeStore();
+const checkListStore = useCheckListsStore();
+
+// Sidebar count badges (fetched once on mount, kept fresh via useSync). null
+// until the first fetch resolves — badges just stay hidden until then.
+const counts = computed(() => checkListStore.counts);
+
+// Render a badge only for positive counts (hide 0 / undefined to avoid clutter);
+// cap the label at 99+ so a large archive doesn't blow out the rail width.
+function countBadge(n: number | null | undefined): string | null {
+  if (!n || n <= 0) return null;
+  return n > 99 ? "99+" : String(n);
+}
+
+function sharedCount(value: string): number | undefined {
+  if (value === "with_me") return counts.value?.shared_with_me;
+  if (value === "by_me") return counts.value?.shared_by_me;
+  return undefined;
+}
 
 const isHome = computed(
   () =>
@@ -117,8 +159,11 @@ const isHome = computed(
     !route.query.label &&
     !route.query.editlabels &&
     !route.query.search &&
-    !route.query.shared
+    !route.query.shared &&
+    !route.query.archived
 );
+
+const isArchive = computed(() => route.query.archived === "true");
 
 // Mutually-exclusive share filters (a card is either owned by you or not, so it
 // can never be both). Driven by ?shared=with_me|by_me, ANDing with any label.

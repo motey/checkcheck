@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "CheckCheck REST API",
-    "version": "0.1.dev71+g0f0f74d.d20260705"
+    "version": "0.1.dev72+gcc2b06766.d20260705"
   },
   "paths": {
     "/api/health": {
@@ -1719,6 +1719,33 @@
             }
           }
         }
+      }
+    },
+    "/api/checklist/counts": {
+      "get": {
+        "tags": [
+          "Checklist"
+        ],
+        "summary": "Get Checklist Counts",
+        "description": "Aggregate card counts for the sidebar badges (Home, shared, Archive, per label). One request instead of an N+1 per entry; every count is access-scoped to the caller and excludes archived cards except the Archive count itself.",
+        "operationId": "get_checklist_counts_api_checklist_counts_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CheckListCountsPublic"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
       }
     },
     "/api/checklist/{checklist_id}": {
@@ -5620,6 +5647,46 @@
           "labels"
         ],
         "title": "CheckListApiWithSubObj"
+      },
+      "CheckListCountsPublic": {
+        "properties": {
+          "home": {
+            "type": "integer",
+            "title": "Home"
+          },
+          "shared_with_me": {
+            "type": "integer",
+            "title": "Shared With Me"
+          },
+          "shared_by_me": {
+            "type": "integer",
+            "title": "Shared By Me"
+          },
+          "archived": {
+            "type": "integer",
+            "title": "Archived"
+          },
+          "labels": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "propertyNames": {
+              "format": "uuid"
+            },
+            "type": "object",
+            "title": "Labels"
+          }
+        },
+        "type": "object",
+        "required": [
+          "home",
+          "shared_with_me",
+          "shared_by_me",
+          "archived",
+          "labels"
+        ],
+        "title": "CheckListCountsPublic",
+        "description": "Aggregate card counts for the sidebar badges (one request, no N+1). Every\ncount is access-scoped to the caller and, except ``archived``, excludes\narchived cards. ``labels`` maps each of the caller's label ids to the number\nof its non-archived cards (labels with no cards are omitted)."
       },
       "CheckListItemCreateAPI": {
         "properties": {

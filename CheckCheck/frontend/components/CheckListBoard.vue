@@ -37,6 +37,15 @@
       </div>
 
       <div
+        v-else-if="isEmpty && archivedFilter"
+        data-testid="board-empty-archive"
+        class="flex flex-col items-center justify-center text-center gap-3 py-20 px-6"
+      >
+        <UIcon name="i-lucide-archive" class="size-12 text-dimmed" />
+        <p class="text-muted">Your archive is empty.</p>
+      </div>
+
+      <div
         v-else-if="isEmpty"
         data-testid="board-empty"
         class="flex flex-col items-center justify-center text-center gap-3 py-20 px-6"
@@ -187,6 +196,7 @@ const hasObserver = ref(true);
 const searchQuery = computed(() => (route.query.search as string) || null);
 const labelFilter = computed(() => (route.query.label as string) || null);
 const sharedFilter = computed(() => (route.query.shared as string) || null);
+const archivedFilter = computed(() => route.query.archived === "true");
 
 const isEmpty = computed(() => dragPinned.value.length === 0 && dragNormal.value.length === 0);
 
@@ -238,9 +248,14 @@ const [normalBoard, dragNormal] = useDragAndDrop<CheckListType>([], dragOptions(
 // it. A label on its own stays client-side (see watchEffect below), so it does
 // not open the filtered view.
 const runFilter = useDebounceFn(
-  async (query: string | null, labelId: string | null, shared: "with_me" | "by_me" | null) => {
-    if (query || shared) {
-      await checkListStore.searchChecklists(query, labelId, shared);
+  async (
+    query: string | null,
+    labelId: string | null,
+    shared: "with_me" | "by_me" | null,
+    archived: boolean
+  ) => {
+    if (query || shared || archived) {
+      await checkListStore.searchChecklists(query, labelId, shared, archived);
     } else {
       checkListStore.clearSearch();
     }
@@ -248,15 +263,23 @@ const runFilter = useDebounceFn(
   300
 );
 
-// Re-run whenever search text, label, or shared filter changes
+// Re-run whenever search text, label, shared, or archived filter changes. The
+// Archive view (?archived=true) pages archived cards through the same
+// server-side filtered view as search/shared.
 watch(
   () => ({
     search: route.query.search as string,
     label: route.query.label as string,
     shared: route.query.shared as string,
+    archived: route.query.archived as string,
   }),
-  ({ search, label, shared }) =>
-    runFilter(search || null, label || null, (shared as "with_me" | "by_me") || null),
+  ({ search, label, shared, archived }) =>
+    runFilter(
+      search || null,
+      label || null,
+      (shared as "with_me" | "by_me") || null,
+      archived === "true"
+    ),
   { immediate: true }
 );
 
@@ -266,8 +289,16 @@ watch(
 watchEffect(() => {
   if (checklistDragInProgress) return;
   const label = (route.query.label as string) || null;
+  const archivedView = route.query.archived === "true";
+  // In a filtered view, resolve each result through the store's canonical
+  // instance (get() prefers checkLists) so an archive/restore that flipped the
+  // flag on the shared card object is reflected here, then keep only cards whose
+  // archived state matches the current view — a restored card drops out of the
+  // Archive board immediately, an archived one drops out of search/shared.
   const source = searchResults.value !== null
     ? searchResults.value
+        .map((c) => checkListStore.get(c.id) ?? c)
+        .filter((c) => (c.position.archived ?? false) === archivedView)
     : checkListStore.getCheckLists({ archived: false, label_id: label });
   const pinned = source.filter((c) => c.position.pinned ?? false);
   const normal = source.filter((c) => !(c.position.pinned ?? false));

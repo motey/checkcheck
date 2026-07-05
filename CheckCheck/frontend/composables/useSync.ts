@@ -31,6 +31,13 @@ export const useSync = createSharedComposable(() => {
     pendingItemRefresh.get(clId)!();
   }
 
+  // Refetch the sidebar count badges after board-mutating events. Debounced so
+  // a burst (bulk archive, rapid label toggles) costs one request, not one per
+  // event. Fires on the trailing edge.
+  const scheduleCountsRefresh = useDebounceFn(() => {
+    checkListStore.fetchCounts();
+  }, 500);
+
   let es: EventSource | null = null;
   // Track whether we've already had a successful connection. EventSource fires
   // onopen on the very first connect (board already freshly loaded → nothing to
@@ -49,6 +56,7 @@ export const useSync = createSharedComposable(() => {
       }
       console.info("[sync] SSE reconnected — resyncing store");
       checkListStore.resync();
+      checkListStore.fetchCounts();
     };
     es.onmessage = (event: MessageEvent) => {
       try {
@@ -69,8 +77,23 @@ export const useSync = createSharedComposable(() => {
     hasOpened = false;
   }
 
+  // Events that can change a sidebar count badge: create/delete (home), an
+  // archive toggle (a position update — moves a card between home & archive), a
+  // label add/remove, and share add/remove (shared-with/by-me). Any of these
+  // triggers a debounced counts refetch below.
+  const COUNT_AFFECTING: ReadonlySet<string> = new Set([
+    "checklist_created",
+    "checklist_deleted",
+    "checklist_position",
+    "checklist_label",
+    "share_added",
+    "share_removed",
+  ]);
+
   function handle(noti: SyncNotificationType) {
     const { cl_id: clId, cli_id: cliId, upd_prop } = noti;
+
+    if (COUNT_AFFECTING.has(upd_prop)) scheduleCountsRefresh();
 
     switch (upd_prop) {
 

@@ -2,12 +2,14 @@ import { defineStore } from "pinia";
 import { findNewPlacementForItem, sortBySubset } from "~/utils/helpers";
 
 // Active filters for the server-side "filtered view" (text search and/or the
-// shared=with_me|by_me filter, optionally narrowed by a label). Held in the
-// store so fetchMoreFiltered() can request the next page with the same filters.
+// shared=with_me|by_me filter, optionally narrowed by a label; or the Archive
+// view, which pages archived cards the same way). Held in the store so
+// fetchMoreFiltered() can request the next page with the same filters.
 export type FilteredViewParams = {
   query: string | null;
   labelId: string | null;
   shared: "with_me" | "by_me" | null;
+  archived: boolean;
 };
 
 export type CheckListState = {
@@ -17,6 +19,11 @@ export type CheckListState = {
   searchTotalCount: number;
   searchOffset: number;
   searchParams: FilteredViewParams | null;
+  // Aggregate card counts for the sidebar badges (Home / shared / Archive /
+  // per label). Fetched from GET /api/checklist/counts and refreshed on the
+  // same SSE events that mutate the board (debounced in useSync). null until
+  // the first fetch resolves.
+  counts: CheckListCountsType | null;
 };
 
 // Page size for the paginated filtered view (search / shared filters).
@@ -31,11 +38,17 @@ export const useCheckListsStore = defineStore("checkList", {
       searchTotalCount: 0,
       searchOffset: 0,
       searchParams: null,
+      counts: null,
     } as CheckListState),
   getters: {
     get: (state) => {
-      return (checkListId: string) =>
-        state.checkLists.find((cl) => cl.id === checkListId);
+      // Fall back to the filtered view's results: cards in a server-side
+      // filtered view (search / shared / Archive) may not be in the main feed —
+      // archived cards in particular are never in `checkLists` — so resolve
+      // them from `searchResults` so previews/editors can still render them.
+      return (checkListId: string): CheckListType | undefined =>
+        state.checkLists.find((cl) => cl.id === checkListId) ??
+        state.searchResults?.find((cl) => cl.id === checkListId);
     },
     getCheckLists: (state) => {
       return ({
@@ -167,6 +180,36 @@ export const useCheckListsStore = defineStore("checkList", {
       const checkList = await this.fetch(checkListId);
       checkList.position.archived = state;
       checkList.position = await this.updatePosition(checkListId, checkList.position);
+    },
+    // Permanently delete a checklist (used from the Archive view only; the
+    // normal trash action soft-archives via archive()). The backend broadcasts
+    // `checklist_deleted`, which useSync also handles — guard against
+    // double-removal by using findIndex before splicing.
+    async delete(checkListId: string) {
+      if (!checkListId) throw new Error("Checklistid empty");
+      const { $checkapi } = useNuxtApp();
+      try {
+        await $checkapi("/api/checklist/{checklist_id}", {
+          path: { checklist_id: checkListId },
+          method: "delete",
+        });
+      } catch (error) {
+        console.error("Could not delete checklist 'DELETE /checklist/" + checkListId + "'", error);
+        throw error;
+      }
+      const index = this.checkLists.findIndex((c) => c.id === checkListId);
+      if (index !== -1) {
+        this.checkLists.splice(index, 1);
+        this.total_backend_count = Math.max(0, this.total_backend_count - 1);
+      }
+      if (this.searchResults !== null) {
+        const sIdx = this.searchResults.findIndex((c) => c.id === checkListId);
+        if (sIdx !== -1) {
+          this.searchResults.splice(sIdx, 1);
+          this.searchTotalCount = Math.max(0, this.searchTotalCount - 1);
+          this.searchOffset = Math.max(0, this.searchOffset - 1);
+        }
+      }
     },
     async setPinned(checkListId: string, pinned: boolean = true) {
       if (!checkListId) throw new Error("Checklistid empty");
@@ -302,14 +345,16 @@ export const useCheckListsStore = defineStore("checkList", {
       return checkList.position;
     },
     // Open (or replace) the server-side filtered view. Active whenever there is
-    // text search and/or a shared filter; an optional label narrows it further.
-    // Loads the first page; call fetchMoreFiltered() to page through the rest.
+    // text search, a shared filter, or the Archive view; an optional label
+    // narrows it further. Loads the first page; call fetchMoreFiltered() to page
+    // through the rest.
     async searchChecklists(
       query: string | null,
       labelId: string | null = null,
-      shared: "with_me" | "by_me" | null = null
+      shared: "with_me" | "by_me" | null = null,
+      archived: boolean = false
     ) {
-      this.searchParams = { query: query || null, labelId, shared };
+      this.searchParams = { query: query || null, labelId, shared, archived };
       this.searchOffset = 0;
       this.searchResults = [];
       this.searchTotalCount = 0;
@@ -326,13 +371,13 @@ export const useCheckListsStore = defineStore("checkList", {
       if (this.searchParams === null) return;
       const { $checkapi } = useNuxtApp();
       const checkListItemStore = useCheckListsItemStore();
-      const { query, labelId, shared } = this.searchParams;
+      const { query, labelId, shared, archived } = this.searchParams;
       let resPage: CheckListsPageType;
       try {
         resPage = await $checkapi("/api/checklist", {
           method: "get",
           query: {
-            archived: false,
+            archived,
             limit: FILTERED_PAGE_SIZE,
             offset: this.searchOffset,
             ...(query ? { search: query } : {}),
@@ -352,6 +397,18 @@ export const useCheckListsStore = defineStore("checkList", {
       ];
       this.searchTotalCount = resPage.total_count;
       this.searchOffset += resPage.items.length;
+    },
+    // Fetch the sidebar count badges in one request (avoids an N+1 per label).
+    // Called on mount and, debounced, on board-mutating SSE events (see
+    // useSync). Best-effort: a failed fetch keeps the previous counts rather
+    // than blanking the badges.
+    async fetchCounts() {
+      const { $checkapi } = useNuxtApp();
+      try {
+        this.counts = await $checkapi("/api/checklist/counts", { method: "get" });
+      } catch (error) {
+        console.error("Could not fetch checklist counts 'GET /api/checklist/counts'", error);
+      }
     },
     clearSearch() {
       this.searchResults = null;
