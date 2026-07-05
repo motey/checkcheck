@@ -47,6 +47,23 @@ class ChecklistLabelCRUD(
     )
 ):
 
+    @staticmethod
+    def _label_order():
+        """Deterministic label order shared by every listing query.
+
+        Without an explicit ORDER BY the database returns rows in an unspecified
+        order that can change between fetches, so a card's label chips would
+        reshuffle on any refetch (e.g. toggling "Separate checked items"). We
+        sort by the per-user ``sort_order`` first — labels the user hasn't
+        ordered (NULL) go last — then fall back to name and id so the order is
+        fully stable even for ties.
+        """
+        return (
+            col(Label.sort_order).asc().nulls_last(),
+            col(Label.display_name).asc(),
+            col(Label.id).asc(),
+        )
+
     async def list_labels_for_user(
         self,
         checklist_id: uuid.UUID,
@@ -70,6 +87,7 @@ class ChecklistLabelCRUD(
                     CheckListLabel.user_id == user_id,
                 )
             )
+            .order_by(*self._label_order())
         )
         results = await self.session.exec(query)
         return results.unique().all()
@@ -92,6 +110,7 @@ class ChecklistLabelCRUD(
                     CheckListLabel.user_id == user_id,
                 )
             )
+            .order_by(*self._label_order())
         )
         results = await self.session.exec(query)
         grouped: Dict[uuid.UUID, List[Label]] = {}

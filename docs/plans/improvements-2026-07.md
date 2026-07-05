@@ -149,9 +149,38 @@ token; show once.
 
 ---
 
-## Chunk 3 — Two small UI fixes: list-view text wrap + mobile sidebar space (issues #2, #3)
+## Chunk 3 — Two small UI fixes: list-view text wrap + mobile sidebar space (issues #2, #3) — ✅ DONE (2026-07-05)
 
 Two small, unrelated frontend fixes bundled into one session.
+
+> **Outcome:** both fixes landed, frontend-only, verified visually at real
+> viewports.
+> **3a:** dropped the non-standard aggressive `word-break: break-word` from the
+> `CheckListItem.vue` edit `<textarea>` `:deep` CSS, keeping `overflow-wrap:
+> break-word` + `white-space: pre-wrap`. The display node already used
+> `break-words` (= `overflow-wrap`), so display/edit wrapping now match. Verified
+> in the card editor: short words no longer break mid-word, a long URL wraps only
+> where it overflows, authored newlines preserved, no textarea overflows its
+> container.
+> **3a follow-up (per user):** the board *preview* display node also carried
+> `line-clamp-1`, which collapsed each item to a single visual line and cut
+> multi-line items at their first newline (a short item `Tim\nmit zeilen
+> unmbruch` previewed as `Tim…`). Final behaviour is **content-dependent** (one
+> CSS rule can't do both): a `previewHasNewline` computed toggles the clamp — a
+> **one-liner** stays on a single line truncated at card width
+> (`line-clamp-1`, ellipsis, no wrap, as before), while an item **with an
+> authored newline** honours the break up to **two lines**
+> (`whitespace-pre-wrap line-clamp-2`, 3rd+ lines truncated with ellipsis).
+> Verified all four cases (2-line item shows both lines; short & long one-liners
+> stay one line; 3-line item → 2 lines + ellipsis).
+> **3b:** the reported "empty space" was **horizontal, not the bottom** as
+> guessed. `UDrawer` renders its content as a `flex flex-row-reverse` container;
+> the `SideMenuDrawer.vue` inner `<div class="h-full flex flex-col">` had no
+> width, so it shrank to its content (166px) and got packed to the right edge,
+> leaving a ~58px empty gutter down the **left** of the 224px drawer. The footer
+> was already correctly pinned to the bottom. Fix: added `w-full` to that inner
+> div so the column fills the drawer width (measured 166px@left-58 → 224px@left-0
+> after). Not yet committed.
 
 ### 3a. List-view text wrapping (issue #2) — Keep-like wrapping
 
@@ -302,6 +331,6 @@ the board's visibility rules exactly) and the SSE-driven refetch debounce.
    entry that Chunk 5 decorates.
 3. **Chunk 5** (counts) — needs the Archive entry from #4.
 4. ~~**Chunk 2** (API keys) — independent, any time.~~ ✅ done
-5. **Chunk 3** (text wrap + mobile) — independent polish, any time.
+5. ~~**Chunk 3** (text wrap + mobile) — independent polish, any time.~~ ✅ done
 
 (2, 3 have no dependencies and can be reordered/parallelized freely.)

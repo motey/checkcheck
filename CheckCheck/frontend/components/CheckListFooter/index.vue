@@ -1,15 +1,6 @@
 <template>
   <CheckListFooterLabelsSelectedList :checkListId="checkListId"></CheckListFooterLabelsSelectedList>
-  <div class="flex justify-center">
-  <UButtonGroup>
-    <CheckListFooterButtonArchive :checkListId="checkListId" />
-    <CheckListFooterButtonColor :checkListId="checkListId" />
-    <CheckListFooterButtonShare :checkListId="checkListId" />
-    <CheckListFooterLabelsSelect :checkListId="checkListId"/>
-    <CheckListFooterButtonMoreOptionsMenu :checkListId="checkListId" />
-  </UButtonGroup>
-</div>
-  
+  <CheckListFooterToolbar :checkListId="checkListId" />
 </template>
 
 <script setup lang="ts">

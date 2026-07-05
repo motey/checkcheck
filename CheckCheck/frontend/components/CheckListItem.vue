@@ -14,8 +14,13 @@
     </div>
     <div
       v-if="!parentEditMode"
-      class="min-w-0 flex-1 pt-0.5 break-words whitespace-pre-wrap line-clamp-1"
-      :class="{ strikethrough: checkListItem?.state.checked }"
+      class="min-w-0 flex-1 pt-0.5 break-words"
+      :class="[
+        checkListItem?.state.checked ? 'strikethrough' : '',
+        // One-liners: single line truncated at card width (ellipsis, no wrap).
+        // Items with an authored newline: honour the break, up to two lines.
+        previewHasNewline ? 'whitespace-pre-wrap line-clamp-2' : 'line-clamp-1',
+      ]"
       v-html="highlightText(checkListItem!.text, searchQuery)"
     />
 
@@ -72,6 +77,9 @@ const isMobile = useMediaQuery("(max-width: 639px)");
 const checkListsItemStore = useCheckListsItemStore();
 const route = useRoute();
 const searchQuery = computed(() => (route.query.search as string) || null);
+// Board preview clamps differently for one-liners vs multi-line items (see the
+// display node): only items with an authored newline get the two-line treatment.
+const previewHasNewline = computed(() => (props.checkListItem?.text ?? "").includes("\n"));
 const emit = defineEmits(["checkedItem", "addItemAfter"]);
 
 // Enter adds a new item below; Shift+Enter (and IME confirm) inserts a newline.
@@ -171,8 +179,9 @@ watch(localText, (t) => debouncedUpdateCheckListItemText(t));
      no scrollbar ever appears on an item. */
   field-sizing: content;
   overflow: hidden !important;
+  /* Keep-style wrapping: only break words that overflow the line; never break
+     inside short words (dropped the aggressive non-standard word-break). */
   overflow-wrap: break-word;
-  word-break: break-word; /* For older browsers */
   white-space: pre-wrap;  /* Preserves line breaks + allows wrapping */
 }
 </style>

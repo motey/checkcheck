@@ -1,7 +1,10 @@
 <template>
   <UDrawer v-model:open="open" direction="left" :handle="false" :ui="{ content: 'w-56' }">
     <template #content>
-      <div class="h-full flex flex-col">
+      <!-- w-full: DrawerContent is flex-row-reverse, so without an explicit
+           width this column shrinks to its content and gets packed to the right
+           edge, leaving an empty gutter down the left of the drawer. -->
+      <div class="h-full w-full flex flex-col">
         <!-- Panel header: logo + close, so the drawer reads as a first-class surface -->
         <div class="flex items-center justify-between gap-2 p-3 border-b border-default">
           <NuxtLink to="/" class="flex items-center gap-2 min-w-0" @click="open = false">

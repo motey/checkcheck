@@ -78,15 +78,21 @@
     >
       <CheckListFooter :checkListId="checkListId" />
     </div>
-    <!-- Board preview: the footer is decluttered off the card. On desktop it
-         fades in on hover so quick actions (incl. share-button) stay one hover
-         away; on touch (no hover) it is hidden entirely — open the card to act.
-         Kept mounted (opacity, not v-if) so share-button stays reachable. -->
-    <div
-      v-else-if="previewModeActive"
-      class="checklist-footer hidden sm:block flex-none mt-3 pt-2 border-t border-current/10 opacity-0 group-hover/card:opacity-100 transition-opacity"
-    >
-      <CheckListFooter :checkListId="checkListId" />
+    <!-- Board preview. Labels stay on the card at all times (Keep keeps label
+         chips visible; only the action toolbar is hover-revealed) — they're
+         metadata you scan the board by, not an action. SelectedList self-hides
+         when the card has no labels, so empty cards get no stray row. -->
+    <div v-else-if="previewModeActive" class="flex-none">
+      <CheckListFooterLabelsSelectedList :checkListId="checkListId" class="mt-3" />
+      <!-- Action toolbar is decluttered off the card: on desktop it fades in on
+           hover so quick actions (incl. share-button) stay one hover away; on
+           touch (no hover) it is hidden entirely — open the card to act. Kept
+           mounted (opacity, not v-if) so share-button stays reachable. -->
+      <div
+        class="checklist-footer hidden sm:block mt-3 pt-2 border-t border-current/10 opacity-0 group-hover/card:opacity-100 transition-opacity"
+      >
+        <CheckListFooterToolbar :checkListId="checkListId" />
+      </div>
     </div>
   </div>
 </template>
