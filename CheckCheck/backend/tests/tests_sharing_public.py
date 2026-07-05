@@ -3,7 +3,7 @@
 Covers the owner-only link-management API (``/checklist/{id}/public-links``), the
 anonymous consumption surface (``/public/checklist/{token}/...``), token-keyed
 live sync (``/sync?token=``) and the link lifecycle. See
-``CARD_SHARING_PHASE5_TEST_NOTES.md`` for the captured case list.
+``docs/archive/CARD_SHARING_PHASE5_TEST_NOTES.md`` for the captured case list.
 
 The global default login (set by conftest) is the admin user, who acts as the
 card *owner* throughout. Anonymous calls pass ``suppress_auth=True`` so no bearer

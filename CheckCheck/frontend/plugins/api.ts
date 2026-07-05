@@ -26,7 +26,7 @@ export default defineNuxtPlugin({
     // any per-call onResponseError, so without this opt-out a handled 4xx would
     // stack a generic "Error <code>" toast ON TOP of the call site's friendly one.
     // This generalises the `/api/public/` path-suppression above into an explicit,
-    // intentional flag (see CARD_SHARING_PLAN_FRONTEND.md "Possible changes → #1").
+    // intentional flag (see docs/archive/CARD_SHARING_PLAN_FRONTEND.md "Possible changes → #1").
     // It does NOT suppress the 401→/login redirect (handled in onResponse) — a
     // session expiry should always bounce to login regardless of this flag.
     const skipsErrorToast = (ctx: any): boolean => Boolean(ctx?.options?.skipErrorToast)

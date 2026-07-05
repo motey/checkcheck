@@ -22,7 +22,7 @@ attribute 'CheckList.position'
 
 - `CheckListCRUD.list(...)` eager-loads the position with
   `selectinload(CheckList.position)` —
-  [CheckCheck/backend/checkcheckserver/db/checklist.py:254](CheckCheck/backend/checkcheckserver/db/checklist.py#L254).
+  [CheckCheck/backend/checkcheckserver/db/checklist.py:254](../CheckCheck/backend/checkcheckserver/db/checklist.py#L254).
 - `CheckList.position` is a one-to-one (`uselist=False`) relationship, but
   `CheckListPosition` is **per-user**: a card shared with N users has N position
   rows (one per collaborator + the owner).

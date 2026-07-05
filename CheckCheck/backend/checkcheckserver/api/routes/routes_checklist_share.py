@@ -3,7 +3,7 @@
 Lets an owner grant/revoke per-user access at a permission level, lets a
 collaborator remove themselves ("leave list"), and lets an owner transfer
 ownership. Public/anonymous URL sharing is a separate, deferred effort (see
-CARD_SHARING_PLAN.md, "Phase 5 design (deferred)").
+docs/archive/CARD_SHARING_PLAN.md, "Phase 5 design (deferred)").
 """
 
 import datetime

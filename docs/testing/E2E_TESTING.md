@@ -1,7 +1,7 @@
 # End-to-End Testing
 
 > **Writing new tests?**  Read
-> [`CheckCheck/frontend/tests/e2e/LLM_GUIDE.md`](CheckCheck/frontend/tests/e2e/LLM_GUIDE.md)
+> [`CheckCheck/frontend/tests/e2e/LLM_GUIDE.md`](../../CheckCheck/frontend/tests/e2e/LLM_GUIDE.md)
 > first — it is a single-file reference covering selectors, API patterns,
 > sorting rules, DnD specifics, SSE sync, and copy-paste boilerplate.
 
@@ -288,7 +288,7 @@ await page.locator("aside").getByText("MyLabel", { exact: true }).click();
 
 ## Configuration reference
 
-Key settings in [`playwright.config.ts`](CheckCheck/frontend/playwright.config.ts):
+Key settings in [`playwright.config.ts`](../../CheckCheck/frontend/playwright.config.ts):
 
 | Setting | Value | Reason |
 |---------|-------|--------|
