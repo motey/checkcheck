@@ -203,6 +203,38 @@ def test_checklist_position_is_per_user_on_shared_card():
     dict_must_contain(viewer_pos, {"archived": False})
 
 
+def test_list_checklists_returns_own_position_on_shared_card():
+    """Regression test for the list endpoint's eager-load of CheckList.position.
+    A shared card has one position row per user, but CheckList.position is a
+    scalar (uselist=False) relationship: an unscoped eager-load pulls every
+    user's row into the single slot and SQLAlchemy picks one arbitrarily, so a
+    caller could see another user's pinned/archived/index. Each caller's listing
+    must embed *their own* position. Uses `pinned` (does not filter the card out
+    of the default archived=False listing) so both users still see the card."""
+    viewer_token = _make_user_token("share-list-position-viewer")
+    viewer_id = _user_id(viewer_token)
+    checklist_id = _create_checklist("PerUserListPos")
+    _share(checklist_id, viewer_id, "view")  # now two position rows exist
+
+    # Owner pins their layout; viewer leaves theirs unpinned.
+    req(f"api/checklist/{checklist_id}/position", "patch", b={"pinned": True})  # owner
+    req(
+        f"api/checklist/{checklist_id}/position",
+        "patch",
+        b={"pinned": False},
+        access_token=viewer_token,
+    )
+
+    owner_card = find_first_dict_in_list(
+        req("api/checklist")["items"], {"id": checklist_id}
+    )
+    viewer_card = find_first_dict_in_list(
+        req("api/checklist", access_token=viewer_token)["items"], {"id": checklist_id}
+    )
+    dict_must_contain(owner_card["position"], {"pinned": True})
+    dict_must_contain(viewer_card["position"], {"pinned": False})
+
+
 # ── share lifecycle ──────────────────────────────────────────────────────────
 
 

@@ -7,7 +7,19 @@ that discovered them. Newest first.
 
 ## Shared-card listing eager-loads an arbitrary user's `CheckListPosition`
 
-**Status:** open · **Severity:** low-to-medium · **Discovered:** 2026-06-23
+**Status:** resolved (2026-07-05) · **Severity:** low-to-medium · **Discovered:** 2026-06-23
+
+**Resolution**
+
+`CheckListCRUD.list(...)` now scopes the position eager-load to the caller with
+`with_loader_criteria(CheckListPosition, CheckListPosition.user_id == user_id)`
+alongside the `selectinload(CheckList.position)`
+([checklist.py:280](../CheckCheck/backend/checkcheckserver/db/checklist.py#L280)),
+so each viewer's listing embeds their own position row (no more `uselist=False`
+warning / arbitrary pick). Regression test:
+`test_list_checklists_returns_own_position_on_shared_card` in
+`tests/tests_sharing.py`.
+
 
 **Symptom**
 
@@ -54,11 +66,3 @@ or load the caller's position explicitly and attach it, mirroring how labels are
 already re-scoped per user in the `list_checklists` route. Add a regression test
 that lists a card shared with two users and asserts each caller sees **their own**
 position (distinct pinned/archived/index).
-
-## Archive/Delete Cards not implemnted
-
-lets have a special "filter" for archived Checklists.
-If a checklist on the normal board is deleted by pressing on the bin button. it should be archived.
-When a checklist is deleted in the archive it should be really removed with all its items.
-There should be a "Purge Archive" button to delete everything in the archive.
-also an setting "Delete list form archive after N days/weeks/month" per user would be nice. but i am not sure how to implement that on the UI side.

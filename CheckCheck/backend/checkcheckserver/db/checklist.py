@@ -278,7 +278,20 @@ class CheckListCRUD(
         if pagination:
             query = pagination.append_to_query(query)
         if include_sub_obj:
-            query = query.options(selectinload(CheckList.position))
+            # CheckListPosition is per-user: a shared card has N position rows
+            # (one per collaborator + owner), but CheckList.position is a scalar
+            # (uselist=False) relationship. An unscoped eager-load pulls every
+            # user's row into the single slot, so SQLAlchemy warns and picks one
+            # arbitrarily — a shared card could then report another user's
+            # pinned/archived/index. Scope the load to the caller (mirroring the
+            # already user-scoped access-query join) so each viewer sees their
+            # own position.
+            query = query.options(
+                selectinload(CheckList.position),
+                with_loader_criteria(
+                    CheckListPosition, CheckListPosition.user_id == user_id
+                ),
+            )
             query = query.options(selectinload(CheckList.color))
             # Eager-load labels so the per-user reassignment in the route does
             # not trigger an async lazy-load. They are loaded UNSCOPED here (the
