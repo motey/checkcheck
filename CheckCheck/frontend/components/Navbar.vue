@@ -49,6 +49,13 @@
             </div>
           </template>
 
+          <template #api-keys-leading>
+            <UIcon name="i-lucide-key-round" class="size-5 shrink-0 text-muted" />
+          </template>
+          <template #api-keys-label>
+            <span data-testid="menu-api-keys">API keys</span>
+          </template>
+
           <template #logout-leading>
             <UIcon name="i-lucide-log-out" class="size-5 shrink-0 text-error" />
           </template>
@@ -58,6 +65,10 @@
         </UDropdownMenu>
       </div>
     </div>
+
+    <!-- API keys manager, opened from the user menu (declarative v-model:open
+         so it mounts once and can't double-dialog). -->
+    <ApiKeysModal v-model:open="apiKeysOpen" />
   </div>
 </template>
 
@@ -81,9 +92,18 @@ const initials = computed(() => {
   return (parts[0][0] + parts[1][0]).toUpperCase();
 });
 
+const apiKeysOpen = ref(false);
+
 const userMenuItems = computed(
   () =>
     [
+      {
+        label: "API keys",
+        slot: "api-keys" as const,
+        onSelect: () => {
+          apiKeysOpen.value = true;
+        },
+      },
       {
         label: "Logout",
         slot: "logout" as const,

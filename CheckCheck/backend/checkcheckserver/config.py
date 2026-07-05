@@ -82,6 +82,10 @@ class Config(BaseSettings):
         default=60 * 24 * 7,  # one week
         description="If an api access token was created (on login or in token management) they should expire after this time.",
     )
+    API_TOKEN_ALLOW_NEVER_EXPIRE: bool = Field(
+        default=True,
+        description="Whether users may create never-expiring API keys in the token manager. When false, every key must carry an expiry and the 'Never' option is hidden client-side and rejected server-side.",
+    )
 
     def get_server_url(self) -> str:
         if self.SERVER_PROTOCOL is not None:

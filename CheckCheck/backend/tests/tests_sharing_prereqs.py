@@ -202,22 +202,34 @@ def test_public_config_unauthenticated_returns_flags():
             "sharing_public_links_enabled",
             "sharing_user_search_enabled",
             "sharing_require_invite_accept",
+            "api_token_default_expiry_days",
+            "api_token_allow_never_expire",
         ],
     )
-    # all four must be booleans
+    # the flags must be booleans
     for key in (
         "sharing_enabled",
         "sharing_public_links_enabled",
         "sharing_user_search_enabled",
         "sharing_require_invite_accept",
+        "api_token_allow_never_expire",
     ):
         assert isinstance(res[key], bool), f"{key} must be a bool, got {type(res[key])}"
+    # the default-expiry hint is an int (whole days) or null (server default is never)
+    assert res["api_token_default_expiry_days"] is None or isinstance(
+        res["api_token_default_expiry_days"], int
+    ), "api_token_default_expiry_days must be an int or null"
 
 
 def test_public_config_reflects_server_flags():
     """The endpoint mirrors the live server config — including the invite flag,
     which differs between the default and the invite-flow test passes."""
     res = req("api/public-config", suppress_auth=True)
+    expected_default_days = (
+        None
+        if server_config.API_TOKEN_DEFAULT_EXPIRY_TIME_MINUTES is None
+        else max(1, round(server_config.API_TOKEN_DEFAULT_EXPIRY_TIME_MINUTES / (60 * 24)))
+    )
     dict_must_contain(
         res,
         {
@@ -225,5 +237,7 @@ def test_public_config_reflects_server_flags():
             "sharing_public_links_enabled": server_config.SHARING_PUBLIC_LINKS_ENABLED,
             "sharing_user_search_enabled": server_config.SHARING_USER_SEARCH_ENABLED,
             "sharing_require_invite_accept": server_config.SHARING_REQUIRE_INVITE_ACCEPT,
+            "api_token_allow_never_expire": server_config.API_TOKEN_ALLOW_NEVER_EXPIRE,
+            "api_token_default_expiry_days": expected_default_days,
         },
     )

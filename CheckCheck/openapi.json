@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "CheckCheck REST API",
-    "version": "0.1.dev68+g6e199b541.d20260705"
+    "version": "0.1.dev70+g1c7686657.d20260705"
   },
   "paths": {
     "/api/health": {
@@ -5138,7 +5138,13 @@
               }
             ],
             "title": "Expires In Days",
-            "description": "Validity in days from now. Omit to use the server default."
+            "description": "Validity in days from now. Omit to use the server default (or set never_expires for a key that never expires)."
+          },
+          "never_expires": {
+            "type": "boolean",
+            "title": "Never Expires",
+            "description": "Request a key that never expires. Mutually exclusive with expires_in_days; rejected when the server disables never-expiring keys.",
+            "default": false
           }
         },
         "type": "object",
@@ -6860,6 +6866,23 @@
             "type": "boolean",
             "title": "Sharing Require Invite Accept",
             "description": "Whether a share creates a pending invite the target must accept before gaining access (invite mode)."
+          },
+          "api_token_default_expiry_days": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Api Token Default Expiry Days",
+            "description": "Default API-key validity in whole days, surfaced so the token manager can pre-select it. Null when the server default is no expiry."
+          },
+          "api_token_allow_never_expire": {
+            "type": "boolean",
+            "title": "Api Token Allow Never Expire",
+            "description": "Whether users may create never-expiring API keys. When false, the token manager hides the 'Never' option."
           }
         },
         "type": "object",
@@ -6867,7 +6890,8 @@
           "sharing_enabled",
           "sharing_public_links_enabled",
           "sharing_user_search_enabled",
-          "sharing_require_invite_accept"
+          "sharing_require_invite_accept",
+          "api_token_allow_never_expire"
         ],
         "title": "PublicConfig",
         "description": "The subset of server feature flags the web client needs to decide which\nsharing UI to render. Mirrors the like-named ``Config`` switches."

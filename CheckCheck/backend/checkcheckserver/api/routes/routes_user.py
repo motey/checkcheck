@@ -5,7 +5,7 @@ import uuid
 from fastapi import Depends, Security, FastAPI, HTTPException, Request, status, Query, Body, Form
 from fastapi.security import OAuth2PasswordRequestForm
 from jose import JWTError, jwt
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from typing import Annotated
 
 from fastapi import Depends, APIRouter
@@ -191,8 +191,20 @@ class APIKeyCreateRequest(BaseModel):
         default=None,
         ge=1,
         le=3650,
-        description="Validity in days from now. Omit to use the server default.",
+        description="Validity in days from now. Omit to use the server default (or set never_expires for a key that never expires).",
     )
+    never_expires: bool = Field(
+        default=False,
+        description="Request a key that never expires. Mutually exclusive with expires_in_days; rejected when the server disables never-expiring keys.",
+    )
+
+    @model_validator(mode="after")
+    def _reject_conflicting_expiry(self) -> "APIKeyCreateRequest":
+        if self.never_expires and self.expires_in_days is not None:
+            raise ValueError(
+                "Set either expires_in_days or never_expires, not both."
+            )
+        return self
 
 
 class APIKeyCreatedResponse(UserAuthPublic):
@@ -230,7 +242,10 @@ async def create_my_api_key(
     user_auth_crud: UserAuthCRUD = Depends(UserAuthCRUD.get_crud),
 ) -> APIKeyCreatedResponse:
     expires_at: Optional[int] = None
-    if body.expires_in_days is not None:
+    if body.never_expires:
+        # Explicit no-expiry request; leaves expires_at None (guarded below).
+        pass
+    elif body.expires_in_days is not None:
         expires_at = int(
             (datetime.now(tz=timezone.utc) + timedelta(days=body.expires_in_days)).timestamp()
         )
@@ -238,6 +253,14 @@ async def create_my_api_key(
         expires_at = int(
             datetime.now(tz=timezone.utc).timestamp()
             + config.API_TOKEN_DEFAULT_EXPIRY_TIME_MINUTES * 60
+        )
+
+    # A key with no expiry (whether requested explicitly or falling through to a
+    # server default of "never") is only allowed when the server permits it.
+    if expires_at is None and not config.API_TOKEN_ALLOW_NEVER_EXPIRE:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Never-expiring API keys are disabled on this server.",
         )
 
     new_auth = UserAuthCreate(

@@ -72,6 +72,12 @@ declare global {
     type UnreadCountResultType = components["schemas"]["UnreadCountResult"]
     type UserSearchResult = components["schemas"]["UserSearchResult"]
     type UserType = components["schemas"]["User"]
+
+    // API keys (self-service) — UserAuthPublic is the redacted read model;
+    // APIKeyCreatedResponse additionally carries the plaintext `token` ONCE.
+    type ApiKeyType = components["schemas"]["UserAuthPublic"]
+    type ApiKeyCreatedType = components["schemas"]["APIKeyCreatedResponse"]
+    type ApiKeyCreateReq = components["schemas"]["APIKeyCreateRequest"]
     type PublicConfigType = components["schemas"]["PublicConfig"]        // P0.2 feature flags
 
     // Sync

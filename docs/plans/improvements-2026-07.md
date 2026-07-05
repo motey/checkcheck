@@ -79,10 +79,40 @@ sanity that no script pathed a moved doc; CI/docs links resolve.
 
 ---
 
-## Chunk 2 — API keys manager modal (issue #1)
+## Chunk 2 — API keys manager modal (issue #1) — ✅ DONE (2026-07-05)
 
 **Goal:** let a user create / copy / revoke their own API keys from the UI.
 Backend is **already complete** — this is frontend only.
+
+> **Outcome:** frontend-only, all four planned pieces landed.
+> `stores/user.ts` gained `apiKeys` state + `listApiKeys` / `createApiKey` /
+> `revokeApiKey` (all `skipErrorToast:true`, re-throw; the plaintext `token` is
+> handed back to the caller and never stored — only the redacted view lands in
+> state; revoke keys on `api_token_id`, the delete endpoint's identifier prefix,
+> **not** the row `id`). New `components/ApiKeysModal.vue` mirrors
+> `ShareModal/PublicLinks.vue` (one-time copy-to-clipboard token box with a
+> "won't be shown again" warning + `useToast`); revoke uses a small two-click
+> inline confirm. Wired into `components/Navbar.vue` via a new "API keys"
+> `userMenuItems` entry (above Logout) opening the modal with a declarative
+> `v-model:open` ref. Types added to `types/index.ts`
+> (`ApiKeyType`/`ApiKeyCreatedType`/`ApiKeyCreateReq`). All planned
+> `data-testid`s present. E2E: `tests/e2e/api-keys.spec.ts` (create → token
+> shown & copyable → reload → key listed, token box gone → revoke → gone) —
+> passing. Typecheck clean (pre-existing unrelated errors only).
+>
+> **Expiry refinement (per user):** dropped the abstract "Server default"
+> option. The concrete server default duration is now surfaced via the existing
+> `/api/public-config` endpoint (new `api_token_default_expiry_days`, derived
+> from `API_TOKEN_DEFAULT_EXPIRY_TIME_MINUTES`) and pre-selected. Added a
+> "Never expires" option gated by a new `config.py` flag
+> `API_TOKEN_ALLOW_NEVER_EXPIRE` (default true, also on public-config as
+> `api_token_allow_never_expire`); the option is hidden client-side **and**
+> enforced server-side (422). `APIKeyCreateRequest` gained a `never_expires`
+> boolean (mutually exclusive with `expires_in_days`, validated). Regenerated
+> `CheckCheck/openapi.json`. Backend tests added
+> (`tests_auth.py`: never-expires + conflict-422; `tests_sharing_prereqs.py`:
+> the two new public-config fields) and E2E extended (Never option → key stored
+> with null expiry) — all passing. Not yet committed.
 
 Backend endpoints (self-service, in `routes_user.py`):
 - `GET  /api/user/me/api-keys` → `List[UserAuthPublic]`
@@ -271,7 +301,7 @@ the board's visibility rules exactly) and the SSE-driven refetch debounce.
 2. **Chunk 4** (archive/delete) — biggest, establishes the Archive sidebar
    entry that Chunk 5 decorates.
 3. **Chunk 5** (counts) — needs the Archive entry from #4.
-4. **Chunk 2** (API keys) — independent, any time.
+4. ~~**Chunk 2** (API keys) — independent, any time.~~ ✅ done
 5. **Chunk 3** (text wrap + mobile) — independent polish, any time.
 
 (2, 3 have no dependencies and can be reordered/parallelized freely.)
