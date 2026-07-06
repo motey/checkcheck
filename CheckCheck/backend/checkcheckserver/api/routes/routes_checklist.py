@@ -262,6 +262,9 @@ async def get_checklist(
         require_checklist_permission(ChecklistAccessLevel.view)
     ),
     checklist_label_crud: ChecklistLabelCRUD = Depends(ChecklistLabelCRUD.get_crud),
+    checklist_position_crud: CheckListPositionCRUD = Depends(
+        CheckListPositionCRUD.get_crud
+    ),
     current_user: User = Depends(get_current_user),
 ) -> CheckListApiWithSubObj:
     checklist = await checklist_crud.get(
@@ -271,6 +274,18 @@ async def get_checklist(
             detail=f"No checklist with id '{checklist_id}'",
         ),
     )
+    # CheckListPosition is per-user: a shared card has N position rows (one per
+    # collaborator + owner), but CheckList.position is a scalar (uselist=False)
+    # joined relationship — the eager-load collapses those rows into the single
+    # slot and picks one arbitrarily. So re-scope the position to the caller
+    # (mirroring accept_invite / the user-scoped eager-load in list()); otherwise
+    # a shared card could report another user's pinned/archived/index — e.g. the
+    # owner's card silently unpinning the moment it is shared.
+    user_position = await checklist_position_crud.get(
+        checklist_id=checklist_id, user_id=current_user.id
+    )
+    if user_position is not None:
+        checklist.position = user_position
     # Labels are per-user; the ORM relationship returns every collaborator's
     # labels, so scope them to the caller before returning. Done last so no
     # query runs after the in-memory reassignment (which is never committed).

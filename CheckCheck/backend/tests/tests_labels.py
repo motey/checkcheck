@@ -59,6 +59,28 @@ def test_label_sort():
         "Labels must appear in the requested sort order"
     )
 
+def test_checklist_labels_match_sidebar_order():
+    # The label chips on a checklist must read in the same order the user
+    # arranged the labels in the sidebar/label-editor.
+    a = req("api/label", "post", b={"display_name": "ord-a"})
+    b = req("api/label", "post", b={"display_name": "ord-b"})
+    c = req("api/label", "post", b={"display_name": "ord-c"})
+
+    # Sidebar order (top -> bottom); the frontend reverses before persisting.
+    sidebar_order = [c["id"], a["id"], b["id"]]
+    req("api/label/sort", "put", b=list(reversed(sidebar_order)))
+
+    checklist = req("api/checklist", "post", b={"name": "Ordered Labels"})
+    cl_id = checklist["id"]
+    # Assign in an order unrelated to the sidebar order.
+    for label_id in [b["id"], c["id"], a["id"]]:
+        req(f"api/checklist/{cl_id}/label/{label_id}", "put")
+
+    cl_ids = [l["id"] for l in req(f"api/checklist/{cl_id}/label")]
+    assert cl_ids == sidebar_order, "Checklist chips must follow the sidebar order"
+
+    req(f"api/checklist/{cl_id}", "delete")
+
 # ── Checklist-label assignment ────────────────────────────────────────────────
 
 def test_checklist_label_assign_and_remove():

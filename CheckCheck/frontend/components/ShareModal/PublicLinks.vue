@@ -28,13 +28,16 @@
 
       <div class="flex flex-wrap items-center gap-2">
         <label class="text-xs text-muted w-16">Password</label>
+        <!-- Plain text (not type="password"): this is an optional link secret
+             the owner is setting to share, not their own credential — showing
+             it is helpful, and it keeps the browser password manager away. -->
         <UInput
           v-model="password"
-          type="password"
+          type="text"
           size="sm"
           class="w-40"
           placeholder="optional"
-          autocomplete="new-password"
+          autocomplete="off"
           data-testid="public-link-password"
         />
         <span class="text-xs text-muted">optional passphrase</span>

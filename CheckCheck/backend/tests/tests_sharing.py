@@ -235,6 +235,36 @@ def test_list_checklists_returns_own_position_on_shared_card():
     dict_must_contain(viewer_card["position"], {"pinned": False})
 
 
+def test_get_checklist_returns_own_position_on_shared_card():
+    """Regression test for GET /checklist/{id} (get_checklist).
+
+    Same arbitrary-pick hazard as the list endpoint: CheckList.position is a
+    scalar (uselist=False) joined relationship, so on a shared card (N position
+    rows) the base get() collapses them into one slot and picks arbitrarily.
+    get_checklist must re-scope the position to the caller. This is the path the
+    frontend hits when it refreshes a single card after a share_added /
+    checklist_position SSE event — the bug surfaced as the owner's card silently
+    unpinning the moment it was shared (and refusing to stay pinned)."""
+    viewer_token = _make_user_token("share-get-position-viewer")
+    viewer_id = _user_id(viewer_token)
+    checklist_id = _create_checklist("PerUserGetPos")
+
+    # Owner pins their layout *before* sharing (repro of the reported flow).
+    req(f"api/checklist/{checklist_id}/position", "patch", b={"pinned": True})
+    _share(checklist_id, viewer_id, "view")  # now two position rows exist
+    req(
+        f"api/checklist/{checklist_id}/position",
+        "patch",
+        b={"pinned": False},
+        access_token=viewer_token,
+    )
+
+    owner_card = req(f"api/checklist/{checklist_id}")
+    viewer_card = req(f"api/checklist/{checklist_id}", access_token=viewer_token)
+    dict_must_contain(owner_card["position"], {"pinned": True})
+    dict_must_contain(viewer_card["position"], {"pinned": False})
+
+
 # ── share lifecycle ──────────────────────────────────────────────────────────
 
 

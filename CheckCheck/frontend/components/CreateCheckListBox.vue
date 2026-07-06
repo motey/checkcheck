@@ -5,6 +5,8 @@
       <UInput
         v-model="searchQuery"
         data-testid="search-input"
+        type="search"
+        name="checklist-search"
         icon="i-lucide-search"
         size="lg"
         variant="outline"

@@ -1,13 +1,22 @@
 <template>
-  <div class="flex flex-col gap-2">
+  <!-- Wrapped in its own autocomplete-off form so Firefox scopes credential
+       detection here and can't pair this box with the public-link password
+       field elsewhere in the modal. The field also carries no login signals
+       (no "user"/"username" in name, id or placeholder) for the same reason. -->
+  <form class="flex flex-col gap-2" autocomplete="off" @submit.prevent>
     <div class="flex gap-2">
       <UInput
         v-model="query"
         class="flex-1"
+        type="search"
+        name="people-search"
+        id="people-search"
         icon="i-lucide-search"
-        placeholder="Search by name or username…"
+        placeholder="Search people by name…"
         :loading="searching"
         autocomplete="off"
+        data-1p-ignore
+        data-lpignore="true"
         data-testid="share-user-search"
       />
       <USelect
@@ -52,7 +61,7 @@
         />
       </li>
     </ul>
-  </div>
+  </form>
 </template>
 
 <script setup lang="ts">

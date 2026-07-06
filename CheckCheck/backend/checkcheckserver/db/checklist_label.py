@@ -54,12 +54,14 @@ class ChecklistLabelCRUD(
         Without an explicit ORDER BY the database returns rows in an unspecified
         order that can change between fetches, so a card's label chips would
         reshuffle on any refetch (e.g. toggling "Separate checked items"). We
-        sort by the per-user ``sort_order`` first — labels the user hasn't
-        ordered (NULL) go last — then fall back to name and id so the order is
-        fully stable even for ties.
+        sort by the per-user ``sort_order`` first — descending, to match the
+        sidebar/label-editor order (``LabelCRUD.list`` uses ``desc(sort_order)``)
+        so chips on a card read in the same order the user arranged them there.
+        Labels the user hasn't ordered (NULL) go last, then fall back to name and
+        id so the order is fully stable even for ties.
         """
         return (
-            col(Label.sort_order).asc().nulls_last(),
+            col(Label.sort_order).desc().nulls_last(),
             col(Label.display_name).asc(),
             col(Label.id).asc(),
         )

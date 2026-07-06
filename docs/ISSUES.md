@@ -66,3 +66,42 @@ or load the caller's position explicitly and attach it, mirroring how labels are
 already re-scoped per user in the `list_checklists` route. Add a regression test
 that lists a card shared with two users and asserts each caller sees **their own**
 position (distinct pinned/archived/index).
+
+## Sharing a card with another user removes the pin for the sharing user
+
+**Status:** resolved (2026-07-06) · **Severity:** medium · **Discovered:** 2026-07-06
+
+**Resolution**
+
+`get_checklist` (`GET /checklist/{id}`) now re-scopes the returned
+`CheckList.position` to the caller before responding — it loads the caller's own
+`CheckListPosition` via `CheckListPositionCRUD.get(...)` and assigns it, mirroring
+`accept_invite` and the user-scoped eager-load already used in
+`CheckListCRUD.list(...)`
+([routes_checklist.py:266](../CheckCheck/backend/checkcheckserver/api/routes/routes_checklist.py#L266)).
+Regression test: `test_get_checklist_returns_own_position_on_shared_card` in
+`tests/tests_sharing.py`.
+
+**Symptom**
+
+When having a pinned checklist and sharing this to another user, the card is not
+pinned anymore in the moment the share is added. Also it is not possible anymore
+to pin the card anymore. The receiving user still can pin the new card.
+
+**Root cause**
+
+`CheckList.position` is a scalar (`uselist=False`) `lazy="joined"` relationship,
+but `CheckListPosition` is **per-user**: a shared card has N position rows. The
+base `CheckListCRUD.get(...)` used by `get_checklist` did not scope the eager-load
+to the caller, so SQLAlchemy collapsed all N rows into the single slot and picked
+one **arbitrarily** — often the fresh collaborator's `pinned=False` row.
+
+The frontend refreshes a single card via `GET /checklist/{id}` whenever it
+receives a `share_added` or `checklist_position` SSE event
+([useSync.ts](../CheckCheck/frontend/composables/useSync.ts), `checkListStore.refresh`).
+So the moment the owner shared the card (or tried to re-pin it, which re-broadcasts
+`checklist_position`), the owner's client overwrote its correct in-memory pinned
+state with another user's arbitrary position — the card kept unpinning.
+
+This is the single-card sibling of the already-fixed `list()` eager-load bug
+above; that fix never reached the `get_checklist` path.
