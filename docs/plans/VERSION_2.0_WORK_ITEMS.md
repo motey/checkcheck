@@ -425,6 +425,85 @@ board read-only from cache.
 **Done when:** unit tests cover replay, ordering, coalescing, and terminal
 drops; a manual offline-edit → restart → reconnect round-trip syncs.
 
+**Decisions taken in-session (2026-07-06, implemented):**
+
+- **The outbox gets its OWN IndexedDB database** (`checkcheck-outbox`,
+  `utils/outboxDb.ts`, `OUTBOX_SCHEMA_VERSION`), deliberately separate from the
+  WI-6 snapshot DB (`checkcheck-localfirst`). This resolves the disposability
+  tension flagged in the plan: the snapshot's `upgrade` hook drops every store on
+  a `SNAPSHOT_SCHEMA_VERSION` bump (disposable by design — protocol §6), but
+  queued offline writes are *precious*. Two DBs, versioned independently, means a
+  snapshot-shape change can never silently discard unsynced writes (and vice
+  versa). One object store `ops`, keyed by the op's monotonic `seq`; the engine
+  treats it as a whole-queue load/rewrite (`OutboxStore.load` / `persist`) — the
+  queue is tiny so a clear+rewrite per change is simpler than per-op diffs and
+  avoids a separate seq-counter row.
+- **Engine core is framework-free** (`utils/outbox.ts`): op shape, error
+  classification, coalescing, and the replay engine import nothing from
+  Nuxt/Vue/idb, so they unit-test in plain vitest with deps (store, `$checkapi`
+  transport, connectivity, scheduler, clock) injected. The IndexedDB store,
+  transport and connectivity are wired in `composables/useOutbox.ts` (a
+  `createSharedComposable` singleton) and booted by `plugins/outbox.client.ts`
+  when `isLocalFirstEnabled()`.
+- **Op shape** = endpoint descriptor + payload + ids + metadata:
+  `{ seq, opId, entityType, entityId, kind, request:{method,path,pathParams,
+  query,body}, enqueuedAt, attempts }`. `path` is the openFetch path *template*
+  with `pathParams` (not a pre-interpolated URL) so ops stay inspectable and
+  coalescable. `entityId` carries the **client-generated UUID** — for a `create`
+  it is the client-supplied id the endpoint accepts (protocol §8 / WI-3), so a
+  replay is idempotent; it is also half of the `(entityType, entityId)` per-entity
+  ordering key. **The stores do NOT build/enqueue ops yet** (WI-8 items, WI-9
+  positions/checklists) — WI-7 only models the shape and stands up the engine so
+  those items drop in via `useOutbox().enqueue(...)`.
+- **Drain = a single serial loop in `seq` order.** Since ops for one entity keep
+  their relative enqueue order, a global serial drain trivially satisfies "strict
+  per-entity ordering" — chosen over per-entity lanes as simplest-correct at this
+  app's scale. A **retryable** failure stops the whole drain and arms one backoff
+  timer (head-of-line blocking, accepted); a **terminal** failure drops just that
+  op (emits `op-dropped`) and the drain continues past it. Exponential backoff
+  with full jitter, capped at 30 s. A fresh `enqueue` while a backoff timer is
+  armed does **not** re-kick the drain (would hammer a failing server); only
+  `setOnline(true)` (a real connectivity change) cancels the timer and drains now.
+- **Terminal vs retryable follows protocol §8** (`classifyError`): network (no
+  status) + `5xx` are retryable; `403/404/409/410` are terminal → `op-dropped`
+  (WI-11 surfaces it). For statuses the contract leaves open: `401`/`408`/`429`
+  are **retryable** (a `401` is session-expiry — WI-13 adds an offline-auth grace;
+  dropping a queued write on a transient blip is worse than holding it), and every
+  other `4xx` (e.g. `400`/`422` validation) is **terminal** (a malformed op never
+  self-heals). Documented on the function.
+- **Coalescing** (pure `coalesce(queue, incoming, lockedSeqs)`), applied at
+  enqueue over the *non-in-flight* queue: (1) consecutive update-like edits
+  (`update`/`state`/`position`) to the same entity merge field-by-field into the
+  earlier queued op (LWW, incoming wins), keeping its slot — only the final value
+  is ever sent; (2) a `delete` whose entity still has a queued `create` removes
+  **all** queued ops for that entity and drops the delete (create-then-delete
+  offline cancels out); a `delete` with no queued create supersedes queued edits
+  and is appended. The **in-flight op is locked** from coalescing — merging into a
+  request already on the wire would silently lose the newer value, so a mid-flight
+  edit appends as its own op instead.
+- **Online/offline** (`utils/connectivity.ts`): `navigator.onLine` +
+  `online`/`offline` events as the baseline, `setConnectivity()` fed by the SSE
+  `onopen` in `composables/useSync.ts` (a live sync socket proves reachability —
+  gated behind the flag so the frozen legacy path is untouched), and a `probe()`
+  helper for the "interface up but server unreachable" case. The engine drains
+  only while `isOnline()`.
+- **Unit runner: vitest + fake-indexeddb** introduced this item (no runner
+  existed — package.json had only Playwright). Natural Vite/Nuxt fit; the
+  framework-free engine needs no Nuxt harness. `tests/unit/outbox.spec.ts` (22
+  tests) covers classification, backoff, coalescing (all rules incl. the locked
+  in-flight case), sequential ordering, offline gating, network-retry-then-succeed
+  via a manual scheduler, terminal drop + `op-dropped` + continued drain, coalesce
+  through the live queue, and a **restart round-trip against the real IndexedDB
+  store** (Engine A queues offline → fresh Engine B loads and drains on
+  reconnect). `bun run test:unit`. Chose unit tests over Playwright for the engine
+  because the "done-when" targets (replay/ordering/coalescing/terminal) are pure
+  logic best tested deterministically; the **UI** offline-edit round-trip needs
+  the store wiring and lands with WI-8 (the flag-on E2E `local-persistence.spec`
+  already confirms the outbox plugin boots without breaking hydration).
+- **Scope kept clean:** no store `$checkapi` calls were rewired; `useSync.ts`
+  gained only a flag-gated `setConnectivity(true)` on SSE open; `runBackgroundSync`
+  (WI-6) is untouched (delta→store application is still WI-10).
+
 ### WI-8 — Item store goes optimistic-local (M)
 
 **Goal:** First real store migration — items work fully offline.

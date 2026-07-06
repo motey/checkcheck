@@ -4,6 +4,8 @@ import { useCheckListsItemStore } from "@/stores/checklist_item";
 import { useShareStore } from "@/stores/share";
 import { useNotificationStore } from "@/stores/notification";
 import { useInviteStore } from "@/stores/invite";
+import { isLocalFirstEnabled } from "@/utils/localFirst";
+import { setConnectivity } from "@/utils/connectivity";
 
 export const useSync = createSharedComposable(() => {
   const checkListStore = useCheckListsStore();
@@ -50,6 +52,11 @@ export const useSync = createSharedComposable(() => {
     hasOpened = false;
     es = new EventSource("/api/sync");
     es.onopen = () => {
+      // A live sync socket proves real server reachability — feed the outbox's
+      // connectivity signal (WI-7) so a reconnect resumes draining queued writes.
+      // Harmless flag-off (no outbox listens); gated to avoid confusing the
+      // legacy path.
+      if (isLocalFirstEnabled()) setConnectivity(true);
       if (!hasOpened) {
         hasOpened = true;
         return;
