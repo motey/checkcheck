@@ -284,6 +284,48 @@ endpoint across all scenarios above.
 
 **Done when:** the protocol doc exists and the convergence suite is green.
 
+**Decisions taken in-session (2026-07-06, implemented):**
+
+- **Bootstrap is `GET /api/changes?since=0` — no separate endpoint.** WI-4 already
+  makes `since=0` return the full accessible state (owned + accepted-collaborator
+  cards, their items, the caller's labels) with `full_resync=false` and a fresh
+  `next_cursor`; WI-5 just formalises and documents that as *the* bootstrap. No
+  server-side pagination was added (deliberately deferred — see the doc's §3/§6);
+  the response is computed in one shot, acceptable at this app's scale.
+- **SSE poke = an ADDITIONAL `changes_available` event, emitted alongside every
+  board-mutating per-entity event.** The frozen legacy per-entity payloads
+  (`item_text`, `checklist`, `share_removed`, …) are left byte-for-byte unchanged
+  so the flag-off frontend is untouched; the poke is a *second* message to the
+  *same* recipients. It is emitted centrally in `SyncNotifiationCRUD.create()`
+  (one place, not the ~20 call sites) via a new private `_emit()` that both the
+  event and the poke share, so target resolution / transport (pg_notify vs SQLite
+  drain) and the explicit-targets-on-delete behaviour are identical for both.
+  `notification` (personal bell events — not board data the delta feed returns)
+  and the poke itself emit no poke (avoids useless pulls / recursion).
+- **The poke carries `server_seq`** (the WI-3 hint's optional nicety, taken): a new
+  nullable `server_seq` field on `SyncNotification`, set to
+  `get_current_server_seq()` at emit time and shipped in both the pg_notify JSON
+  and the SQLite-drained payload. A flagged client can skip the pull when the
+  poke's seq `<=` its cursor. Null on the legacy per-entity events. Model change
+  only, no Alembic (decision 7) — the fresh test/dev DBs get the column via
+  `create_all`. The legacy `handle()` switch has no `default` branch, so the new
+  `upd_prop` value is a safe no-op there.
+- **Convergence suite** (`tests/tests_convergence.py`) drives the real server over
+  HTTP and covers: two clients editing the same shared card → LWW end-state; two
+  clients editing different fields → both survive; an offline burst with a
+  client-supplied id **replayed** (idempotent create, no duplicate) then pulled by
+  a second device → converges; a share granted **mid-flight** → whole tree
+  delivered on the recipient's next pull from an old cursor; and the
+  `changes_available` poke riding alongside the legacy `item_text` event and
+  carrying an advanced `server_seq`. Both harnesses green. "Concurrent" is
+  interleaved sequential writes from two tokens (the harness has no true
+  parallelism — noted in the module docstring).
+- **`docs/SYNC_PROTOCOL.md`** written as the consolidated client contract (cursor
+  rules, response shape + at-least-once delivery, LWW = server-arrival order,
+  terminal-vs-retryable error set 409/410/403/404, access-gain full-tree /
+  access-loss `known`-diff, and the two SSE message kinds). It restates WI-3/WI-4
+  decisions; it invents nothing new. This is what WI-6..11 build against.
+
 ---
 
 ## Phase 2 — Frontend local-first layer

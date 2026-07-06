@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "CheckCheck REST API",
-    "version": "0.1.dev80+g07c9710.d20260706"
+    "version": "0.1.dev81+g964fc71.d20260706"
   },
   "paths": {
     "/api/health": {
@@ -7623,9 +7623,22 @@
               "share_added",
               "share_invited",
               "share_removed",
-              "notification"
+              "notification",
+              "changes_available"
             ],
             "title": "Upd Prop"
+          },
+          "server_seq": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Server Seq",
+            "description": "WI-5. Set only on the 'changes_available' poke: the server's global sync high-water mark at emit time. Lets a local-first client skip a GET /api/changes pull when this seq is <= its stored cursor. Null on the legacy per-entity events."
           },
           "target_user_ids": {
             "anyOf": [

@@ -40,7 +40,21 @@ class SyncNotification(BaseTable, table=True):
         "share_invited",
         "share_removed",
         "notification",
+        # WI-5 "changes available" poke. Emitted alongside every board-mutating
+        # per-entity event above (never on its own). Carries server_seq; a
+        # local-first client uses it as its single "pull GET /api/changes" signal.
+        # The legacy frontend ignores it (unknown upd_prop → no-op switch branch).
+        "changes_available",
     ] = Field(default=None, sa_type=String)
+    server_seq: Optional[int] = Field(
+        default=None,
+        description=(
+            "WI-5. Set only on the 'changes_available' poke: the server's global "
+            "sync high-water mark at emit time. Lets a local-first client skip a "
+            "GET /api/changes pull when this seq is <= its stored cursor. Null on "
+            "the legacy per-entity events."
+        ),
+    )
     target_user_ids: Optional[List[str]] = Field(
         default=None,
         sa_column=Column(JSON),

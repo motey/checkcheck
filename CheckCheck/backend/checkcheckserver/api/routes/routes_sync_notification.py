@@ -182,6 +182,7 @@ def _sse_from_payload(data: dict) -> str:
         cl_id=uuid.UUID(data["cl_id"]),
         cli_id=uuid.UUID(data["cli_id"]) if data.get("cli_id") else None,
         upd_prop=data["upd_prop"],
+        server_seq=data.get("server_seq"),
     )
     # target_user_ids / target_tokens are server-side routing details (other
     # users' ids / secret tokens) — never ship them to the client. Excluding them
