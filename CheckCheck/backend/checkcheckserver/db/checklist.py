@@ -214,6 +214,102 @@ class CheckListCRUD(
         await self.session.refresh(checklist)
         return checklist
 
+    async def list_changed_checklist_ids_for_user(
+        self,
+        user_id: uuid.UUID,
+        since: int,
+    ) -> List[uuid.UUID]:
+        """Ids of the caller's *accessible* cards whose card-level state changed
+        after ``since`` (WI-4 delta feed).
+
+        "Card-level" means any of: the ``checklist`` row itself (name/color/text),
+        the caller's own ``checklist_position`` (pin/archive/index), or one of the
+        caller's ``checklist_label`` links — all three are what the client's
+        checklist store renders per card. Item changes are handled separately (an
+        item edit does not re-emit its card). Reuses ``_add_user_has_access_query``
+        so tombstoned cards and cards the caller can't see are already excluded."""
+        label_changed = (
+            select(CheckListLabel.checklist_id)
+            .where(
+                and_(
+                    CheckListLabel.checklist_id == CheckList.id,
+                    CheckListLabel.user_id == user_id,
+                    col(CheckListLabel.server_seq) > since,
+                )
+            )
+            .exists()
+        )
+        query = select(CheckList.id)
+        query = self._add_user_has_access_query(query, user_id)
+        query = query.where(
+            or_(
+                col(CheckList.server_seq) > since,
+                col(CheckListPosition.server_seq) > since,
+                label_changed,
+            )
+        )
+        results = await self.session.exec(statement=query)
+        return list(results.all())
+
+    async def list_tombstoned_checklist_ids_for_user(
+        self,
+        user_id: uuid.UUID,
+        since: int,
+    ) -> List[uuid.UUID]:
+        """Ids of cards tombstoned after ``since`` that the caller could see
+        (owner or accepted collaborator). The parent tombstone leaves collaborator
+        rows in place (WI-2 cascade rule), so membership is still resolvable here;
+        this cannot reuse ``_add_user_has_access_query`` because that masks
+        ``deleted_at IS NOT NULL`` rows out."""
+        is_collaborator = (
+            select(CheckListCollaborator.checklist_id)
+            .where(
+                and_(
+                    CheckListCollaborator.checklist_id == CheckList.id,
+                    CheckListCollaborator.user_id == user_id,
+                    CheckListCollaborator.status == ShareStatus.accepted.value,
+                )
+            )
+            .exists()
+        )
+        query = select(CheckList.id).where(
+            and_(
+                col(CheckList.deleted_at).is_not(None),
+                col(CheckList.server_seq) > since,
+                or_(CheckList.owner_id == user_id, is_collaborator),
+            )
+        )
+        results = await self.session.exec(statement=query)
+        return list(results.all())
+
+    async def list_full_by_ids_for_user(
+        self,
+        checklist_ids: List[uuid.UUID],
+        user_id: uuid.UUID,
+    ) -> List[CheckList]:
+        """Load live cards by id with the caller's own position/color/labels eager
+        loaded, for the delta feed's changed-card payload. Mirrors the per-user
+        eager-load in ``list()`` (position scoped to the caller so a shared card
+        never reports another user's pin/archive/index); the route replaces the
+        unscoped labels with the caller's set and attaches ``my_permission``."""
+        if not checklist_ids:
+            return []
+        query = (
+            select(CheckList)
+            .where(col(CheckList.id).in_(checklist_ids))
+            .where(col(CheckList.deleted_at).is_(None))
+            .options(
+                selectinload(CheckList.position),
+                with_loader_criteria(
+                    CheckListPosition, CheckListPosition.user_id == user_id
+                ),
+                selectinload(CheckList.color),
+                selectinload(CheckList.labels),
+            )
+        )
+        results = await self.session.exec(statement=query)
+        return list(results.all())
+
     async def list_access_ids(
         self,
         user_id: uuid.UUID,

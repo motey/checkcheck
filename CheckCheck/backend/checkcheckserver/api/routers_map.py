@@ -149,6 +149,14 @@ def mount_fast_api_routers(fastapi_app: FastAPI):
         fast_api_sse_sync_router, tags=["Client Sync"], prefix="/api"
     )
 
+    from checkcheckserver.api.routes.routes_changes import (
+        fast_api_changes_router,
+    )
+
+    fastapi_app.include_router(
+        fast_api_changes_router, tags=["Client Sync"], prefix="/api"
+    )
+
     from checkcheckserver.api.routes.routes_webclient import fast_api_webclient_router
 
     fastapi_app.include_router(fast_api_webclient_router, tags=["WebClient"])

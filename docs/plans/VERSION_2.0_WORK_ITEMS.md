@@ -207,6 +207,65 @@ access-gain/loss semantics as the second half.
 **Done when:** backend tests show two simulated devices converging through the
 endpoint across all scenarios above.
 
+**Decisions taken in-session (2026-07-06, implemented):**
+
+- **Cursor = global `server_seq`** (chose the recommended option over
+  `(updated_at, id)`). A single-row counter table (`sync_seq`, model
+  `SyncSequence` in `model/_base_model.py`) hands out a strictly monotonic int;
+  `TimestampedModel` gains a nullable, indexed `server_seq` column stamped on
+  **every** insert *and* update by `before_insert` / `before_update` mapper events
+  (same choke point as the `updated_at` stamp, so no CRUD/bulk path can bypass
+  it — a `soft_delete` bumps it too, so tombstones surface). The allocator
+  (`_allocate_server_seq`) does `UPDATE sync_seq … +1` then `SELECT` on the flush's
+  own connection; the row lock is held to commit, so **committed `server_seq`
+  values are monotonic in commit order** — a reader that consumed up to N can
+  never miss a row that commits later with a smaller seq. This globally serialises
+  the commit tail of writes; acceptable at this app's scale, documented on the
+  model. The counter row is seeded to 0 right after `create_all` (`INSERT …
+  ON CONFLICT (id) DO NOTHING`, valid on both backends); model change only, no
+  Alembic (decision 7). Used sqlmodel's `Field` (not the pydantic `Field` the
+  module aliases) for the new columns so `index=True` / `primary_key` actually
+  take effect.
+- **`next_cursor` = server high-water mark read *before* the entity queries.** A
+  row that commits mid-pull is therefore delivered now *and* re-delivered next
+  pull (harmless — LWW application is idempotent) rather than skipped. At-least-
+  once, never at-most-once.
+- **`full_resync`** triggers only when `since < 0` or `since > current max seq`
+  (client ahead of a reset/restored DB — no per-client state to consult). It is
+  computed as `since = 0` and flagged so the client drops its cache. With a
+  never-reset, un-GC'd sequence a normal cursor is never "too old".
+- **Access-gain** is keyed off the caller's **accepted collaborator row's**
+  `server_seq` (`list_gained_access_checklist_ids`): when it is `> since` the whole
+  card tree predates the grant, so the feed ships the card **and all its live
+  items** regardless of their seq. Owned/pre-existing cards need no special case
+  (their own rows carry a fresh seq). A permission change re-delivers the tree
+  (minor, documented waste).
+- **Access-loss → `removed_checklist_ids` via a client-supplied `known` list.**
+  WI-2 kept collaborator revoke a **hard delete** (no seq signal), and the server
+  is stateless, so the endpoint takes an optional comma-separated `known` query
+  param (the ids the client currently caches) and returns
+  `known − currently-accessible − tombstoned`. This directly implements WI-2's
+  "diff the access query" note **without** tombstoning collaborators (avoids the
+  re-share resurrection semantics). Online clients still learn of revocation
+  immediately via the existing SSE `share_removed`/`checklist_deleted` poke; this
+  is the offline catch-up path.
+- **Response shape** reuses the existing read models verbatim
+  (`CheckListApiWithSubObj` / `CheckListItemRead` / `LabelReadAPI`) so nested
+  position/state/label serialisation and `my_permission` match every other
+  endpoint and the client stores. Changed rows are grouped flat per entity;
+  removals are id lists (`checklist_tombstones`, `item_tombstones`,
+  `label_tombstones`, `removed_checklist_ids`). A card is emitted at card-level
+  when its row / the caller's position / the caller's labels changed; item changes
+  surface independently (an item edit does **not** re-emit its card).
+- **Pagination deferred.** The delta is computed in one response (bounded account
+  size — SQLite is dev-only, Postgres scale is modest). `next_cursor` is exposed
+  and the convergence tests walk the cursor to empty; true server-side page
+  limiting is left for later if an account ever needs it.
+- **Split seam ignored** — both halves (endpoint + ordinary changes, and
+  access-gain/loss) landed in one session; `tests/tests_changes.py` covers
+  ordinary edits, item state/position, tombstones, gain, loss, bootstrap,
+  full_resync, and two-device convergence. Both harnesses green.
+
 ### WI-5 — Sync protocol glue: bootstrap, SSE poke, convergence suite (M)
 
 **Goal:** A documented, tested client-facing sync contract.

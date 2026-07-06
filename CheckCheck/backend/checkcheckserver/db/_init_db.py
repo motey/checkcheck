@@ -16,6 +16,7 @@ from checkcheckserver.db.user_auth import (
     AllowedAuthSchemeType,
 )
 from checkcheckserver.db._db_data_provisioner import provision_data
+from checkcheckserver.model._base_model import SYNC_SEQ_ROW_ID, SyncSequence
 from checkcheckserver.log import get_logger
 from checkcheckserver.config import Config
 
@@ -44,6 +45,17 @@ def init_schema_and_migrations():
     async def _create_schema_and_check_rev():
         async with db_engine.begin() as conn:
             await conn.run_sync(SQLModel.metadata.create_all)
+            # Seed the WI-4 global sync-sequence counter (a single row) if absent.
+            # Must exist before the first syncable write, whose before_insert event
+            # increments it. ON CONFLICT DO NOTHING keeps a persisted dev DB's
+            # existing high-water mark; both SQLite and Postgres accept this form.
+            await conn.execute(
+                text(
+                    "INSERT INTO sync_seq (id, value) VALUES (:row_id, 0) "
+                    "ON CONFLICT (id) DO NOTHING"
+                ),
+                {"row_id": SYNC_SEQ_ROW_ID},
+            )
         async with db_engine.connect() as conn:
             rev = await _get_current_alembic_revision(conn)
         # Dispose inside the event loop — asyncpg requires async close and

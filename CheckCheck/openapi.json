@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "CheckCheck REST API",
-    "version": "0.1.dev79+g7400f4c.d20260706"
+    "version": "0.1.dev80+g07c9710.d20260706"
   },
   "paths": {
     "/api/health": {
@@ -1169,6 +1169,7 @@
               "enum": [
                 "created_at",
                 "updated_at",
+                "server_seq",
                 "email",
                 "display_name",
                 "id",
@@ -3326,6 +3327,7 @@
               "enum": [
                 "created_at",
                 "updated_at",
+                "server_seq",
                 "index",
                 "pinned",
                 "archived",
@@ -5050,6 +5052,75 @@
         }
       }
     },
+    "/api/changes": {
+      "get": {
+        "tags": [
+          "Client Sync"
+        ],
+        "summary": "Get Changes",
+        "description": "Delta feed (2.0 sync). Returns everything visible to the caller that changed since their cursor.\n\n**Cursor** \u2014 pass the previous response's `next_cursor` as `since` (start at `0` for a fresh device). The cursor is a global, server-set, strictly monotonic `server_seq` stamped on every syncable write; it is client-owned and per-device (the server keeps no per-client state). A `since` greater than the server's high-water mark (client ahead of a reset/restored DB) returns `full_resync=true` with the full accessible state.\n\n**Access changes** \u2014 cards the caller just gained access to are shipped in full (card + all items), since their rows predate the grant. Cards the caller lost access to are returned in `removed_checklist_ids`; to compute that, pass the ids the client currently caches as a comma-separated `known` query param.",
+        "operationId": "get_changes_api_changes_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "since",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "description": "The caller's sync cursor (a server_seq). 0 = full bootstrap.",
+              "default": 0,
+              "title": "Since"
+            },
+            "description": "The caller's sync cursor (a server_seq). 0 = full bootstrap."
+          },
+          {
+            "name": "known",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Comma-separated checklist ids the client currently has cached. Used to compute removed_checklist_ids (access revocations). Omit on the first pull.",
+              "title": "Known"
+            },
+            "description": "Comma-separated checklist ids the client currently has cached. Used to compute removed_checklist_ids (access revocations). Omit on the first pull."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChangesResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/": {
       "get": {
         "tags": [
@@ -5461,6 +5532,84 @@
         ],
         "title": "Body_set_user_password_api_user__user_id__password_put"
       },
+      "ChangesResponse": {
+        "properties": {
+          "next_cursor": {
+            "type": "integer",
+            "title": "Next Cursor"
+          },
+          "full_resync": {
+            "type": "boolean",
+            "title": "Full Resync"
+          },
+          "checklists": {
+            "items": {
+              "$ref": "#/components/schemas/CheckListApiWithSubObj"
+            },
+            "type": "array",
+            "title": "Checklists"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/CheckListItemRead"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "labels": {
+            "items": {
+              "$ref": "#/components/schemas/LabelReadAPI"
+            },
+            "type": "array",
+            "title": "Labels"
+          },
+          "checklist_tombstones": {
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "type": "array",
+            "title": "Checklist Tombstones"
+          },
+          "item_tombstones": {
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "type": "array",
+            "title": "Item Tombstones"
+          },
+          "label_tombstones": {
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "type": "array",
+            "title": "Label Tombstones"
+          },
+          "removed_checklist_ids": {
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "type": "array",
+            "title": "Removed Checklist Ids"
+          }
+        },
+        "type": "object",
+        "required": [
+          "next_cursor",
+          "full_resync",
+          "checklists",
+          "items",
+          "labels",
+          "checklist_tombstones",
+          "item_tombstones",
+          "label_tombstones",
+          "removed_checklist_ids"
+        ],
+        "title": "ChangesResponse"
+      },
       "CheckListApiCreate": {
         "properties": {
           "name": {
@@ -5773,6 +5922,17 @@
             "title": "Updated At",
             "nullable": false
           },
+          "server_seq": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Server Seq"
+          },
           "index": {
             "type": "number",
             "title": "Index",
@@ -6006,6 +6166,17 @@
             "format": "date-time",
             "title": "Updated At",
             "nullable": false
+          },
+          "server_seq": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Server Seq"
           },
           "index": {
             "type": "number",
@@ -6474,6 +6645,17 @@
             "title": "Updated At",
             "nullable": false
           },
+          "server_seq": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Server Seq"
+          },
           "healthy": {
             "type": "boolean",
             "title": "Healthy"
@@ -6498,6 +6680,17 @@
             "format": "date-time",
             "title": "Updated At",
             "nullable": false
+          },
+          "server_seq": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Server Seq"
           },
           "name": {
             "type": "string",
@@ -7575,6 +7768,17 @@
             "title": "Updated At",
             "nullable": false
           },
+          "server_seq": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Server Seq"
+          },
           "email": {
             "anyOf": [
               {
@@ -7887,6 +8091,17 @@
             "format": "date-time",
             "title": "Updated At",
             "nullable": false
+          },
+          "server_seq": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Server Seq"
           },
           "user_id": {
             "type": "string",

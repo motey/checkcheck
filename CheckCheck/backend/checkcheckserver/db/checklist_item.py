@@ -27,6 +27,8 @@ from sqlmodel import (
     col,
     desc,
     case,
+    and_,
+    or_,
 )
 from collections import defaultdict
 from sqlalchemy import func
@@ -141,6 +143,81 @@ class CheckListItemCRUD(
         if raise_exception_if_none and obj is None:
             raise raise_exception_if_none
         return obj
+
+    async def list_changed_items(
+        self,
+        since: int,
+        changed_checklist_ids: List[uuid.UUID],
+        full_checklist_ids: List[uuid.UUID],
+    ) -> List[CheckListItem]:
+        """Live items to ship in a delta pull (WI-4), with state + position eager
+        loaded.
+
+        Two scopes, OR-ed:
+        * ``changed_checklist_ids`` — cards the caller already has; return only the
+          items whose own row, ``state`` (checked) or ``position`` changed after
+          ``since``.
+        * ``full_checklist_ids`` — cards the caller just gained access to; their
+          whole tree predates the access grant (lower ``server_seq``), so return
+          *all* live items regardless of ``since``.
+        The two sets are disjoint at the call site; overlap would merely OR to the
+        same rows."""
+        conditions = []
+        if full_checklist_ids:
+            conditions.append(
+                col(CheckListItem.checklist_id).in_(full_checklist_ids)
+            )
+        if changed_checklist_ids:
+            conditions.append(
+                and_(
+                    col(CheckListItem.checklist_id).in_(changed_checklist_ids),
+                    or_(
+                        col(CheckListItem.server_seq) > since,
+                        col(CheckListItemState.server_seq) > since,
+                        col(CheckListItemPosition.server_seq) > since,
+                    ),
+                )
+            )
+        if not conditions:
+            return []
+        query = (
+            select(CheckListItem)
+            .join(
+                CheckListItemState,
+                CheckListItem.id == CheckListItemState.checklist_item_id,
+            )
+            .join(
+                CheckListItemPosition,
+                CheckListItem.id == CheckListItemPosition.checklist_item_id,
+            )
+            .where(col(CheckListItem.deleted_at).is_(None))
+            .where(or_(*conditions))
+            .options(
+                contains_eager(CheckListItem.state),
+                contains_eager(CheckListItem.position),
+            )
+        )
+        results = await self.session.exec(statement=query)
+        return list(results.unique().all())
+
+    async def list_tombstoned_item_ids(
+        self,
+        checklist_ids: List[uuid.UUID],
+        since: int,
+    ) -> List[uuid.UUID]:
+        """Ids of items tombstoned after ``since`` within the given (currently
+        accessible) cards. Items of a *tombstoned card* are intentionally excluded
+        — the client drops the whole card via ``checklist_tombstones`` — so callers
+        pass only live-accessible checklist ids."""
+        if not checklist_ids:
+            return []
+        query = select(CheckListItem.id).where(
+            col(CheckListItem.checklist_id).in_(checklist_ids),
+            col(CheckListItem.deleted_at).is_not(None),
+            col(CheckListItem.server_seq) > since,
+        )
+        results = await self.session.exec(statement=query)
+        return list(results.all())
 
     async def list_multiple_checklist_items_old(
         self,

@@ -6,7 +6,7 @@ from sqlalchemy.orm import Mapper as _SAMapper
 import uuid
 
 
-from sqlmodel import SQLModel
+from sqlmodel import SQLModel, Field as SQLField
 
 
 from checkcheckserver.config import Config
@@ -81,6 +81,26 @@ class TimestampedModel(SQLModel):
         nullable=False,
     )
 
+    # `server_seq` is the WI-4 delta-feed cursor key: a global, strictly monotonic
+    # integer stamped by the server on every insert AND update of a syncable row
+    # (see the `before_insert` / `before_update` mapper events below). A client's
+    # sync cursor is simply the highest `server_seq` it has applied; the delta feed
+    # returns every row with `server_seq > since`.
+    #
+    # Chosen over an `(updated_at, id)` timestamp cursor because timestamps have
+    # same-instant collisions and are not monotonic across clock adjustments. The
+    # allocator (``_allocate_server_seq``) increments a single-row counter table
+    # (``sync_seq``) and holds that row's lock until the surrounding transaction
+    # commits, so the order in which rows *commit* matches the order of their
+    # ``server_seq`` values — a reader that has consumed up to N can never miss a
+    # row that commits later with a smaller seq. Nullable only for schema
+    # tolerance of pre-2.0 rows; every row inserted through the ORM gets a value.
+    # Uses sqlmodel's Field (not pydantic's, which the module aliases as `Field`)
+    # so `index=True` actually creates the DB index the `server_seq > since`
+    # delta queries scan — a plain int, so no callable leaks into json_schema_extra
+    # (the OpenAPI-breaking trap the `updated_at` comment warns about).
+    server_seq: Optional[int] = SQLField(default=None, nullable=True, index=True)
+
 
 class SoftDeleteMixin(SQLModel):
     """Tombstone marker for syncable *parent* rows (WI-2).
@@ -103,12 +123,67 @@ class SoftDeleteMixin(SQLModel):
     deleted_at: Optional[datetime.datetime] = Field(default=None, nullable=True)
 
 
-# Server-stamp `updated_at` on every UPDATE flush. Registered on the generic
-# Mapper (TimestampedModel itself is abstract / non-mapped) and gated by an
-# isinstance check so it applies to exactly the timestamped tables. Fires only
-# when the row is already dirty enough to emit an UPDATE; the no-op-update case
-# is covered by the explicit stamp in `CRUDBase.update`.
+class SyncSequence(SQLModel, table=True):
+    """Single-row global allocator behind ``TimestampedModel.server_seq`` (WI-4).
+
+    Exactly one row (``id == SYNC_SEQ_ROW_ID``) holding the highest ``server_seq``
+    handed out so far. Seeded to ``0`` right after ``create_all`` (see
+    ``db/_init_db.py``); the next allocation returns ``1``. Deliberately NOT a
+    ``TimestampedModel`` — it must not recurse into the stamping events below.
+    A single global counter (rather than a per-table sequence) gives the delta
+    feed one totally-ordered cursor across every entity.
+    """
+
+    __tablename__ = "sync_seq"
+    # Optional[int] with a default is how SQLModel wants an int primary key
+    # declared (a bare required int PK fails mapper PK assembly). The single row is
+    # inserted with an explicit id via raw SQL in _init_db, never through the ORM.
+    id: Optional[int] = SQLField(default=None, primary_key=True)
+    value: int = SQLField(default=0, nullable=False)
+
+
+# The one seeded row id for the global counter.
+SYNC_SEQ_ROW_ID = 1
+
+
+def _allocate_server_seq(connection) -> int:  # noqa: ANN001
+    """Return the next global ``server_seq`` on ``connection``'s transaction.
+
+    Runs inside a mapper flush event, so ``connection`` is the sync-facade
+    connection the flush is using. The ``UPDATE`` takes a row lock on the single
+    ``sync_seq`` row that is held until this transaction commits/rolls back, which
+    is what makes committed ``server_seq`` values monotonic in *commit* order (see
+    ``TimestampedModel.server_seq``). Two statements instead of ``UPDATE ...
+    RETURNING`` so we don't depend on a minimum SQLite version.
+    """
+    connection.execute(
+        text("UPDATE sync_seq SET value = value + 1 WHERE id = :row_id"),
+        {"row_id": SYNC_SEQ_ROW_ID},
+    )
+    result = connection.execute(
+        text("SELECT value FROM sync_seq WHERE id = :row_id"),
+        {"row_id": SYNC_SEQ_ROW_ID},
+    )
+    return result.scalar_one()
+
+
+# Server-stamp `updated_at` + allocate a fresh `server_seq` on every INSERT and
+# UPDATE flush. Registered on the generic Mapper (TimestampedModel itself is
+# abstract / non-mapped) and gated by an isinstance check so it applies to exactly
+# the timestamped (== syncable) tables — no custom CRUD method or bulk ORM write
+# can bypass it. Executing SQL on the flush's own connection here is a documented,
+# supported pattern; the counter row is not itself a TimestampedModel, so there is
+# no recursion.
+@_sa_event.listens_for(_SAMapper, "before_insert")
+def _stamp_server_seq_on_insert(mapper, connection, target):  # noqa: ANN001
+    if isinstance(target, TimestampedModel):
+        target.server_seq = _allocate_server_seq(connection)
+
+
 @_sa_event.listens_for(_SAMapper, "before_update")
 def _stamp_updated_at(mapper, connection, target):  # noqa: ANN001
     if isinstance(target, TimestampedModel):
         target.updated_at = naive_utc_now()
+        # A tombstone (soft delete sets deleted_at) also flows through here, so a
+        # deleted row gets a fresh seq and surfaces in the delta feed.
+        target.server_seq = _allocate_server_seq(connection)
