@@ -1,10 +1,51 @@
 # CheckCheck 2.0 — Offline-First, Multi-Platform Plan
 
-**Status:** Draft / discussion
-**Date:** 2026-06-23
+**Status:** Decided — superseded in parts by the Amendments below; implementation
+breakdown lives in [VERSION_2.0_WORK_ITEMS.md](VERSION_2.0_WORK_ITEMS.md)
+**Date:** 2026-06-23 (amended 2026-07-06)
 **Goal:** Evolve CheckCheck into an offline-capable app that runs as a web/PWA,
 a desktop app (Tauri), and — in a second step — a mobile app (Capacitor), from
 **one codebase**, using a **Postgres-backed sync engine**.
+
+---
+
+## Amendments (2026-07-06, after review)
+
+Decisions made after reviewing this plan against the codebase; where they
+conflict with the sections below, the amendments win.
+
+1. **Sync engine: Option C-simplified ("DIY delta-sync"), not PowerSync.**
+   No client SQLite, no new service, no logical replication. Pinia stores stay
+   the in-memory source of truth, snapshotted to IndexedDB (works identically
+   in web/Tauri/Capacitor webviews — Section 7.4's driver abstraction is
+   unnecessary); a persisted outbox replays through the existing REST
+   endpoints; reads catch up via a new `GET /api/changes?since=<cursor>` delta
+   endpoint reusing the existing access query. This dissolves the plan's
+   highest risk (sync rules vs permission model) by construction, plus the
+   wasm-bundle and client-DB-migration risks (the local cache is disposable).
+2. **2.0 scope: offline PWA only** (Phase 3 is the finish line). Tauri = 2.1,
+   Capacitor = 2.2.
+3. **LWW clock: server-arrival order.** The server stamps `updated_at` on every
+   write; last upload wins. Client clocks are never trusted for ordering.
+4. **Sync cursor is per-device and client-owned** — the server keeps no
+   per-client cursor state (amends Section 6.3's "per-user cursor").
+5. **Shared-list concurrent editing is a core scenario** — conflict surfacing
+   and offline access-revocation UX are first-class work items, not polish.
+   Text stays LWW (no CRDT) for 2.0.
+6. **The `SYNC_PLAN.md` LISTEN/NOTIFY upgrade is already done**
+   (docs/archive/SYNC_PLAN.md); Phase 0 is void.
+7. **Fractional-index collisions**: deterministic tiebreak by `(index, id)`
+   instead of Section 5's random jitter.
+8. **Access changes while offline** must be handled explicitly in the delta
+   feed: gaining access delivers the checklist and all its children regardless
+   of cursor; revocation is communicated via a `removed_checklist_ids` list.
+9. **No Alembic migrations during 2.0 implementation.** There are no
+   production instances yet: schema changes go into the SQLModel models only,
+   dev databases are recreated (schema comes from `create_all` at startup).
+   The migration infra is kept — history was squashed to a single no-op
+   baseline (`0010_squashed_baseline.py`) — and real migrations resume with
+   the first production release. Amends the "Alembic migrations" wording in
+   Sections 5, 6 and 10/Phase 1.
 
 ---
 
