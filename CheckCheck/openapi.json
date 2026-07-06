@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "CheckCheck REST API",
-    "version": "0.1.dev75+gc839ce6.d20260706"
+    "version": "0.1.dev77+g49894ba6c.d20260706"
   },
   "paths": {
     "/api/health": {
@@ -1168,6 +1168,7 @@
             "schema": {
               "enum": [
                 "created_at",
+                "updated_at",
                 "email",
                 "display_name",
                 "id",
@@ -3323,6 +3324,8 @@
             "required": false,
             "schema": {
               "enum": [
+                "created_at",
+                "updated_at",
                 "index",
                 "pinned",
                 "archived",
@@ -5601,6 +5604,11 @@
             "format": "uuid",
             "title": "Id"
           },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          },
           "owner_id": {
             "type": "string",
             "format": "uuid",
@@ -5640,6 +5648,7 @@
         "type": "object",
         "required": [
           "id",
+          "updated_at",
           "owner_id",
           "my_permission",
           "color",
@@ -5728,6 +5737,18 @@
       },
       "CheckListItemPosition": {
         "properties": {
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At",
+            "nullable": false
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At",
+            "nullable": false
+          },
           "index": {
             "type": "number",
             "title": "Index",
@@ -5828,12 +5849,18 @@
             "minimum": 0.0,
             "title": "Indentation",
             "description": "To define 'sub'-items you can define an indentation level"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
           }
         },
         "type": "object",
         "required": [
           "index",
-          "indentation"
+          "indentation",
+          "updated_at"
         ],
         "title": "CheckListItemPositionPublicWithoutChecklistID"
       },
@@ -5861,6 +5888,11 @@
             "format": "uuid",
             "title": "Checklist Id"
           },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          },
           "position": {
             "$ref": "#/components/schemas/CheckListItemPositionPublicWithoutChecklistID"
           },
@@ -5872,6 +5904,7 @@
         "required": [
           "id",
           "checklist_id",
+          "updated_at",
           "position",
           "state"
         ],
@@ -5904,11 +5937,17 @@
           "checked": {
             "type": "boolean",
             "title": "Checked"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
           }
         },
         "type": "object",
         "required": [
-          "checked"
+          "checked",
+          "updated_at"
         ],
         "title": "CheckListItemStateWithoutChecklistID"
       },
@@ -5932,6 +5971,18 @@
       },
       "CheckListPosition": {
         "properties": {
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At",
+            "nullable": false
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At",
+            "nullable": false
+          },
           "index": {
             "type": "number",
             "title": "Index",
@@ -6091,11 +6142,17 @@
             "title": "Checked Items Collapsed",
             "description": "If true the client should hide checked items in the list view.",
             "default": false
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
           }
         },
         "type": "object",
         "required": [
-          "index"
+          "index",
+          "updated_at"
         ],
         "title": "CheckListPositionPublicWithoutChecklistID"
       },
@@ -6387,6 +6444,12 @@
             "title": "Created At",
             "nullable": false
           },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At",
+            "nullable": false
+          },
           "healthy": {
             "type": "boolean",
             "title": "Healthy"
@@ -6404,6 +6467,12 @@
             "type": "string",
             "format": "date-time",
             "title": "Created At",
+            "nullable": false
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At",
             "nullable": false
           },
           "name": {
@@ -6577,6 +6646,11 @@
             "format": "uuid",
             "title": "Owner Id"
           },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          },
           "color": {
             "anyOf": [
               {
@@ -6592,6 +6666,7 @@
         "required": [
           "id",
           "owner_id",
+          "updated_at",
           "color"
         ],
         "title": "LabelReadAPI"
@@ -7446,6 +7521,12 @@
             "title": "Created At",
             "nullable": false
           },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At",
+            "nullable": false
+          },
           "email": {
             "anyOf": [
               {
@@ -7751,6 +7832,12 @@
             "type": "string",
             "format": "date-time",
             "title": "Created At",
+            "nullable": false
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At",
             "nullable": false
           },
           "user_id": {

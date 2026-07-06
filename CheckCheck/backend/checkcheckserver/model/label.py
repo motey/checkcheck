@@ -69,10 +69,11 @@ class LabelUpdate(LabelCreate, table=False):
 class LabelReadAPI(LabelUpdate, table=False):
     id: uuid.UUID
     owner_id: uuid.UUID
+    updated_at: datetime
     color: Optional[ChecklistColorScheme]
 
 
-class Label(LabelUpdate, table=True):
+class Label(LabelUpdate, TimestampedModel, table=True):
     __tablename__ = "label"
     id: uuid.UUID = Field(
         primary_key=True,

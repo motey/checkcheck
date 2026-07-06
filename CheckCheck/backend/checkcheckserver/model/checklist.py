@@ -117,6 +117,7 @@ class CheckListCreate(CheckListBase):
 
 class CheckListApi(CheckListBase):
     id: uuid.UUID
+    updated_at: datetime.datetime
 
 
 class CheckListApiCreate(CheckListBase):

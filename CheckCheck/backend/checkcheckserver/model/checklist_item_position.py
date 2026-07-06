@@ -68,7 +68,7 @@ class CheckListItemPositionCreate(CheckListItemPositionUpdate, table=False):
     )
 
 
-class CheckListItemPosition(CheckListItemPositionCreate, table=True):
+class CheckListItemPosition(CheckListItemPositionCreate, TimestampedModel, table=True):
     __tablename__ = "checklist_item_pos"
     __table_args__ = (
         UniqueConstraint(
@@ -102,6 +102,7 @@ class CheckListItemPositionPublicWithoutChecklistID(
     indentation: NonNegativeInt = Field(
         description="To define 'sub'-items you can define an indentation level",
     )
+    updated_at: datetime.datetime
     checklist_item_id: uuid.UUID = Field(
         foreign_key="checklist_item.id", primary_key=True, exclude=True
     )

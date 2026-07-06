@@ -12,16 +12,27 @@ def test_checklist_item_position_endpoints():
     items = req(f"api/checklist/{checklist_id}/item")["items"]
     assert len(items) == 5
 
-    # Items arrive oldest-first (lowest index = first in list)
+    # Items arrive oldest-first (lowest index = first in list). Assert text and
+    # the position's index/indentation individually rather than comparing the
+    # whole nested `position` dict — that now carries an `updated_at` version
+    # field (WI-1) which is not part of this ordering assertion.
     expected_order = [
-        {"text": "Item 1", "position": {"index": 0.4, "indentation": 0}},
-        {"text": "Item 2", "position": {"index": 0.8, "indentation": 0}},
-        {"text": "Item 3", "position": {"index": 1.2, "indentation": 0}},
-        {"text": "Item 4", "position": {"index": 1.6, "indentation": 0}},
-        {"text": "Item 5", "position": {"index": 2.0, "indentation": 0}},
+        {"text": "Item 1", "index": 0.4, "indentation": 0},
+        {"text": "Item 2", "index": 0.8, "indentation": 0},
+        {"text": "Item 3", "index": 1.2, "indentation": 0},
+        {"text": "Item 4", "index": 1.6, "indentation": 0},
+        {"text": "Item 5", "index": 2.0, "indentation": 0},
     ]
     for idx, expected in enumerate(expected_order):
-        dict_must_contain(items[idx], expected, exception_dict_identifier=f"item[{idx}] initial order")
+        dict_must_contain(
+            items[idx], {"text": expected["text"]},
+            exception_dict_identifier=f"item[{idx}] initial order",
+        )
+        dict_must_contain(
+            items[idx]["position"],
+            {"index": expected["index"], "indentation": expected["indentation"]},
+            exception_dict_identifier=f"item[{idx}] position",
+        )
 
     item_1, item_2, item_3, item_4, item_5 = items
 

@@ -23,7 +23,11 @@ from uuid import UUID
 
 from checkcheckserver.db._session import get_async_session
 
-from checkcheckserver.model._base_model import BaseTable, TimestampedModel
+from checkcheckserver.model._base_model import (
+    BaseTable,
+    TimestampedModel,
+    naive_utc_now,
+)
 
 from checkcheckserver.config import Config
 from checkcheckserver.log import get_logger
@@ -307,6 +311,12 @@ class CRUDBase(
         for k, v in update_obj.model_dump(exclude_unset=True).items():
             if k in self.get_update_cls().model_fields.keys():
                 setattr(obj_from_db, k, v)
+        # Explicitly stamp the sync version signal. The `before_update` mapper
+        # event only fires when the flush emits an UPDATE, so an update that
+        # dirties no other column would otherwise leave `updated_at` stale;
+        # setting it here also marks the row dirty so the bump always persists.
+        if isinstance(obj_from_db, TimestampedModel):
+            obj_from_db.updated_at = naive_utc_now()
         self.session.add(obj_from_db)
         await self.session.commit()
         await self.session.refresh(obj_from_db)

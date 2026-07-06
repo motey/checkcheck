@@ -57,7 +57,7 @@ class CheckListItemUpdate(CheckListItemBase, table=False):
     )
 
 
-class CheckListItem(CheckListItemCreate, table=True):
+class CheckListItem(CheckListItemCreate, TimestampedModel, table=True):
     __tablename__ = "checklist_item"
     id: uuid.UUID = Field(
         default_factory=uuid.uuid4,
@@ -85,6 +85,7 @@ class CheckListItem(CheckListItemCreate, table=True):
 
 class CheckListItemRead(CheckListItemCreate):
     id: uuid.UUID
+    updated_at: datetime.datetime
     position: CheckListItemPositionPublicWithoutChecklistID
     state: CheckListItemStateWithoutChecklistID
 
