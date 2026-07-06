@@ -517,6 +517,67 @@ drops; a manual offline-edit → restart → reconnect round-trip syncs.
 
 **Done when:** item CRUD + check/uncheck work offline and converge on reconnect.
 
+**Decisions taken in-session (2026-07-07, implemented):**
+
+- **Dual-path, gated at the top of each action.** `create` / `update` / `delete` /
+  `updateState` keep their signatures; when `isLocalFirstEnabled()` they delegate to
+  a private `_local*` sibling (optimistic mutate + `useOutbox().enqueue(...)`) and
+  `return` before the legacy code. Flag-off, the existing inline `$checkapi` bodies
+  are reached **byte-for-byte** — a one-line guard per action, no fork of the store.
+  Position/reorder actions (`updatePosition`, the `move/above|under` endpoints) and
+  the checklist store are deliberately **left on the legacy path** (WI-9). The
+  `useOutbox()` singleton is touched only inside the flag-on branch, so flag-off
+  never constructs the engine.
+- **Op builders in their own module** (`utils/outboxOps.ts`): `itemCreateOp` /
+  `itemUpdateOp` / `itemStateOp` / `itemDeleteOp` map the item endpoints to WI-7's
+  `OutboxOpInput` (path *template* + `pathParams`, `entityType:"item"`,
+  `kind ∈ create|update|state|delete`). WI-7 shipped no builders on purpose; this is
+  the first batch and WI-9 extends it for positions/checklists. Framework-free so it
+  unit-tests in plain vitest (`tests/unit/outboxOps.spec.ts`).
+- **`create` synthesises a full local row before the server confirms.** The id is
+  `crypto.randomUUID()` (or a caller-supplied one), carried in the create op's `body.id`
+  (WI-3's optional client id → protocol §8), so the eventual server row and WI-10
+  delta upsert share it with no duplicate. A plausible `CheckListItemType` is built
+  (nested `state{checked,updated_at}` / `position{index,indentation,updated_at}`,
+  `text`, `updated_at`) so the board renders it immediately.
+- **Append index = `max(existing index) + 1`** (`nextItemIndex`, `ITEM_INDEX_STEP`).
+  The server assigns `position.index` online; offline WI-8 needs a **minimal** numeric
+  append so `_insertNewAtCorrectIndex`'s binary search stays correct — the value is
+  numeric and strictly larger than every existing one. A caller that already passes an
+  explicit index (the "add item after" affordance) keeps it. This is *append only* —
+  full fractional-index reorder (mid-list insert, drag) is **WI-9**; `decimal.js` was
+  not pulled in here.
+- **Count maps kept consistent offline.** `create`/`delete`/`updateState` shift
+  `total_backend_count[_checked|_unchecked]_per_checklist` via a shared `_adjustCounts`
+  (`?? 0`-guarded), so the sidebar badges are right when `checklistWasFullLoadedOnce`
+  is false. `updateState` only shifts on a real flip (an idempotent re-check must not
+  drift the counters — stricter than the legacy path, which is fine as this is new code).
+- **Offline card-open resilience (one small read-path fix).** Opening a card in edit
+  mode `await`s `refreshAllCheckListItems`, which **throws** offline and broke the
+  editor mount. Guarded it with `.catch(() => {})` in `components/CheckList.vue`
+  (matching the adjacent `fetch(...).catch` already there) so the editor opens on the
+  hydrated/optimistic cache instead of throwing. Online behaviour is unchanged; the
+  real delta-driven reconciliation replaces this refetch in WI-10.
+- **Reconciliation is still the legacy SSE refetch until WI-10.** Flag-on users keep
+  running `useSync().connect()`, so the per-entity refetch reconciles optimistic rows
+  with server truth once the outbox drains (client id ⇒ no duplicate). **Known tension
+  (not fixed here):** on SSE reconnect `useSync.onopen` calls `checkListStore.resync()`
+  and card-open re-runs `refreshAllCheckListItems`, either of which can momentarily
+  clobber optimistic rows whose ops haven't drained yet. The real fix is WI-10/WI-11.
+- **Create-then-delete offline cancels out for free** via WI-7 coalesce rule 2 (both
+  ops share `entityId`), so an item created and deleted while offline never reaches the
+  server.
+- **Verified:** new E2E `tests/e2e/local-item-offline.spec.ts` (flag on) — add an item,
+  edit its text, `route.abort("**/api/**")`, reload → the item hydrates from the
+  snapshot (reopen the card, see the textarea) and the ops are still queued in
+  `checkcheck-outbox`; check the item offline; restore the API + reload → the outbox
+  drains and the server item carries the text **and** `checked:true` under the client
+  id. Plus `tests/unit/outboxOps.spec.ts` (builders + append-index math). Re-ran
+  `add-item` / `item-movement` / `card-editor` / `local-persistence` to confirm the
+  flag-off legacy path is untouched. `bun run test:unit` + the Playwright CLI via bun.
+  The anonymous public viewer (`usePublicCard.ts` / `/p/[token]`) was left alone
+  (online-only, WI-12).
+
 ### WI-9 — Reorder/positions + checklist store (M/L)
 
 **Goal:** Full board manipulation offline.

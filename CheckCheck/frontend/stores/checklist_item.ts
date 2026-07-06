@@ -1,5 +1,8 @@
 import { defineStore } from "pinia";
 import { findNewPlacementForItem, sortBySubset } from "~/utils/helpers";
+import { isLocalFirstEnabled } from "@/utils/localFirst";
+import { useOutbox } from "@/composables/useOutbox";
+import { itemCreateOp, itemDeleteOp, itemStateOp, itemUpdateOp, nextItemIndex } from "@/utils/outboxOps";
 
 export type CheckListItemState = {
   checkListsItems: { [key: string]: CheckListItemType[] };
@@ -59,6 +62,7 @@ export const useCheckListsItemStore = defineStore("checkListitem", {
     },
     async create(checkListId: string, checklistitem?: CheckListItemCreateType) {
       if (!checkListId) throw new Error("Checklistid empty");
+      if (isLocalFirstEnabled()) return this._localCreate(checkListId, checklistitem);
       const { $checkapi } = useNuxtApp();
       let resChecklistItem: CheckListItemType;
       try {
@@ -76,6 +80,7 @@ export const useCheckListsItemStore = defineStore("checkListitem", {
     },
     async update(checkListId: string, checklistidItemId: string, checklistitem: CheckListItemUpdateType) {
       if (!checklistitem || !checklistidItemId || !checkListId) return;
+      if (isLocalFirstEnabled()) return this._localUpdate(checkListId, checklistidItemId, checklistitem);
       const { $checkapi } = useNuxtApp();
       let resChecklistItem: CheckListItemType;
       try {
@@ -119,6 +124,7 @@ export const useCheckListsItemStore = defineStore("checkListitem", {
     },
     async delete(checkListId: string, checklistidItemId: string) {
       if (!checkListId) throw new Error("checkListId empty");
+      if (isLocalFirstEnabled()) return this._localDelete(checkListId, checklistidItemId);
       const { $checkapi } = useNuxtApp();
       const index = this.checkListsItems[checkListId]!.findIndex((item) => item.id == checklistidItemId);
       try {
@@ -213,6 +219,7 @@ export const useCheckListsItemStore = defineStore("checkListitem", {
       }
     },
     async updateState(checkListId: string, checklistidItemId: string, state: CheckListItemStateUpdateType) {
+      if (isLocalFirstEnabled()) return this._localUpdateState(checkListId, checklistidItemId, state);
       const { $checkapi } = useNuxtApp();
       try {
         const resState = await $checkapi("/api/checklist/{checklist_id}/item/{checklist_item_id}/state", {
@@ -305,6 +312,106 @@ export const useCheckListsItemStore = defineStore("checkListitem", {
       for (const checkListId of Object.keys(this.checkListsItems)) {
         this._sort(checkListId);
       }
+    },
+    // ── Local-first optimistic paths (WI-8) ───────────────────────────────
+    //
+    // Flag-on, the four item-content actions mutate the store immediately and
+    // enqueue the REST call to the WI-7 outbox instead of awaiting `$checkapi`.
+    // Every op carries the client-generated item id, so replay is idempotent
+    // (protocol §8) and WI-10's delta pull upserts by the same id with no
+    // duplicate. Reconciliation with server truth is still the legacy SSE
+    // refetch until WI-10.
+
+    /**
+     * Shift the cached count maps by the given deltas. Kept consistent offline
+     * so the sidebar badges are right when `checklistWasFullLoadedOnce` is false
+     * (when true, `getItemCount` reads the array and these are moot but harmless).
+     */
+    _adjustCounts(checkListId: string, dTotal: number, dChecked: number, dUnchecked: number) {
+      this.total_backend_count_per_checklist[checkListId] =
+        (this.total_backend_count_per_checklist[checkListId] ?? 0) + dTotal;
+      this.total_backend_count_checked_per_checklist[checkListId] =
+        (this.total_backend_count_checked_per_checklist[checkListId] ?? 0) + dChecked;
+      this.total_backend_count_unchecked_per_checklist[checkListId] =
+        (this.total_backend_count_unchecked_per_checklist[checkListId] ?? 0) + dUnchecked;
+    },
+    _localCreate(checkListId: string, checklistitem?: CheckListItemCreateType): CheckListItemType {
+      const list = this.checkListsItems[checkListId] ?? (this.checkListsItems[checkListId] = []);
+      // Client-generated id (or a caller-supplied one) — the create op's `id`, so
+      // the eventual server row and delta upsert share it with no duplicate.
+      const id = checklistitem?.id ?? crypto.randomUUID();
+      const now = new Date().toISOString();
+      // The server assigns `position.index` online; offline we append past the
+      // largest existing index (WI-8 decision — full reorder is WI-9). A caller
+      // that passed an explicit index (e.g. "add item after") keeps it.
+      const index = checklistitem?.position?.index ?? nextItemIndex(list);
+      const indentation = checklistitem?.position?.indentation ?? 0;
+      const checked = checklistitem?.state?.checked ?? false;
+      const text = checklistitem?.text ?? "";
+      const row: CheckListItemType = {
+        id,
+        checklist_id: checkListId,
+        text,
+        updated_at: now,
+        position: { index, indentation, updated_at: now },
+        state: { checked, updated_at: now },
+      };
+      this._insertNewAtCorrectIndex(list, row);
+      this._adjustCounts(checkListId, 1, checked ? 1 : 0, checked ? 0 : 1);
+      useOutbox().enqueue(
+        itemCreateOp(checkListId, id, { text, position: { index, indentation }, state: { checked } })
+      );
+      return row;
+    },
+    _localUpdate(
+      checkListId: string,
+      checklistidItemId: string,
+      checklistitem: CheckListItemUpdateType
+    ): CheckListItemType | undefined {
+      const list = this.checkListsItems[checkListId];
+      const index = list?.findIndex((item) => item.id == checklistidItemId) ?? -1;
+      let row: CheckListItemType | undefined;
+      if (list && index !== -1) {
+        const now = new Date().toISOString();
+        row = { ...list[index]!, ...checklistitem, updated_at: now };
+        list.splice(index, 1, row);
+      }
+      useOutbox().enqueue(itemUpdateOp(checkListId, checklistidItemId, { text: checklistitem.text }));
+      return row;
+    },
+    _localDelete(checkListId: string, checklistidItemId: string) {
+      const list = this.checkListsItems[checkListId];
+      const index = list?.findIndex((item) => item.id == checklistidItemId) ?? -1;
+      if (list && index !== -1) {
+        const removed = list[index]!;
+        list.splice(index, 1);
+        this._adjustCounts(checkListId, -1, removed.state.checked ? -1 : 0, removed.state.checked ? 0 : -1);
+      }
+      // A delete whose create is still queued cancels out in the outbox (WI-7
+      // coalesce rule 2), so an item created-then-deleted offline never hits the
+      // server.
+      useOutbox().enqueue(itemDeleteOp(checkListId, checklistidItemId));
+    },
+    _localUpdateState(
+      checkListId: string,
+      checklistidItemId: string,
+      state: CheckListItemStateUpdateType
+    ): CheckListItemStateType {
+      const now = new Date().toISOString();
+      const newState: CheckListItemStateType = { checked: state.checked, updated_at: now };
+      const list = this.checkListsItems[checkListId];
+      const index = list?.findIndex((item) => item.id == checklistidItemId) ?? -1;
+      if (list && index !== -1) {
+        const wasChecked = list[index]!.state.checked;
+        list[index]!.state = newState;
+        // Only shift counters on a real flip (an idempotent re-check must not drift).
+        if (state.checked !== wasChecked) {
+          if (state.checked) this._adjustCounts(checkListId, 0, 1, -1);
+          else this._adjustCounts(checkListId, 0, -1, 1);
+        }
+      }
+      useOutbox().enqueue(itemStateOp(checkListId, checklistidItemId, { checked: state.checked }));
+      return newState;
     },
     async _insertNewAtCorrectIndex(checkListItemList: CheckListItemType[], checklistitem: CheckListItemType) {
       if (checkListItemList.findIndex((item) => item.id == checklistitem.id) !== -1) {

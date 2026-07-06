@@ -174,7 +174,11 @@ if (!props.previewModeActive && props.checkListId) {
   // Ensure the card itself is loaded (supports deep-linking a card that isn't
   // on the current board page yet) before refreshing its items.
   await checkListsStore.fetch(props.checkListId).catch(() => {});
-  await checkListsItemStore.refreshAllCheckListItems(props.checkListId);
+  // Best-effort reconcile with server truth. Offline (WI-8, local-first) this GET
+  // fails; swallow it so the editor still opens on the hydrated/optimistic cache
+  // instead of throwing out of setup. Online it behaves as before. The real
+  // delta-driven reconciliation replaces this refetch in WI-10.
+  await checkListsItemStore.refreshAllCheckListItems(props.checkListId).catch(() => {});
 }
 
 // Local copies decoupled from the store so SSE/update patches don't wipe
