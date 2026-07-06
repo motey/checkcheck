@@ -143,6 +143,41 @@ and stale edits can't resurrect deleted rows.
 **Done when:** replaying any mutation twice yields identical state, and terminal
 errors are distinguishable from retryable ones.
 
+**Decisions taken in-session (2026-07-06, implemented):**
+
+- **Client-supplied id is optional, per-create.** Added a nullable `id` to the
+  three API create schemas (`CheckListApiCreate`, `CheckListItemCreateAPI`,
+  `LabelCreate`). Omitting it keeps the legacy server-assigns-id behaviour; the
+  table models already had `default_factory=uuid4`, so the routes only forward a
+  client id when it is actually set (a null `id` in the payload is dropped so the
+  factory still runs). No new columns — model change only, no Alembic (decision 7).
+- **Idempotent create = pre-check by id, not DB upsert.** Each create route, when
+  given an id, does a tombstone-aware `get(id, include_deleted=True)` before
+  inserting and branches: **live + belongs to caller → return the existing row**
+  (200, no duplicate, no sync poke — a replay); **tombstoned → 410 Gone** (a
+  create replay must not resurrect, terminal); **owned by another user / another
+  card → 409 Conflict** (a genuine UUID collision, terminal). "Belongs to caller"
+  is owner-scoped for checklist/label and card-scoped (path `checklist_id`) for
+  items. Chose this over a blind `INSERT … ON CONFLICT` upsert because the
+  ownership/tombstone branches need distinct terminal status codes and an upsert
+  would also silently overwrite a live row's fields on replay.
+- **The public anonymous item-create surface gets the same treatment** (it shares
+  `CheckListItemCreateAPI`), so a retried anonymous create can't duplicate either;
+  it was also the one route that would have crashed on the new `id` field (the
+  explicit `id=` kwarg + `**model_dump()` collided) until `id` was excluded there.
+- **PATCH/PUT are already replay-safe by construction** (field-level LWW: applying
+  the same op twice yields the same row, only `updated_at` re-stamps). No endpoint
+  changes needed; covered by replay-twice tests instead.
+- **Hardened `CRUDBase.update` to never repoint the primary key**: `LabelUpdate`
+  inherits the optional `id` from `LabelCreate`, so a replayed/hostile label PATCH
+  body could otherwise have moved the row. The update loop now skips `id`
+  unconditionally (no legitimate path updates a PK).
+- **Terminal vs retryable error set (the outbox contract for WI-7):** `409`
+  (id collision, create) and `410` (row tombstoned) and `403` (access revoked /
+  insufficient permission) and `404` (never existed) are all **terminal**;
+  network / `5xx` are retryable. 403/410 were already enforced at the shared
+  access guards in WI-2; WI-3 adds the 409 collision and the 410 create-replay.
+
 ### WI-4 — Delta feed: `GET /api/changes?since=<cursor>` (L)
 
 **Goal:** One endpoint that tells a device everything that changed since its cursor.

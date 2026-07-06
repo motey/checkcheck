@@ -42,6 +42,10 @@ config = Config()
 
 
 class LabelCreate(BaseTable, table=False):
+    # Optional client-generated UUID (WI-3). When supplied the create is
+    # idempotent: replaying it returns the existing label instead of duplicating
+    # it. Omit and the server assigns one.
+    id: Optional[uuid.UUID] = Field(default=None)
     color_id: Optional[str] = Field(
         foreign_key="checklist_color_scheme.id",
         default=None,

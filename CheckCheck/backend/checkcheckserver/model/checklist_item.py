@@ -95,6 +95,10 @@ class CheckListItemRead(CheckListItemCreate):
 
 
 class CheckListItemCreateAPI(CheckListItemBase, table=False):
+    # Optional client-generated UUID (WI-3). When supplied the create is
+    # idempotent: replaying it returns the existing item instead of duplicating
+    # it. Omit and the server assigns one.
+    id: Optional[uuid.UUID] = Field(default=None)
     text: Optional[str] = Field(
         description="The display name of the list", default_factory=str
     )

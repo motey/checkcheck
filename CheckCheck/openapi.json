@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "CheckCheck REST API",
-    "version": "0.1.dev77+g49894ba6c.d20260706"
+    "version": "0.1.dev79+g7400f4c.d20260706"
   },
   "paths": {
     "/api/health": {
@@ -5523,6 +5523,18 @@
             "description": "If checked_items_seperated is enabled and this is set to true the client should hide any checked items. ",
             "default": true
           },
+          "id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Id"
+          },
           "position": {
             "anyOf": [
               {
@@ -5710,6 +5722,18 @@
             ],
             "title": "Text",
             "description": "The display name of the list"
+          },
+          "id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Id"
           },
           "position": {
             "anyOf": [
@@ -6562,6 +6586,18 @@
       },
       "LabelCreate": {
         "properties": {
+          "id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Id"
+          },
           "color_id": {
             "anyOf": [
               {
@@ -6600,6 +6636,11 @@
       },
       "LabelReadAPI": {
         "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
           "color_id": {
             "anyOf": [
               {
@@ -6636,11 +6677,6 @@
             "title": "Sort Order",
             "description": "Label order per user"
           },
-          "id": {
-            "type": "string",
-            "format": "uuid",
-            "title": "Id"
-          },
           "owner_id": {
             "type": "string",
             "format": "uuid",
@@ -6673,6 +6709,18 @@
       },
       "LabelUpdate": {
         "properties": {
+          "id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Id"
+          },
           "color_id": {
             "anyOf": [
               {

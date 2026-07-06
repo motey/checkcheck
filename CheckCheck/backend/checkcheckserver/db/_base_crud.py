@@ -335,6 +335,11 @@ class CRUDBase(
             id_=id_, raise_exception_if_none=raise_exception_if_not_exists
         )
         for k, v in update_obj.model_dump(exclude_unset=True).items():
+            # Never repoint the primary key through an update body (WI-3): some
+            # update schemas inherit an optional client-supplied `id` from their
+            # create schema, and a replayed/hostile PATCH must not move the row.
+            if k == "id":
+                continue
             if k in self.get_update_cls().model_fields.keys():
                 setattr(obj_from_db, k, v)
         # Explicitly stamp the sync version signal. The `before_update` mapper

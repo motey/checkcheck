@@ -125,6 +125,10 @@ class CheckListApi(CheckListBase):
 
 
 class CheckListApiCreate(CheckListBase):
+    # Optional client-generated UUID (WI-3). When supplied the create is
+    # idempotent: replaying it (outbox retry / reconnect double-send) returns the
+    # existing card instead of duplicating it. Omit and the server assigns one.
+    id: Optional[uuid.UUID] = Field(default=None)
     position: CheckListPositionApiCreate | None = None
 
 

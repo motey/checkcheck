@@ -103,6 +103,26 @@ async def create_label(
     current_user: User = Depends(get_current_user),
 ) -> LabelReadAPI:
     log.debug(("label_create", label_create))
+    # Idempotent create (WI-3): the client may supply the label's UUID so an
+    # outbox replay doesn't duplicate it. If a label with that id already exists,
+    # don't create a second one.
+    if label_create.id is not None:
+        existing = await label_crud.get(label_create.id, include_deleted=True)
+        if existing is not None:
+            if existing.owner_id != current_user.id:
+                # id taken by another user's label — a UUID collision, not a replay.
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail=f"Label id '{label_create.id}' already exists.",
+                )
+            if existing.deleted_at is not None:
+                # Re-creating a since-tombstoned label must not resurrect it.
+                raise HTTPException(
+                    status_code=status.HTTP_410_GONE,
+                    detail=f"Label '{label_create.id}' has been deleted.",
+                )
+            # Same owner, still live → replay. Return the existing label unchanged.
+            return existing
     if label_create.sort_order is None:
         max_label_order = await label_crud.get_max_sort_order(user_id=current_user.id)
         label_create.sort_order = max_label_order + 10

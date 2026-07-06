@@ -184,10 +184,41 @@ async def create_checklist(
     checklist_crud: CheckListCRUD = Depends(CheckListCRUD.get_crud),
     sync_crud: SyncNotifiationCRUD = Depends(SyncNotifiationCRUD.get_crud),
 ) -> CheckListApiWithSubObj:
+    # Idempotent create (WI-3): a client may supply the card's UUID so an outbox
+    # replay (retry / reconnect double-send) doesn't duplicate it. If a card with
+    # that id already exists, don't create a second one.
+    if checklist.id is not None:
+        existing = await checklist_crud.get(id_=checklist.id, include_deleted=True)
+        if existing is not None:
+            if existing.owner_id != current_user.id:
+                # The id is taken by someone else's card — a genuine UUID
+                # collision, not a replay. Terminal for the outbox.
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail=f"Checklist id '{checklist.id}' already exists.",
+                )
+            if existing.deleted_at is not None:
+                # Re-creating a since-tombstoned card must not resurrect it.
+                raise HTTPException(
+                    status_code=status.HTTP_410_GONE,
+                    detail=f"Checklist '{checklist.id}' has been deleted.",
+                )
+            # Same owner, still live → this is a replay. Return the existing card
+            # (with the caller's position) unchanged; no duplicate, no sync poke.
+            user_position = await checklist_position_crud.get(
+                checklist_id=existing.id, user_id=current_user.id
+            )
+            if user_position is not None:
+                existing.position = user_position
+            attach_my_permission(existing, ChecklistAccessLevel.owner)
+            return existing
+    # Drop a null `id` from the payload so the server-side default_factory
+    # assigns one; only forward a client-supplied id when it is actually set.
+    create_payload = checklist.model_dump(exclude=["position", "id"])
+    if checklist.id is not None:
+        create_payload["id"] = checklist.id
     checklist_db: CheckList = await checklist_crud.create(
-        CheckListCreate(
-            **checklist.model_dump(exclude=["position"]), owner_id=current_user.id
-        ),
+        CheckListCreate(**create_payload, owner_id=current_user.id),
     )
     if checklist.position is None:
         highest_existing_index_position = await checklist_position_crud.get_last(
