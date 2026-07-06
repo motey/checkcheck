@@ -50,7 +50,9 @@ class LabelCRUD(
         self,
         user_id: uuid.UUID,
     ) -> List[Label]:
-        query = select(Label).where(Label.owner_id == user_id)
+        query = select(Label).where(
+            Label.owner_id == user_id, col(Label.deleted_at).is_(None)
+        )
 
         query = query.order_by(desc(Label.sort_order))
 
@@ -66,7 +68,7 @@ class LabelCRUD(
     ) -> int:
         query = (
             select(Label.sort_order)
-            .where(Label.owner_id == user_id)
+            .where(Label.owner_id == user_id, col(Label.deleted_at).is_(None))
             .order_by(desc(Label.sort_order))
         ).limit(1)
 
@@ -79,7 +81,11 @@ class LabelCRUD(
         user_id: uuid.UUID,
         label_order: List[uuid.UUID],
     ) -> List[Label]:
-        query = select(Label).where(Label.owner_id == user_id).order_by(desc(Label.id))
+        query = (
+            select(Label)
+            .where(Label.owner_id == user_id, col(Label.deleted_at).is_(None))
+            .order_by(desc(Label.id))
+        )
         query = query.options(selectinload(Label.color))
         all_labels_results = await self.session.exec(statement=query)
         all_labels = all_labels_results.all()

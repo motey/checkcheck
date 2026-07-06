@@ -87,6 +87,10 @@ class ChecklistLabelCRUD(
                 and_(
                     CheckListLabel.checklist_id == checklist_id,
                     CheckListLabel.user_id == user_id,
+                    # Mask chips whose label was tombstoned (WI-2). The link row is
+                    # a hard-delete-on-remove per-user association and is left in
+                    # place when the label itself is soft-deleted, so filter here.
+                    col(Label.deleted_at).is_(None),
                 )
             )
             .order_by(*self._label_order())
@@ -110,6 +114,7 @@ class ChecklistLabelCRUD(
                 and_(
                     col(CheckListLabel.checklist_id).in_(checklist_ids),
                     CheckListLabel.user_id == user_id,
+                    col(Label.deleted_at).is_(None),
                 )
             )
             .order_by(*self._label_order())

@@ -181,12 +181,19 @@ async def user_has_checklist_access(
     checklist_crud: Annotated[CheckListCRUD, Depends(CheckListCRUD.get_crud)],
 ) -> UserChecklistAccess:
 
-    checklist = await checklist_crud.get(
-        id_=checklist_id,
-        raise_exception_if_none=HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-        ),
-    )
+    # Fetch tombstone-aware so a soft-deleted card (WI-2) returns 410 Gone rather
+    # than 404 — the outbox treats 410 as a terminal "stop retrying, it's gone"
+    # for any queued write, distinct from "never existed" (404). This is the
+    # single choke point for every id-addressed checklist / item / share / label
+    # route, so the 410 covers them all.
+    checklist = await checklist_crud.get(id_=checklist_id, include_deleted=True)
+    if checklist is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
+    if checklist.deleted_at is not None:
+        raise HTTPException(
+            status_code=status.HTTP_410_GONE,
+            detail=f"Checklist {checklist_id} has been deleted.",
+        )
     collaborators = await checklist_collaborator_crud.list(checklist_id=checklist_id)
     checklist_access = UserChecklistAccess(
         user=user, checklist=checklist, collaborators=collaborators
@@ -360,7 +367,9 @@ async def verify_item_belongs_to_checklist(
     ``/checklist/{A}/item/{item_in_B}/...`` — a cross-checklist IDOR. Returns 404
     (rather than 400) so the existence of the foreign item is not revealed.
     """
-    item = await checklist_item_crud.get(id_=checklist_item_id)
+    # Tombstone-aware (WI-2): a soft-deleted item returns 410 Gone (terminal for
+    # the outbox), while a missing/foreign item stays 404 (no existence leak).
+    item = await checklist_item_crud.get(id_=checklist_item_id, include_deleted=True)
     if item is None or item.checklist_id != checklist_id:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -368,6 +377,11 @@ async def verify_item_belongs_to_checklist(
                 f"Item '{checklist_item_id}' does not exist in checklist "
                 f"'{checklist_id}'."
             ),
+        )
+    if item.deleted_at is not None:
+        raise HTTPException(
+            status_code=status.HTTP_410_GONE,
+            detail=f"Item '{checklist_item_id}' has been deleted.",
         )
     return item
 
@@ -386,11 +400,16 @@ async def verify_item_belongs_to_public_checklist(
     path ``checklist_id``, so the cross-card IDOR guard compares the item's
     ``checklist_id`` against the token's checklist. 404 to avoid revealing the
     foreign item."""
-    item = await checklist_item_crud.get(id_=checklist_item_id)
+    item = await checklist_item_crud.get(id_=checklist_item_id, include_deleted=True)
     if item is None or item.checklist_id != checklist_access.checklist.id:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Item '{checklist_item_id}' is not part of this shared card.",
+        )
+    if item.deleted_at is not None:
+        raise HTTPException(
+            status_code=status.HTTP_410_GONE,
+            detail=f"Item '{checklist_item_id}' has been deleted.",
         )
     return item
 

@@ -27,6 +27,7 @@ from checkcheckserver.model.user import User
 from checkcheckserver.model._base_model import (
     BaseTable,
     TimestampedModel,
+    SoftDeleteMixin,
 )
 from checkcheckserver.model.checklist_color_scheme import ChecklistColorScheme
 from checkcheckserver.model.checklist_label import CheckListLabel
@@ -73,7 +74,7 @@ class LabelReadAPI(LabelUpdate, table=False):
     color: Optional[ChecklistColorScheme]
 
 
-class Label(LabelUpdate, TimestampedModel, table=True):
+class Label(LabelUpdate, TimestampedModel, SoftDeleteMixin, table=True):
     __tablename__ = "label"
     id: uuid.UUID = Field(
         primary_key=True,

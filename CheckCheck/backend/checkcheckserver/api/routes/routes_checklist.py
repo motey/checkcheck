@@ -366,13 +366,19 @@ async def delete_checklist(
         return
 
     if checklist_access.user_is_owner():
-        # Capture who to notify *before* deleting the rows that identify them —
-        # afterwards the checklist and its collaborators are gone and the target
-        # set would resolve to nobody.
+        # Capture who to notify *before* tombstoning, while the collaborator rows
+        # still resolve the target set.
         target_user_ids = await sync_crud.resolve_target_user_ids(checklist_id)
-        await checklist_collaborator_crud.delete(checklist_id=checklist_id)
-        await checklist_position_crud.delete(checklist_id=checklist_id)
-        await checklist_crud.delete(
+        # Tombstone the checklist only (WI-2 cascade rule): every child row
+        # (collaborators, per-user positions, items/states/item-positions) is left
+        # untouched and masked by the parent tombstone. The access query filters
+        # `CheckList.deleted_at IS NULL`, so collaborators lose access on their
+        # next read; the delete propagates to offline clients via the delta feed
+        # (WI-4) and a stale edit cannot resurrect the card. We deliberately do
+        # NOT hard-delete the positions here: the card ORM object loaded by the
+        # access guard eager-joins its position, and deleting that row out from
+        # under it would break the tombstone flush's save-update cascade.
+        await checklist_crud.soft_delete(
             id_=checklist_id,
             raise_exception_if_not_exists=HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,

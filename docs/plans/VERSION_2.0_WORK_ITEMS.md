@@ -97,6 +97,37 @@ and stale edits can't resurrect deleted rows.
 
 **Done when:** all deletes are tombstones and nothing resurrects.
 
+**Decisions taken in-session (2026-07-06, implemented):**
+
+- **Tombstoned tables:** `checklist`, `checklist_item`, `label` only. A
+  `SoftDeleteMixin` (in `model/_base_model.py`) adds a nullable `deleted_at`;
+  the generic `CRUDBase` masks tombstoned rows in every read path
+  (`_get`/`get`/`list`/`find`) and exposes `soft_delete()` + an `include_deleted`
+  escape hatch for the tombstone-aware guards. Custom per-entity queries filter
+  at their choke points (`CheckListCRUD._add_user_has_access_query`, the item
+  list/count/get/grid queries, the label queries, and the label-chip join).
+- **`checklist_collaborator`: NOT tombstoned in WI-2** (deferred to WI-4). Revoke
+  / leave / whole-card delete keep hard-deleting collaborator + per-user position
+  rows, so access is revoked immediately and no orphaned pending-invite can be
+  read. WI-4's `removed_checklist_ids` is computed by diffing the access query
+  (the card simply drops out of the user's access set) — a collaborator tombstone
+  is one possible optimisation there, but it drags in re-share resurrection
+  semantics that belong with the delta-feed design, not here.
+- **`checklist_label`: NOT tombstoned** — it is a pure per-user association;
+  remove stays a hard delete. There is no resurrection risk, and the delta feed
+  re-derives a card's label set from live rows (WI-4). When the *label itself* is
+  tombstoned, its lingering link rows are masked at read time by a
+  `Label.deleted_at IS NULL` join filter.
+- **Cascade:** deleting a checklist tombstones the checklist row only; its
+  content children (items / states / item-positions) are left untouched and
+  masked by the parent tombstone (they are no longer DB-cascaded, since the
+  parent is no longer hard-deleted).
+- **Write to a tombstoned row → `410 Gone`** (terminal for the outbox), distinct
+  from `404` (never existed). Enforced at the shared guards: the checklist-access
+  dependency, the authed + public `verify_item_belongs_to_checklist`, and the
+  item / label update paths. Re-issuing a *delete* is idempotent success (safe
+  outbox replay), not a 410.
+
 ### WI-3 — Client-generated IDs + idempotent writes (M)
 
 **Goal:** Outbox replays (network retries, reconnect double-sends) are always safe.

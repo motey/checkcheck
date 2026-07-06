@@ -130,9 +130,16 @@ async def update_label(
     existing_label: Label = await label_crud.get(
         label_id,
         raise_exception_if_none=HTTPException(status_code=status.HTTP_404_NOT_FOUND),
+        include_deleted=True,
     )
     if existing_label.owner_id != current_user.id:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED)
+    if existing_label.deleted_at is not None:
+        # Stale edit of a tombstoned label must not resurrect it (WI-2).
+        raise HTTPException(
+            status_code=status.HTTP_410_GONE,
+            detail=f"Label '{label_id}' has been deleted.",
+        )
     return await label_crud.update(id_=label_id, update_obj=label_update)
 
 
@@ -148,10 +155,14 @@ async def delete_label(
     existing_label: Label = await label_crud.get(
         label_id,
         raise_exception_if_none=HTTPException(status_code=status.HTTP_404_NOT_FOUND),
+        include_deleted=True,
     )
     if existing_label.owner_id != current_user.id:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED)
-    await label_crud.delete(id_=label_id)
+    # Soft delete (WI-2). Idempotent: re-deleting an already-tombstoned label is a
+    # no-op success so an outbox replay is safe. Chips referencing this label are
+    # masked at read time (the CheckListLabel link rows are left in place).
+    await label_crud.soft_delete(id_=label_id)
     return existing_label
 
 

@@ -83,6 +83,10 @@ class CheckListCRUD(
         query = query.where(
             or_(CheckList.owner_id == user_id, is_collaborator)
         )
+        # Tombstoned cards (WI-2) never appear in any access-scoped listing. This
+        # is the single choke point for list()/count()/label_counts()/
+        # list_access_ids(), so masking here covers the whole grid + counts.
+        query = query.where(col(CheckList.deleted_at).is_(None))
         if join_CheckListPosition:
             query = query.join(
                 CheckListPosition,

@@ -34,6 +34,7 @@ from checkcheckserver.model.checklist_position import (
 from checkcheckserver.db._base_crud import create_crud_base
 from checkcheckserver.api.paginator import QueryParamsInterface
 from checkcheckserver.model.checklist_collaborator import CheckListCollaborator
+from checkcheckserver.model.checklist import CheckList
 
 log = get_logger()
 config = Config()
@@ -48,6 +49,26 @@ class CheckListPositionCRUD(
     )
 ):
 
+    @staticmethod
+    def _exclude_tombstoned_checklists(query):
+        """Drop position rows whose checklist was tombstoned (WI-2).
+
+        A soft-deleted checklist leaves its per-user position rows in place
+        (cascade rule — children are masked, not deleted), so every board-wide
+        position scan must exclude them or the card would still count/order as if
+        present. A correlated EXISTS is used rather than a join so CheckList's
+        eager-joined relationships (labels) don't multiply the position rows.
+        """
+        alive = (
+            select(CheckList.id)
+            .where(
+                CheckList.id == CheckListPosition.checklist_id,
+                col(CheckList.deleted_at).is_(None),
+            )
+            .exists()
+        )
+        return query.where(alive)
+
     async def list(
         self,
         filter_checklist_id: Optional[uuid.UUID] = None,
@@ -56,6 +77,7 @@ class CheckListPositionCRUD(
         pagination: QueryParamsInterface = None,
     ) -> List[CheckListPosition]:
         query = select(CheckListPosition)
+        query = self._exclude_tombstoned_checklists(query)
         if filter_checklist_id is not None:
             query = query.where(CheckListPosition.checklist_id == filter_checklist_id)
         if filter_user_id is not None:
@@ -74,6 +96,7 @@ class CheckListPositionCRUD(
         archived: Optional[bool] = None,
     ) -> List[CheckListPosition]:
         query = select(func.count()).select_from(CheckListPosition)
+        query = self._exclude_tombstoned_checklists(query)
         if filter_checklist_id is not None:
             query = query.where(CheckListPosition.checklist_id == filter_checklist_id)
         if filter_user_id is not None:
@@ -130,6 +153,7 @@ class CheckListPositionCRUD(
             .order_by(asc(CheckListPosition.index))
             .limit(1)
         )
+        query = self._exclude_tombstoned_checklists(query)
         result = await self.session.exec(query)
         return result.unique().one_or_none()
 
@@ -161,6 +185,7 @@ class CheckListPositionCRUD(
             .order_by(desc(CheckListPosition.index))
             .limit(1)
         )
+        query = self._exclude_tombstoned_checklists(query)
         result = await self.session.exec(query)
         return result.unique().one_or_none()
 
@@ -215,6 +240,9 @@ class CheckListPositionCRUD(
             .order_by(asc(CheckListPosition.index))
             .limit(1)
         )
+        current_lowest_index_query = self._exclude_tombstoned_checklists(
+            current_lowest_index_query
+        )
         current_highest_pos_result = await self.session.exec(current_lowest_index_query)
         return current_highest_pos_result.one_or_none()
 
@@ -224,6 +252,9 @@ class CheckListPositionCRUD(
             .where(CheckListPosition.user_id == user_id)
             .order_by(desc(CheckListPosition.index))
             .limit(1)
+        )
+        current_highest_index_query = self._exclude_tombstoned_checklists(
+            current_highest_index_query
         )
         current_highest_pos_result = await self.session.exec(
             current_highest_index_query

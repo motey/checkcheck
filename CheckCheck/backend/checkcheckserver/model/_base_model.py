@@ -82,6 +82,27 @@ class TimestampedModel(SQLModel):
     )
 
 
+class SoftDeleteMixin(SQLModel):
+    """Tombstone marker for syncable *parent* rows (WI-2).
+
+    ``deleted_at`` is NULL for a live row and a naive-UTC timestamp once the row
+    is soft-deleted. Deletes set this instead of issuing a SQL ``DELETE`` so the
+    removal propagates to offline clients through the delta feed (WI-4) and a
+    stale offline edit cannot resurrect a row the server considers gone.
+
+    Applied only to the *content parent* tables — ``checklist``, ``checklist_item``
+    and ``label``. Child rows (item state/position, checklist position, the
+    per-user label/collaborator link rows) are **not** tombstoned: they are masked
+    by their parent's tombstone (the cascade rule). Collaborator/label link
+    removal stays a hard delete in 2.0 — access-loss and label-set changes are
+    re-derived by the delta feed in WI-4 (documented in VERSION_2.0_WORK_ITEMS.md).
+
+    Garbage collection of old tombstones is explicitly deferred (2.1+).
+    """
+
+    deleted_at: Optional[datetime.datetime] = Field(default=None, nullable=True)
+
+
 # Server-stamp `updated_at` on every UPDATE flush. Registered on the generic
 # Mapper (TimestampedModel itself is abstract / non-mapped) and gated by an
 # isinstance check so it applies to exactly the timestamped tables. Fires only

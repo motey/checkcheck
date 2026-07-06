@@ -304,11 +304,19 @@ async def update_checklist_item(
     db_item: CheckListItem = await checklist_item_crud.get(
         id_=checklist_item_id,
         raise_exception_if_none=checklist_item_not_exists_error,
+        include_deleted=True,
     )
     if db_item.checklist_id != checklist_id:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Item with id {checklist_item_id} not existing in checklist with id {checklist_id}",
+        )
+    if db_item.deleted_at is not None:
+        # A stale edit must not resurrect a tombstoned item (WI-2). 410 Gone is
+        # terminal for the outbox.
+        raise HTTPException(
+            status_code=status.HTTP_410_GONE,
+            detail=f"Item '{checklist_item_id}' has been deleted.",
         )
     db_item: CheckListItem = await checklist_item_crud.update(
         checklist_item_update,
@@ -340,15 +348,25 @@ async def delete_checklist_item(
         status_code=status.HTTP_404_NOT_FOUND,
         detail="Item with id {checklist_item_id} does not exist.",
     )
+    # Fetch tombstone-aware: a re-delete (outbox replay) of an already-deleted
+    # item is idempotent success, not an error.
     db_item: CheckListItem = await checklist_item_crud.get(
-        id_=checklist_item_id, raise_exception_if_none=checklist_item_not_exists_error
+        id_=checklist_item_id,
+        raise_exception_if_none=checklist_item_not_exists_error,
+        include_deleted=True,
     )
     if db_item.checklist_id != checklist_id:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Item with id {checklist_item_id} not existing in checklist with id {checklist_id}",
         )
-    await checklist_item_crud.delete(id_=checklist_item_id)
+    if db_item.deleted_at is not None:
+        # Already tombstoned — nothing to do, no duplicate sync poke.
+        return True
+    # Soft delete (WI-2): tombstone the item so the removal reaches offline
+    # clients and cannot be resurrected by a stale edit. State/position children
+    # are left in place, masked by this tombstone.
+    await checklist_item_crud.soft_delete(id_=checklist_item_id)
     await sync_crud.create(SyncNotification(
         cl_id=checklist_id, cli_id=checklist_item_id, upd_prop="item_deleted"
     ))

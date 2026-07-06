@@ -457,7 +457,10 @@ async def delete_public_checklist_item(
     sync_crud: SyncNotifiationCRUD = Depends(SyncNotifiationCRUD.get_crud),
 ) -> bool:
     checklist_id = checklist_access.checklist.id
-    await checklist_item_crud.delete(id_=checklist_item_id)
+    # Soft delete (WI-2) — the public edit surface tombstones like the authed one.
+    # verify_item_belongs_to_public_checklist has already 410'd an already-deleted
+    # item, so here the item is guaranteed live.
+    await checklist_item_crud.soft_delete(id_=checklist_item_id)
     await sync_crud.create(
         SyncNotification(
             cl_id=checklist_id, cli_id=checklist_item_id, upd_prop="item_deleted"

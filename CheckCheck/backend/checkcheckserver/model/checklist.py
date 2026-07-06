@@ -14,7 +14,11 @@ from sqlmodel import Field, UniqueConstraint, Relationship
 import uuid
 from uuid import UUID
 
-from checkcheckserver.model._base_model import BaseTable, TimestampedModel
+from checkcheckserver.model._base_model import (
+    BaseTable,
+    TimestampedModel,
+    SoftDeleteMixin,
+)
 from checkcheckserver.model.checklist_color_scheme import ChecklistColorScheme
 from checkcheckserver.model.checklist_position import (
     CheckListPosition,
@@ -61,7 +65,7 @@ class CheckListBase(BaseTable):
     )
 
 
-class CheckList(CheckListBase, TimestampedModel, table=True):
+class CheckList(CheckListBase, TimestampedModel, SoftDeleteMixin, table=True):
     __tablename__ = "checklist"
     id: uuid.UUID = Field(
         default_factory=uuid.uuid4,

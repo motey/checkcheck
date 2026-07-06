@@ -81,6 +81,7 @@ class CheckListItemCRUD(
         checked: Optional[bool] = None,
     ) -> int:
         query = select(func.count()).select_from(CheckListItem)
+        query = query.where(col(CheckListItem.deleted_at).is_(None))
         if checklist_id is not None:
             query = query.where(CheckListItem.checklist_id == checklist_id)
         if checked is not None:
@@ -104,6 +105,7 @@ class CheckListItemCRUD(
             )
             .join(CheckListItemPosition)
             .where(CheckListItem.checklist_id == checklist_id)
+            .where(col(CheckListItem.deleted_at).is_(None))
             .order_by(CheckListItemPosition.index)
         )
         if checked is not None:
@@ -117,7 +119,10 @@ class CheckListItemCRUD(
         return results.all()
 
     async def get(
-        self, id_: uuid.UUID, raise_exception_if_none: Exception = None
+        self,
+        id_: uuid.UUID,
+        raise_exception_if_none: Exception = None,
+        include_deleted: bool = False,
     ) -> CheckListItem:
         query = (
             select(CheckListItem)
@@ -129,6 +134,10 @@ class CheckListItemCRUD(
         )
         results = await self.session.exec(statement=query)
         obj = results.one_or_none()
+        # Mask tombstoned items (WI-2) unless a tombstone-aware caller asks for
+        # them (the 410 guards in the item routes).
+        if obj is not None and not include_deleted and obj.deleted_at is not None:
+            obj = None
         if raise_exception_if_none and obj is None:
             raise raise_exception_if_none
         return obj
@@ -150,6 +159,7 @@ class CheckListItemCRUD(
             .join(CheckListItemState)
             .join(CheckListItemPosition)
             .where(col(CheckListItem.checklist_id).in_(checklist_ids))
+            .where(col(CheckListItem.deleted_at).is_(None))
             .options(
                 contains_eager(CheckListItem.state),
                 contains_eager(CheckListItem.position),
@@ -215,6 +225,7 @@ class CheckListItemCRUD(
             .join(pos, cli.id == pos.checklist_item_id)
             .join(cl, cli.checklist_id == cl.id)
             .where(col(cli.checklist_id).in_(checklist_ids))
+            .where(col(cli.deleted_at).is_(None))
         )
 
         if checked is not None:
