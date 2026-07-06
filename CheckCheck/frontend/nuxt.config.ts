@@ -72,6 +72,11 @@ export default defineNuxtConfig({
   },
   runtimeConfig: {
     public: {
+      // Client-side rollout gate for the local-first layer (Phase 2 / WI-6+).
+      // Deploy default; override per-deploy with NUXT_PUBLIC_LOCAL_FIRST=true.
+      // At runtime a `?localFirst=1` query param / localStorage override wins
+      // (see utils/localFirst.ts). Flipped on by default in WI-15.
+      localFirst: false,
       openFetch: {
         checkapi: {
           schema: "../openapi.json",

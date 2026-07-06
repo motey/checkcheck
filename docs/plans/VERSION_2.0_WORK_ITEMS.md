@@ -347,6 +347,65 @@ endpoint across all scenarios above.
 **Done when:** with the flag on and network blocked, a reload still renders the
 board read-only from cache.
 
+**Decisions taken in-session (2026-07-06, implemented):**
+
+- **Snapshot layer = `idb` over IndexedDB** (`utils/snapshotDb.ts`). One DB
+  (`checkcheck-localfirst`), one kv object store. **Disposable + versioned:**
+  `SNAPSHOT_SCHEMA_VERSION` is used as the IndexedDB version, so any bump runs
+  the `upgrade` hook which drops and recreates the store — no client migrations,
+  ever (protocol §6). A DB left at a *higher* version (app downgrade) throws
+  `VersionError` on open; that's caught, the DB is `deleteDB`'d, and reopened
+  fresh. All reads/writes are best-effort (swallow + warn) so a broken cache
+  degrades to a network boot instead of a white screen.
+- **Five stores snapshotted, slice-picked** (`utils/localSnapshot.ts` `SPECS`):
+  `checkList` (only `checkLists` + `total_backend_count` + `counts`; **not** the
+  transient search/filtered-view state), `checkListitem` (items + the
+  full-loaded flag + the three count maps), `checkListLabelStore` (`labels`),
+  `user` (`me` only — API keys are re-fetched, never cached), `publicConfig`
+  (`config`). `share` / `invite` / `notification` / `color` are **not** persisted
+  — they stay online-only (WI-12). Picked slices are JSON round-tripped before
+  hitting IndexedDB (strips Vue reactive proxies, which don't survive structured
+  clone).
+- **Persistence = a Pinia plugin + `watchDebounced`** (`registerSnapshotPersistence`),
+  registered via `pinia.use()` (applies to already-created stores too). Each
+  snapshotted store deep-watches its picked slice and writes it 500 ms after the
+  last change (2 s `maxWait`). Single writer for the entity snapshot — the
+  legacy fetch path fills the stores, the watcher persists them.
+- **Hydration before first paint via a client plugin** (`plugins/localFirst.client.ts`,
+  **awaited**): registers persistence, then `hydrateStores` `$patch`es each store
+  from its snapshot. Awaiting in the plugin means the stores are populated before
+  any component mounts, so the board's `watchEffect` paints from cache
+  immediately. The plugin runs on every route but only hydrates/persists (both
+  harmless on `/login` and the anonymous `/p/<token>` viewer); the network pull
+  is kept out of it.
+- **Background delta pull scoped to the cursor** (`runBackgroundSync`, kicked off
+  from `pages/index.vue` onMounted on the authed board only, so an `/api/changes`
+  401 can't happen on public/login routes). On boot it reads the stored cursor,
+  pulls `GET /api/changes?since=<cursor>&known=<cached ids>`, persists
+  `next_cursor`, and on `full_resync` drops the snapshot (the legacy fetch +
+  watcher rebuild it). **Deliberately does NOT apply the returned rows into the
+  live stores** — that (and replacing the `useSync.ts` refetch) is WI-10. In WI-6
+  the snapshot stays fresh via legacy-fetch→watcher; this pull only owns the
+  cursor + `full_resync` so WI-10 inherits a correct high-water mark. The legacy
+  SSE/refetch path is untouched.
+- **`localFirst` flag is a CLIENT rollout gate, not a server capability**
+  (`utils/localFirst.ts`). Default lives in `runtimeConfig.public.localFirst`
+  (env `NUXT_PUBLIC_LOCAL_FIRST`), **default off** until WI-15. Distinct from the
+  `GET /api/public-config` flags in `stores/publicConfig.ts`. Resolution order:
+  `?localFirst=1|0` query param (also persisted to localStorage) → localStorage
+  override → runtimeConfig default. The query-param/localStorage override exists
+  because the E2E bundle is a static `nuxt generate` build where runtimeConfig
+  can't be set per run — it's how the spec and manual testing flip the flag.
+- **Not handled in WI-6 (documented gaps):** a *different* user logging in on the
+  same device would briefly see the previous user's cached board until the pull
+  resolves (per-user cache namespacing deferred — auth/identity work is WI-13);
+  and a true offline *cold start* (app shell unreachable) needs the service
+  worker (WI-13). WI-6's "network blocked" means the API only.
+- **Verified:** new spec `tests/e2e/local-persistence.spec.ts` — flag on, card
+  created, snapshot confirmed in IndexedDB, then `**/api/**` aborted and the page
+  reloaded; the board still renders the card from cache. Green, plus `add-item` /
+  `board-empty` re-run to confirm the flag-off path is untouched.
+
 ### WI-7 — Outbox (L)
 
 **Goal:** Writes made offline survive restarts and replay correctly on reconnect.

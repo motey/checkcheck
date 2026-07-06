@@ -32,6 +32,8 @@ import { useAppRoute } from "~/composables/useAppRoute";
 import { useCheckListsStore } from "@/stores/checklist";
 import { useUserStore } from "@/stores/user";
 import { usePublicConfigStore } from "@/stores/publicConfig";
+import { isLocalFirstEnabled } from "@/utils/localFirst";
+import { runBackgroundSync } from "@/utils/localSnapshot";
 
 // This page also responds to `/card/<cardId>` (see alias below). The board and
 // the modals stay mounted across that path change, so an opened card is just a
@@ -58,6 +60,13 @@ onMounted(() => {
   // Load the sidebar count badges once; kept fresh thereafter by useSync.
   checkListStore.fetchCounts();
   connect();
+  // Local-first (WI-6): after the plugin has hydrated stores from cache, advance
+  // the sync cursor in the background (best-effort; no-op offline). The board
+  // already rendered from the hydrated snapshot. Applying deltas into the stores
+  // and replacing the legacy refetch is WI-10.
+  if (isLocalFirstEnabled()) {
+    runBackgroundSync(useNuxtApp().$pinia as any).catch(() => {});
+  }
 });
 onUnmounted(disconnect);
 
