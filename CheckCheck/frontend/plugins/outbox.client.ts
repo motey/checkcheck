@@ -1,5 +1,6 @@
 import { isLocalFirstEnabled } from "@/utils/localFirst";
 import { useOutbox } from "@/composables/useOutbox";
+import { useSyncNotices } from "@/composables/useSyncNotices";
 
 // ── Outbox boot (WI-7) ───────────────────────────────────────────────────────
 //
@@ -15,4 +16,9 @@ export default defineNuxtPlugin(() => {
   if (!isLocalFirstEnabled()) return;
   // Touching the shared composable constructs the engine and kicks `init()`.
   useOutbox();
+  // Start the WI-11 sync-notice consumer: subscribes to conflict / resync / op-
+  // dropped signals and renders them as toasts (and discards orphaned local state
+  // for a terminally-dropped write). Must run alongside the outbox so a drop that
+  // happens before the board mounts is still surfaced.
+  useSyncNotices();
 });

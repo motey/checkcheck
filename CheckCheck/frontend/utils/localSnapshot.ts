@@ -7,7 +7,8 @@ import { useUserStore } from "@/stores/user";
 import { usePublicConfigStore } from "@/stores/publicConfig";
 import { readSnapshot, writeSnapshots, readCursor, writeCursor, dropSnapshot } from "@/utils/snapshotDb";
 import { mergeDelta, type DeltaTarget, type ItemCountMaps } from "@/utils/deltaApply";
-import { defaultEditGuard } from "@/utils/editGuard";
+import { combineGuards, defaultEditGuard } from "@/utils/editGuard";
+import { emitSyncNotice } from "@/utils/syncNotices";
 import { useOutbox } from "@/composables/useOutbox";
 
 // ── Store snapshot registry (WI-6) ───────────────────────────────────────────
@@ -217,6 +218,22 @@ function pruneSearchResults(pinia: Pinia, removed: Set<string>): void {
  * wholesale from it, then persist the fresh cursor.
  */
 async function rebuildFromFull(pinia: Pinia, res: ChangesResponseType): Promise<void> {
+  // Reconcile the outbox against the reset server BEFORE rebuilding: queued
+  // edits/deletes of rows the reset DB never knew would drain to a silent 404
+  // (finding #5). Drop them here and surface one aggregate notice; surviving
+  // creates + edits of still-known rows keep draining. `knownIds` is every id the
+  // resync carries (cards + items + labels) — the rows the reset server accepts.
+  const knownIds = new Set<string>();
+  for (const cl of res.checklists) knownIds.add(cl.id);
+  for (const item of res.items) knownIds.add(item.id);
+  for (const label of res.labels) knownIds.add(label.id);
+  try {
+    const dropped = await useOutbox().reconcileResync(knownIds);
+    if (dropped.length > 0) emitSyncNotice({ type: "resync-dropped", count: dropped.length });
+  } catch (err) {
+    console.warn("[localFirst] outbox resync reconcile failed", err);
+  }
+
   await dropSnapshot();
   const checkListStore = useCheckListsStore(pinia);
   const itemStore = useCheckListsItemStore(pinia);
@@ -303,7 +320,14 @@ async function pullAndApply(pinia: Pinia, opts?: { sinceSeq?: number }): Promise
       return;
     }
 
-    const summary = mergeDelta(deltaTarget(pinia), res, defaultEditGuard);
+    // Guard = focused edits (§4) + undrained outbox ops (WI-11 finding #2), so a
+    // delta for another field of a row with a pending local edit doesn't revert it.
+    const guard = combineGuards(defaultEditGuard, useOutbox().fieldGuard());
+    const summary = mergeDelta(deltaTarget(pinia), res, guard);
+    // Surface concurrent edits (the local value was kept; LWW converges on drain).
+    for (const c of summary.conflicts) {
+      emitSyncNotice({ type: "conflict", entity: c.kind, id: c.id, field: c.field });
+    }
     if (checkListStore.total_backend_count >= 0 && summary.cardCountDelta !== 0) {
       checkListStore.total_backend_count = Math.max(0, checkListStore.total_backend_count + summary.cardCountDelta);
     }

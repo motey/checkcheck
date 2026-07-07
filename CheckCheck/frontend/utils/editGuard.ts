@@ -15,14 +15,38 @@
 // Framework-light on purpose (a plain Set, no Vue refs) so it is importable from
 // the framework-free deltaApply core and trivially unit-testable.
 
-/** The entities whose text fields we protect while focused. */
+/** The entities whose fields we protect from a clobbering delta. */
 export type EditGuardKind = "checklist" | "item";
-/** The protected fields. `name` is checklist-only; `text` applies to both. */
-export type EditGuardField = "name" | "text";
+/**
+ * A protected field, as a **DTO-shaped path** so `mergeDelta` can preserve it
+ * over the incoming server row. The focus registry only ever marks the two text
+ * fields (`name`/`text`); the outbox-derived guard (WI-11, finding #2) extends
+ * the same vocabulary to the non-text fields a queued op will overwrite —
+ * `state.checked`, `position.index`, a card's `labels`, etc. — so a still-
+ * undrained optimistic reorder/check doesn't visibly revert when a delta for a
+ * *different* field of the same row lands.
+ */
+export type EditGuardField =
+  | "name"
+  | "text"
+  | "color_id"
+  | "labels"
+  | "state.checked"
+  | "position.index"
+  | "position.indentation"
+  | "position.pinned"
+  | "position.archived";
 
-/** The focus-registry contract deltaApply depends on (injected for tests). */
+/**
+ * The guard contract `mergeDelta` depends on (injected for tests). `isEditing`
+ * answers "keep the local value of this field" (focused edit OR queued op);
+ * `isRemoved` answers "this row is locally deleted (a queued delete) — don't let
+ * a delta resurrect it". Both are consulted per-row during application.
+ */
 export interface EditGuard {
   isEditing(kind: EditGuardKind, id: string, field: EditGuardField): boolean;
+  /** Optional: true if the entity has a queued delete, so its local removal stands. */
+  isRemoved?(kind: EditGuardKind, id: string): boolean;
 }
 
 function keyOf(kind: EditGuardKind, id: string, field: EditGuardField): string {
@@ -51,3 +75,16 @@ export const defaultEditGuard: EditGuard = { isEditing };
 
 /** A guard that never protects anything — the default for tests / bootstrap. */
 export const noopEditGuard: EditGuard = { isEditing: () => false };
+
+/**
+ * Fold several guards into one that protects a field if *any* member does (and
+ * treats a row as removed if any member does). The live delta pull composes the
+ * focus registry (`defaultEditGuard`) with the outbox-derived guard (WI-11) so a
+ * field is kept whether the user is actively typing it or has a queued op for it.
+ */
+export function combineGuards(...guards: EditGuard[]): EditGuard {
+  return {
+    isEditing: (kind, id, field) => guards.some((g) => g.isEditing(kind, id, field)),
+    isRemoved: (kind, id) => guards.some((g) => g.isRemoved?.(kind, id) ?? false),
+  };
+}

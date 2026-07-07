@@ -5,6 +5,9 @@ import {
   classifyError,
   coalesce,
   httpStatusOf,
+  outboxFieldGuard,
+  partitionResync,
+  pendingChecklistIds,
   queuedCreateIds,
   type OutboxEvent,
   type OutboxOp,
@@ -540,5 +543,177 @@ describe("outbox persistence across a restart", () => {
 
     expect(sent).toEqual(["i1:create", "i1:update"]);
     expect((await store.load())).toHaveLength(0); // queue drained + persisted empty
+  });
+});
+
+// ── Extra op builders for the WI-11 guard / resync tests ─────────────────────
+
+function itemState(id: string, checked: boolean, clId = "cl1"): OutboxOpInput {
+  return {
+    entityType: "item",
+    entityId: id,
+    kind: "state",
+    request: {
+      method: "patch",
+      path: "/api/checklist/{checklist_id}/item/{checklist_item_id}/state",
+      pathParams: { checklist_id: clId, checklist_item_id: id },
+      body: { checked },
+    },
+  };
+}
+function itemPosition(id: string, body: Record<string, unknown>, clId = "cl1"): OutboxOpInput {
+  return {
+    entityType: "item",
+    entityId: id,
+    kind: "position",
+    request: {
+      method: "patch",
+      path: "/api/checklist/{checklist_id}/item/{checklist_item_id}/position",
+      pathParams: { checklist_id: clId, checklist_item_id: id },
+      body,
+    },
+  };
+}
+function checklistUpdate(id: string, body: Record<string, unknown>): OutboxOpInput {
+  return {
+    entityType: "checklist",
+    entityId: id,
+    kind: "update",
+    request: { method: "patch", path: "/api/checklist/{checklist_id}", pathParams: { checklist_id: id }, body },
+  };
+}
+
+// ── outboxFieldGuard (WI-11 finding #2) ──────────────────────────────────────
+
+describe("outboxFieldGuard", () => {
+  it("protects the DTO fields a queued op will overwrite", () => {
+    const guard = outboxFieldGuard([
+      op(1, itemPosition("i1", { index: 3 })),
+      op(2, itemState("i2", true)),
+      op(3, itemUpdate("i3", { text: "t" })),
+      op(4, checklistUpdate("cl1", { name: "n", color_id: "red" })),
+    ]);
+    expect(guard.isEditing("item", "i1", "position.index")).toBe(true);
+    expect(guard.isEditing("item", "i1", "state.checked")).toBe(false);
+    expect(guard.isEditing("item", "i2", "state.checked")).toBe(true);
+    expect(guard.isEditing("item", "i3", "text")).toBe(true);
+    expect(guard.isEditing("checklist", "cl1", "name")).toBe(true);
+    expect(guard.isEditing("checklist", "cl1", "color_id")).toBe(true);
+    expect(guard.isEditing("checklist", "cl1", "text")).toBe(false);
+  });
+
+  it("maps a queued label attach/detach to its card's `labels` field", () => {
+    const guard = outboxFieldGuard([op(1, labelAttach("cl9", "lbl1"))]);
+    expect(guard.isEditing("checklist", "cl9", "labels")).toBe(true);
+  });
+
+  it("reports queued-delete rows as removed", () => {
+    const guard = outboxFieldGuard([op(1, itemDelete("i1")), op(2, checklistDelete("cl1"))]);
+    expect(guard.isRemoved!("item", "i1")).toBe(true);
+    expect(guard.isRemoved!("checklist", "cl1")).toBe(true);
+    expect(guard.isRemoved!("item", "other")).toBe(false);
+  });
+});
+
+// ── pendingChecklistIds (WI-11 per-card indicator) ───────────────────────────
+
+describe("pendingChecklistIds", () => {
+  it("collects the card of every pending op (checklist, item, label)", () => {
+    const ids = pendingChecklistIds([
+      op(1, checklistUpdate("clA", { name: "n" })),
+      op(2, itemState("i1", true, "clB")),
+      op(3, labelAttach("clC", "lbl1")),
+    ]);
+    expect([...ids].sort()).toEqual(["clA", "clB", "clC"]);
+  });
+
+  it("is empty for an empty queue", () => {
+    expect(pendingChecklistIds([]).size).toBe(0);
+  });
+});
+
+// ── partitionResync (WI-11 finding #5) ───────────────────────────────────────
+
+describe("partitionResync", () => {
+  it("keeps creates and edits of still-known rows, drops orphaned edits/deletes", () => {
+    const queue = [
+      op(1, checklistCreate("clNew")), // re-creates → keep
+      op(2, itemState("iKnown", true, "clKnown")), // row still exists → keep
+      op(3, itemUpdate("iGone", { text: "t" }, "clGone")), // reset server never knew → drop
+      op(4, checklistDelete("clGone")), // deleting a row that's gone → drop
+    ];
+    const known = new Set(["clKnown", "iKnown"]);
+    const { kept, dropped } = partitionResync(queue, known);
+    expect(kept.map((o) => o.seq)).toEqual([1, 2]);
+    expect(dropped.map((o) => o.seq)).toEqual([3, 4]);
+  });
+
+  it("keeps edits of a row re-created by a surviving queued create", () => {
+    const queue = [op(1, checklistCreate("clNew")), op(2, checklistUpdate("clNew", { name: "n" }))];
+    const { kept, dropped } = partitionResync(queue, new Set());
+    expect(kept.map((o) => o.seq)).toEqual([1, 2]);
+    expect(dropped).toEqual([]);
+  });
+
+  it("drops a label attach whose card the reset server no longer knows", () => {
+    const queue = [op(1, labelAttach("clGone", "lbl1"))];
+    const { kept, dropped } = partitionResync(queue, new Set(["someOtherCard"]));
+    expect(kept).toEqual([]);
+    expect(dropped.map((o) => o.seq)).toEqual([1]);
+  });
+
+  it("keeps a label attach whose card survives the resync", () => {
+    const queue = [op(1, labelAttach("clKnown", "lbl1"))];
+    const { kept } = partitionResync(queue, new Set(["clKnown"]));
+    expect(kept.map((o) => o.seq)).toEqual([1]);
+  });
+
+  it("drops an item create whose parent card the reset server no longer knows", () => {
+    // Items added offline to a pre-existing card (no queued checklist create) —
+    // if that card is gone after the reset, the item route 404s, so pre-drop them.
+    const queue = [op(1, itemCreate("iNew", "clGone"))];
+    const { kept, dropped } = partitionResync(queue, new Set(["someOtherCard"]));
+    expect(kept).toEqual([]);
+    expect(dropped.map((o) => o.seq)).toEqual([1]);
+  });
+
+  it("keeps an item create whose parent card survives the resync", () => {
+    const queue = [op(1, itemCreate("iNew", "clKnown"))];
+    const { kept } = partitionResync(queue, new Set(["clKnown"]));
+    expect(kept.map((o) => o.seq)).toEqual([1]);
+  });
+
+  it("spares a locked (in-flight) op even if its row is gone", () => {
+    const queue = [op(1, itemUpdate("iGone", { text: "t" }, "clGone"))];
+    const { kept, dropped } = partitionResync(queue, new Set(), new Set([1]));
+    expect(kept.map((o) => o.seq)).toEqual([1]);
+    expect(dropped).toEqual([]);
+  });
+});
+
+// ── engine.reconcileResync ───────────────────────────────────────────────────
+
+describe("OutboxEngine.reconcileResync", () => {
+  it("drops orphaned ops, persists, and returns them", async () => {
+    const { store, state } = memStore();
+    const engine = new OutboxEngine({ store, isOnline: () => false, transport: async () => {} });
+    await engine.init();
+    await engine.enqueue(itemUpdate("iGone", { text: "t" }, "clGone"));
+    await engine.enqueue(checklistCreate("clNew"));
+
+    const dropped = await engine.reconcileResync(new Set(["clNew"]));
+    expect(dropped.map((o) => o.entityId)).toEqual(["iGone"]);
+    expect(engine.queue.map((o) => o.entityId)).toEqual(["clNew"]);
+    expect(state.ops.map((o) => o.entityId)).toEqual(["clNew"]); // persisted
+  });
+
+  it("returns [] and leaves the queue untouched when nothing is orphaned", async () => {
+    const { store } = memStore();
+    const engine = new OutboxEngine({ store, isOnline: () => false, transport: async () => {} });
+    await engine.init();
+    await engine.enqueue(checklistCreate("clNew"));
+    const dropped = await engine.reconcileResync(new Set());
+    expect(dropped).toEqual([]);
+    expect(engine.queue).toHaveLength(1);
   });
 });

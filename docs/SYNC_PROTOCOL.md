@@ -132,12 +132,25 @@ converge. Revisit only if a real account needs page limiting.
   devices editing the *same* field → the later arrival wins and the earlier value is
   gone.
 - **Delete beats edit:** a write to a tombstoned row is rejected (410, §8); the
-  tombstone wins. WI-11 surfaces this to the losing editor.
-- **Focused-edit protection (client duty):** when applying a remote `item.text`
-  change to a field the local user is actively editing, the client must not clobber
-  the in-progress edit (the legacy path already guards focused fields; the
-  local-first path must preserve this). This is a UX guard, not a change to the LWW
-  rule — on blur/submit the local edit becomes a normal write and LWW applies.
+  tombstone wins. WI-11 surfaces this to the losing editor (a terminal outbox drop
+  → "list/item no longer available; your offline change was discarded").
+- **Local-edit protection (client duty, WI-11):** when applying a remote delta the
+  client must keep the local value of any field the user is *protecting*, and must
+  not resurrect a row the user deleted offline. A field is protected when either:
+  1. **Focused** — the user is actively editing that `name`/`text` (the legacy path
+     already guards focused fields; the local-first path lifts this to the store via
+     the focus registry, `utils/editGuard`), **or**
+  2. **Pending** — an **undrained outbox op** covers it. Until the op replays, the
+     server row still carries the *old* value, so a delta for a *different* field of
+     the same row would otherwise revert the pending one (a queued reorder snaps
+     back, a check un-checks). `outboxFieldGuard` maps the queue to the DTO field
+     paths each entity has pending (`state.checked`, `position.index`, a card's
+     `labels`, …); the delta pull composes it with the focus registry
+     (`combineGuards`) and hands the result to `mergeDelta`.
+  This is a UX guard, not a change to the LWW rule — the kept value is exactly the
+  one the pending op will (re-)assert, so LWW still converges once it drains. A
+  remote change to a protected field is surfaced as an unobtrusive "also edited
+  elsewhere" toast (the local value was kept; no data is lost).
 
 ---
 
@@ -152,6 +165,15 @@ converge. Revisit only if a real account needs page limiting.
 
 The server then computes the response **as if `since=0`** (full accessible state)
 and flags it. The client must **drop its cache** and rebuild from the response.
+
+**Outbox reconcile (WI-11).** A reset server no longer knows the rows a queued
+edit/delete targets, so those ops would drain to a silent `404`. Before rebuilding,
+the client reconciles the outbox against the resync payload (`partitionResync`):
+queued **creates** re-POST their rows (idempotent client id) and survive, along
+with edits of rows that still exist (in the payload or re-created by a surviving
+create); every other op is **dropped**, and the client surfaces one aggregate
+notice ("server was reset; N pending changes couldn't be applied"). The in-flight
+op is spared.
 
 A cursor that is merely old (small) is **not** a resync trigger — the sequence is
 never GC’d, so old cursors always resolve to a normal delta.
@@ -296,7 +318,9 @@ always pull once, since events emitted during the gap were missed.
 4. Make all writes through the REST endpoints with **client-generated UUIDs**,
    queued in a persisted **outbox**; drain sequentially, retry on network/5xx, drop
    on 403/404/409/410 and surface it (§8).
-5. Preserve the **focused-edit** guard when applying remote text (§4).
+5. Preserve the **local-edit** guard when applying a delta — keep fields that are
+   focused *or* covered by an undrained outbox op, and don't resurrect offline-
+   deleted rows (§4); on `full_resync` reconcile the outbox first (§5).
 
 ---
 

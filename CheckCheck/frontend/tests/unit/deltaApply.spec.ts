@@ -55,6 +55,18 @@ const guardEditing = (want: string): EditGuard => ({
   isEditing: (kind, id, field) => `${kind}:${id}:${field}` === want,
 });
 
+/** A guard protecting an explicit set of `kind:id:field` keys (WI-11 outbox-op guard). */
+const guardFields = (...wanted: string[]): EditGuard => {
+  const set = new Set(wanted);
+  return { isEditing: (kind, id, field) => set.has(`${kind}:${id}:${field}`) };
+};
+
+/** A guard reporting the given `kind:id` keys as locally removed (queued delete). */
+const guardRemoved = (...wanted: string[]): EditGuard => {
+  const set = new Set(wanted);
+  return { isEditing: () => false, isRemoved: (kind, id) => set.has(`${kind}:${id}`) };
+};
+
 // ── Checklist upsert ─────────────────────────────────────────────────────────
 
 describe("mergeDelta — checklists", () => {
@@ -277,5 +289,100 @@ describe("mergeDelta — idempotency", () => {
     expect(t.checkLists).toHaveLength(1);
     expect(t.items["c"]).toHaveLength(2);
     expect(counts.total["c"]).toBe(2);
+  });
+});
+
+// ── Outbox-op field protection (WI-11, review finding #2) ────────────────────
+//
+// An undrained optimistic edit (reorder/check/rename) must not visibly revert
+// when a delta for a DIFFERENT field of the same row lands — the guard keeps the
+// pending field's local value; the concurrent server edit is reported as a
+// conflict (the local value is kept, LWW converges once the op drains).
+
+describe("mergeDelta — outbox-op field protection", () => {
+  it("keeps a locally-reordered item index while a delta changes its text", () => {
+    const t = target({ items: { c: [ITEM("i", "c", { index: 5, text: "old" })] } });
+    const s = mergeDelta(
+      t,
+      emptyDelta({ items: [ITEM("i", "c", { index: 1, text: "remote" })] }),
+      guardFields("item:i:position.index")
+    );
+    expect(t.items["c"]![0]!.position.index).toBe(5); // local reorder preserved
+    expect(t.items["c"]![0]!.text).toBe("remote"); // other field applied
+    expect(s.conflicts).toEqual([{ kind: "item", id: "i", field: "position.index" }]);
+  });
+
+  it("keeps a locally-checked state while a delta changes text (no revert)", () => {
+    const t = target({ items: { c: [ITEM("i", "c", { checked: true, text: "old" })] } });
+    mergeDelta(
+      t,
+      emptyDelta({ items: [ITEM("i", "c", { checked: false, text: "remote" })] }),
+      guardFields("item:i:state.checked")
+    );
+    expect(t.items["c"]![0]!.state.checked).toBe(true);
+    expect(t.items["c"]![0]!.text).toBe("remote");
+  });
+
+  it("does not clone-mutate the incoming server DTO when preserving a field", () => {
+    const t = target({ items: { c: [ITEM("i", "c", { index: 5 })] } });
+    const incoming = ITEM("i", "c", { index: 1 });
+    mergeDelta(t, emptyDelta({ items: [incoming] }), guardFields("item:i:position.index"));
+    expect(incoming.position.index).toBe(1); // untouched original
+    expect(t.items["c"]![0]!.position.index).toBe(5);
+  });
+
+  it("records NO conflict when the protected field's server value matched", () => {
+    const t = target({ items: { c: [ITEM("i", "c", { index: 5, text: "old" })] } });
+    const s = mergeDelta(
+      t,
+      emptyDelta({ items: [ITEM("i", "c", { index: 5, text: "remote" })] }),
+      guardFields("item:i:position.index")
+    );
+    expect(s.conflicts).toEqual([]);
+  });
+
+  it("keeps a locally-pinned checklist position while a delta renames it", () => {
+    const t = target({ checkLists: [CL("a", { name: "old", pinned: true })] });
+    mergeDelta(
+      t,
+      emptyDelta({ checklists: [CL("a", { name: "remote", pinned: false })] }),
+      guardFields("checklist:a:position.pinned")
+    );
+    expect(t.checkLists[0]!.position.pinned).toBe(true);
+    expect(t.checkLists[0]!.name).toBe("remote");
+  });
+
+  it("keeps a locally-pending label set (queued attach) over a delta that drops it", () => {
+    const t = target({ checkLists: [CL("a", { labels: [LABEL("l1")] })] });
+    const s = mergeDelta(
+      t,
+      emptyDelta({ checklists: [CL("a", { labels: [] })] }),
+      guardFields("checklist:a:labels")
+    );
+    expect(t.checkLists[0]!.labels.map((l: any) => l.id)).toEqual(["l1"]);
+    expect(s.conflicts).toContainEqual({ kind: "checklist", id: "a", field: "labels" });
+  });
+});
+
+// ── Locally-deleted rows are not resurrected (queued delete) ─────────────────
+
+describe("mergeDelta — queued-delete suppression", () => {
+  it("does not re-insert a checklist the user deleted offline", () => {
+    const t = target();
+    const s = mergeDelta(t, emptyDelta({ checklists: [CL("a")] }), guardRemoved("checklist:a"));
+    expect(t.checkLists).toEqual([]);
+    expect(s.cardCountDelta).toBe(0);
+  });
+
+  it("does not re-insert an item the user deleted offline", () => {
+    const t = target({ items: { c: [] } });
+    mergeDelta(t, emptyDelta({ items: [ITEM("i", "c")] }), guardRemoved("item:i"));
+    expect(t.items["c"]).toEqual([]);
+  });
+
+  it("still upserts other, non-removed rows in the same delta", () => {
+    const t = target();
+    mergeDelta(t, emptyDelta({ checklists: [CL("a"), CL("b")] }), guardRemoved("checklist:a"));
+    expect(t.checkLists.map((c) => c.id)).toEqual(["b"]);
   });
 });

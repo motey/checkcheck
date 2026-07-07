@@ -12,7 +12,7 @@
 // by a stable id and every optimistic create carried its client UUID into the
 // write (§8), so the delta upsert lands on the same id — never a duplicate.
 
-import { noopEditGuard, type EditGuard } from "@/utils/editGuard";
+import { noopEditGuard, type EditGuard, type EditGuardField } from "@/utils/editGuard";
 
 /** The store slices a delta folds into. Backed by live Pinia state in the app. */
 export interface DeltaTarget {
@@ -45,6 +45,21 @@ export interface DeltaSummary {
   touchedItemChecklistIds: Set<string>;
   /** Cards removed (tombstone or revoked access). */
   removedCheckListIds: Set<string>;
+  /**
+   * Concurrent-edit collisions (WI-11): a field the local user is protecting
+   * (focused edit or queued op) whose incoming server value *differed* from the
+   * value we kept. The caller surfaces these as an unobtrusive "also edited
+   * elsewhere" toast — the local value is preserved (no flap / no lost write;
+   * LWW converges once the op drains), so the message is informational.
+   */
+  conflicts: DeltaConflict[];
+}
+
+/** One protected field whose server value diverged from the kept local value. */
+export interface DeltaConflict {
+  kind: "checklist" | "item";
+  id: string;
+  field: EditGuardField;
 }
 
 // Pinned first, then DESCENDING index — mirrors checklist store `_sort`.
@@ -70,9 +85,11 @@ function labelIdsDiffer(a: LabelType[] = [], b: LabelType[] = []): boolean {
 
 /**
  * Fold a `GET /api/changes` delta into the target stores in place. Returns a
- * summary of what changed. Pass the live focus registry as `guard` so an
- * incoming server value never clobbers a field the user is actively editing
- * (§4); the default protects nothing (bootstrap / tests).
+ * summary of what changed. Pass a `guard` so an incoming server value never
+ * clobbers a field the user is protecting — actively editing (focus registry,
+ * §4) or holding an undrained outbox op for (WI-11 finding #2) — nor resurrects
+ * a row they deleted offline. The live app composes both guards
+ * (`combineGuards`); the default protects nothing (bootstrap / tests).
  *
  * NOTE: `full_resync` is NOT handled here — that is a cache drop + wholesale
  * rebuild the caller owns (utils/localSnapshot). This applies an incremental
@@ -88,42 +105,43 @@ export function mergeDelta(
     cardCountDelta: 0,
     touchedItemChecklistIds: new Set(),
     removedCheckListIds: new Set(),
+    conflicts: [],
   };
 
-  // ── 1. Upsert checklists (server wins, except focused name/text) ───────────
+  // ── 1. Upsert checklists (server wins, except protected local fields) ──────
   for (const incoming of delta.checklists ?? []) {
     const idx = target.checkLists.findIndex((c) => c.id === incoming.id);
     const existing = idx !== -1 ? target.checkLists[idx]! : undefined;
-    const merged: CheckListType = {
-      ...incoming,
-      // Focused-edit protection (§4): keep the user's in-flight value.
-      name: existing && guard.isEditing("checklist", incoming.id, "name") ? existing.name : incoming.name,
-      text: existing && guard.isEditing("checklist", incoming.id, "text") ? existing.text : incoming.text,
-    };
-    if (existing) {
-      // A card-level change only if something the sidebar counts depend on moved
-      // (archived / pinned / label set) — a pure name/text edit must not refetch.
-      if (
-        existing.position?.archived !== merged.position?.archived ||
-        (existing.position?.pinned ?? false) !== (merged.position?.pinned ?? false) ||
-        labelIdsDiffer(existing.labels, merged.labels)
-      ) {
-        summary.cardLevelChanged = true;
-      }
-      target.checkLists.splice(idx, 1, merged);
-    } else {
-      target.checkLists.push(merged);
+    if (!existing) {
+      // A row the user deleted offline (queued delete) must not be resurrected by
+      // a concurrent-edit delta — keep it gone until the delete drains (§7 / WI-11).
+      if (guard.isRemoved?.("checklist", incoming.id)) continue;
+      target.checkLists.push({ ...incoming });
       summary.cardLevelChanged = true;
       summary.cardCountDelta += 1;
       // A brand-new card needs an item list so the board can render it; a normal
       // delta ships the card's changed items in the same response (all of them
       // on access-gain, §7). Start it empty and let the item upserts fill it.
       if (!(incoming.id in target.items)) target.items[incoming.id] = [];
+      continue;
     }
+    // Preserve any field the local user is protecting (focused edit or queued op,
+    // §4 / WI-11 finding #2), recording a conflict where the server value diverged.
+    const merged = preserveChecklistFields(incoming, existing, guard, summary);
+    // A card-level change only if something the sidebar counts depend on moved
+    // (archived / pinned / label set) — a pure name/text edit must not refetch.
+    if (
+      existing.position?.archived !== merged.position?.archived ||
+      (existing.position?.pinned ?? false) !== (merged.position?.pinned ?? false) ||
+      labelIdsDiffer(existing.labels, merged.labels)
+    ) {
+      summary.cardLevelChanged = true;
+    }
+    target.checkLists.splice(idx, 1, merged);
   }
   if (delta.checklists?.length) target.checkLists.sort(compareCheckLists);
 
-  // ── 2. Upsert items (server wins, except focused text) ─────────────────────
+  // ── 2. Upsert items (server wins, except protected local fields) ───────────
   for (const incoming of delta.items ?? []) {
     const clId = incoming.checklist_id;
     // Only track items for a card we hold (in the item map or as a checklist row).
@@ -135,21 +153,21 @@ export function mergeDelta(
     }
     const idx = list.findIndex((i) => i.id === incoming.id);
     const existing = idx !== -1 ? list[idx]! : undefined;
-    const merged: CheckListItemType = {
-      ...incoming,
-      text: existing && guard.isEditing("item", incoming.id, "text") ? existing.text : incoming.text,
-    };
-    if (existing) {
+    if (!existing) {
+      // Don't resurrect an item the user deleted offline (queued delete).
+      if (guard.isRemoved?.("item", incoming.id)) continue;
+      insertSortedItem(list, { ...incoming });
       if (target.itemCounts && !target.itemCounts.fullyLoaded[clId]) {
-        adjustItemCounts(target.itemCounts, clId, 0, stateDelta(existing, merged));
+        adjustItemCounts(target.itemCounts, clId, 1, incoming.state.checked ? 1 : 0);
       }
-      list.splice(idx, 1, merged);
-    } else {
-      insertSortedItem(list, merged);
-      if (target.itemCounts && !target.itemCounts.fullyLoaded[clId]) {
-        adjustItemCounts(target.itemCounts, clId, 1, merged.state.checked ? 1 : 0);
-      }
+      summary.touchedItemChecklistIds.add(clId);
+      continue;
     }
+    const merged = preserveItemFields(incoming, existing, guard, summary);
+    if (target.itemCounts && !target.itemCounts.fullyLoaded[clId]) {
+      adjustItemCounts(target.itemCounts, clId, 0, stateDelta(existing, merged));
+    }
+    list.splice(idx, 1, merged);
     summary.touchedItemChecklistIds.add(clId);
   }
 
@@ -224,6 +242,85 @@ export function mergeDelta(
   }
 
   return summary;
+}
+
+/**
+ * Build the merged checklist row: the incoming server row, but with any field
+ * the local user is protecting (focused edit or queued op) kept at its local
+ * value. Records a `DeltaConflict` when the server's value for a protected field
+ * differed — a concurrent edit the caller surfaces (WI-11). Clones the nested
+ * `position` so overriding a position field never mutates the shared server DTO.
+ */
+function preserveChecklistFields(
+  incoming: CheckListType,
+  existing: CheckListType,
+  guard: EditGuard,
+  summary: DeltaSummary
+): CheckListType {
+  const merged: CheckListType = { ...incoming, position: { ...incoming.position } };
+  const keep = (field: EditGuardField, differs: boolean, apply: () => void): void => {
+    if (!guard.isEditing("checklist", incoming.id, field)) return;
+    apply();
+    if (differs) summary.conflicts.push({ kind: "checklist", id: incoming.id, field });
+  };
+  keep("name", incoming.name !== existing.name, () => (merged.name = existing.name));
+  keep("text", incoming.text !== existing.text, () => (merged.text = existing.text));
+  keep("color_id", incoming.color_id !== existing.color_id, () => (merged.color_id = existing.color_id));
+  keep("labels", labelIdsDiffer(existing.labels, incoming.labels), () => (merged.labels = existing.labels));
+  if (merged.position && existing.position) {
+    keep(
+      "position.index",
+      incoming.position?.index !== existing.position.index,
+      () => (merged.position!.index = existing.position!.index)
+    );
+    keep(
+      "position.pinned",
+      (incoming.position?.pinned ?? false) !== (existing.position.pinned ?? false),
+      () => (merged.position!.pinned = existing.position!.pinned)
+    );
+    keep(
+      "position.archived",
+      (incoming.position?.archived ?? false) !== (existing.position.archived ?? false),
+      () => (merged.position!.archived = existing.position!.archived)
+    );
+  }
+  return merged;
+}
+
+/** Item twin of `preserveChecklistFields` — protects `text` / `state.checked` / `position.*`. */
+function preserveItemFields(
+  incoming: CheckListItemType,
+  existing: CheckListItemType,
+  guard: EditGuard,
+  summary: DeltaSummary
+): CheckListItemType {
+  const merged: CheckListItemType = {
+    ...incoming,
+    position: { ...incoming.position },
+    state: { ...incoming.state },
+  };
+  const keep = (field: EditGuardField, differs: boolean, apply: () => void): void => {
+    if (!guard.isEditing("item", incoming.id, field)) return;
+    apply();
+    if (differs) summary.conflicts.push({ kind: "item", id: incoming.id, field });
+  };
+  keep("text", incoming.text !== existing.text, () => (merged.text = existing.text));
+  keep(
+    "state.checked",
+    incoming.state.checked !== existing.state.checked,
+    () => (merged.state.checked = existing.state.checked)
+  );
+  keep(
+    "position.index",
+    incoming.position.index !== existing.position.index,
+    () => (merged.position.index = existing.position.index)
+  );
+  keep(
+    "position.indentation",
+    incoming.position.indentation !== existing.position.indentation,
+    () => (merged.position.indentation = existing.position.indentation)
+  );
+  return merged;
 }
 
 /** Net checked-count change when an item's state flips between two versions. */

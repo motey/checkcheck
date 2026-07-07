@@ -764,6 +764,39 @@ handled gracefully. (Core scope per decision 3 — not an afterthought.)
 **Done when:** a scripted matrix of conflict scenarios (documented in the test
 plan) each produce the designed UX, verified in e2e where feasible.
 
+**Status (2026-07-07):** Core mechanism + UI landed; review findings #2 and #5
+folded in (they shared this seam).
+
+- **Superseded-edit detection.** The focused-edit guard (§4) was generalised to
+  *any* field with an undrained outbox op — `outboxFieldGuard` maps the queue to
+  DTO field paths; `combineGuards` composes it with the focus registry; `mergeDelta`
+  preserves the local value and records a `DeltaConflict`. A collision surfaces an
+  unobtrusive "also edited elsewhere" toast. **Nuance vs. the original bullet:** with
+  the outbox guard the local value is *kept* (LWW converges on drain), so the toast
+  says "your change was kept", not "was replaced" — reverting a still-pending edit
+  was the finding-#2 bug. The narrow "edited, drained, then overwritten by another
+  user" case (a true silent replace) is *not* separately detected — it needs a
+  session-dirty tracker; parked as a soft follow-up (no data loss, just no toast).
+- **Terminal outbox drops** (revoke / deleted-while-offline): `useSyncNotices`
+  consumes `op-dropped`, discards the orphaned local card + items, and shows a
+  one-time "list/item no longer available; offline changes discarded" toast.
+- **Delete-vs-edit:** tombstone wins server-side (410); the losing editor's queued
+  write drops terminally → the same discard toast. `mergeDelta` also won't
+  resurrect a row the local user deleted offline (`isRemoved`).
+- **Pending-changes indicator per card:** `CheckListSyncIndicator` (a corner badge)
+  lights up while a card's ops are queued, driven by the reactive
+  `useOutbox().pendingCardIds`. Feeds WI-14's global status UI.
+- **Finding #5 (`full_resync` drops):** `partitionResync` + `reconcileResync` prune
+  orphaned queued ops before the rebuild and emit one aggregate "server was reset"
+  notice (see SYNC_PROTOCOL §5).
+
+Verified by **104 vitest units** (deltaApply preservation/conflict/queued-delete;
+outboxFieldGuard / pendingChecklistIds / partitionResync / reconcileResync;
+combineGuards), type-clean over the pre-existing baseline. **E2E deferred to WI-15**
+(the offline Playwright suite: offline-edit-then-concurrent-delta no-revert;
+two-context conflict toast; revocation-while-offline discard) — the conflict matrix
+belongs with that suite and its two-context/offline harness.
+
 ### WI-12 — Remaining stores + online-only surfaces (S/M)
 
 **Goal:** No dead-ends offline in surfaces that stay server-authoritative.

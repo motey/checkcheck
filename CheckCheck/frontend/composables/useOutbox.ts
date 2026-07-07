@@ -2,12 +2,15 @@ import { createSharedComposable } from "@vueuse/core";
 import { ref } from "vue";
 import {
   OutboxEngine,
+  outboxFieldGuard,
+  pendingChecklistIds,
   queuedCreateIds,
   type OutboxEntityType,
   type OutboxEvent,
   type OutboxOp,
   type OutboxOpInput,
 } from "@/utils/outbox";
+import type { EditGuard } from "@/utils/editGuard";
 import { createOutboxStore } from "@/utils/outboxDb";
 import {
   initConnectivity,
@@ -51,6 +54,9 @@ export const useOutbox = createSharedComposable(() => {
   const { $checkapi } = useNuxtApp();
 
   const pendingCount = ref(0);
+  // Reactive set of checklist ids with an undrained op — the per-card "not yet
+  // synced" indicator (WI-11) reads this; recomputed whenever the queue changes.
+  const pendingCardIds = ref<Set<string>>(new Set());
   const online = ref(isOnline());
   const listeners = new Set<(e: OutboxEvent) => void>();
 
@@ -60,6 +66,7 @@ export const useOutbox = createSharedComposable(() => {
     isOnline,
     onChange: (pending) => {
       pendingCount.value = pending;
+      pendingCardIds.value = pendingChecklistIds(engine.queue);
     },
     emit: (event) => {
       for (const l of listeners) {
@@ -88,6 +95,8 @@ export const useOutbox = createSharedComposable(() => {
     enqueue: (input: OutboxOpInput): Promise<OutboxOp> => engine.enqueue(input),
     /** Reactive count of queued (unsynced) ops — feeds the WI-14 status UI. */
     pendingCount,
+    /** Reactive set of checklist ids with a pending op — the per-card WI-11 indicator. */
+    pendingCardIds,
     /** Reactive connectivity for the UI. */
     online,
     /**
@@ -97,6 +106,19 @@ export const useOutbox = createSharedComposable(() => {
      */
     queuedCreateIds: (entityType: OutboxEntityType): Set<string> =>
       queuedCreateIds(engine.queue, entityType),
+    /**
+     * An `EditGuard` over the current queue — protects fields with an undrained
+     * op so a delta for a *different* field of the same row doesn't revert them
+     * (WI-11 finding #2). Composed with the focus registry in the delta pull.
+     */
+    fieldGuard: (): EditGuard => outboxFieldGuard(engine.queue),
+    /**
+     * Reconcile the queue against a `full_resync` (server reset): drop ops the
+     * reset server can no longer accept and return them so the caller surfaces a
+     * single notice (WI-11 finding #5).
+     */
+    reconcileResync: (knownIds: ReadonlySet<string>): Promise<OutboxOp[]> =>
+      engine.reconcileResync(knownIds),
     /** Subscribe to outbox events (`op-dropped` / `idle`); returns unsubscribe. */
     onEvent(listener: (e: OutboxEvent) => void): () => void {
       listeners.add(listener);

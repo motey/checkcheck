@@ -13,6 +13,8 @@
     <!-- In the editor the modal renders its own close button at top-right, so
          shift the pin left of it; on board previews there is no close button. -->
     <CheckListFooterButtonPin :checkListId="checkListId" :scrollIntoViewOnPin="previewModeActive" :class="['absolute top-2 z-10', editModeActive ? 'right-10' : 'right-2']" />
+    <!-- Offline-write indicator (WI-11): lights up while this card has queued ops. -->
+    <CheckListSyncIndicator :checkListId="checkListId" />
 
     <div v-if="!editModeActive" data-testid="card-title" class="flex-none pr-8 text-base font-semibold leading-snug break-words line-clamp-2" v-html="highlightText(checkList!.name, searchQuery)" />
     <UTextarea

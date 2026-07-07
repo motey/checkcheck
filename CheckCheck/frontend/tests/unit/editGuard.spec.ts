@@ -9,6 +9,8 @@ import {
   isEditing,
   defaultEditGuard,
   noopEditGuard,
+  combineGuards,
+  type EditGuard,
 } from "@/utils/editGuard";
 import { isOnline, setConnectivity, onConnectivityChange, probe } from "@/utils/connectivity";
 
@@ -38,6 +40,27 @@ describe("editGuard registry", () => {
     clearEditing("item", "never-marked", "text");
     markEditing("item", "i1", "text");
     expect(noopEditGuard.isEditing("item", "i1", "text")).toBe(false);
+  });
+});
+
+describe("combineGuards (WI-11: focus + outbox)", () => {
+  const focusName: EditGuard = { isEditing: (_k, _i, f) => f === "name" };
+  const outboxPos: EditGuard = {
+    isEditing: (_k, _i, f) => f === "position.index",
+    isRemoved: (_k, id) => id === "gone",
+  };
+
+  it("protects a field if any member guard does", () => {
+    const g = combineGuards(focusName, outboxPos);
+    expect(g.isEditing("checklist", "c1", "name")).toBe(true);
+    expect(g.isEditing("item", "i1", "position.index")).toBe(true);
+    expect(g.isEditing("item", "i1", "text")).toBe(false);
+  });
+
+  it("reports removed if any member does (and tolerates a guard without isRemoved)", () => {
+    const g = combineGuards(focusName, outboxPos);
+    expect(g.isRemoved!("item", "gone")).toBe(true);
+    expect(g.isRemoved!("item", "here")).toBe(false);
   });
 });
 

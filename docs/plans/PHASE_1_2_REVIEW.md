@@ -15,11 +15,12 @@ ranked most-severe first. It feeds WI-11+ planning.
 per-finding notes below).
 
 **Fix session 2026-07-07 (2nd):** findings **3 and 4 are now RESOLVED** (see their
-per-finding notes). Remaining open findings, deliberately handed to a follow-up
-session:
-- **2, 5** — outbox/delta reconciliation (undrained-edit clobber; `full_resync`
-  discarding queued ops). These belong with **WI-11** conflict/revocation UX and
-  are best done together with its edit-guard/outbox seam — not piecemeal now.
+per-finding notes).
+
+**WI-11 session 2026-07-07:** findings **2 and 5 are now RESOLVED** — folded into
+WI-11 as planned (they share its edit-guard/outbox seam). See their per-finding
+notes and the WI-11 entry in [VERSION_2.0_WORK_ITEMS.md](VERSION_2.0_WORK_ITEMS.md).
+Remaining open findings, deliberately handed to a follow-up session:
 - **8, 9** — connectivity signal on SSE error; outbox-persistence-failure
   surfacing. Both are **WI-13/WI-14** territory (status UX) — cheap but want the
   UI that consumes them.
@@ -71,6 +72,21 @@ Test to add with the fix: transfer to a non-collaborator, pull from the old
 cursor, assert the full item tree arrives.
 
 ## 2. MEDIUM — Delta application clobbers undrained optimistic edits (non-focused fields)
+
+**RESOLVED 2026-07-07 (WI-11).** The focused-edit guard was generalised from
+"actively-typed name/text" to "any field with an undrained outbox op". New
+`outboxFieldGuard(queue)` (utils/outbox.ts) maps each queued op to the DTO field
+paths it will overwrite — `state.checked`, `position.index`, a card's `labels`,
+`name`/`text`/`color_id` — and reports queued-delete rows via `isRemoved`. The
+delta pull composes it with the focus registry (`combineGuards`, utils/editGuard)
+and passes the result to `mergeDelta`, which now preserves every protected field
+(nested `position`/`state` cloned so the incoming server DTO is never mutated) and
+will not resurrect a row deleted offline. A concurrent server change to a
+protected field is recorded in `DeltaSummary.conflicts` and surfaced as an
+unobtrusive "also edited elsewhere" toast (WI-11 part 1) — the local value is
+kept, so no flap and no lost write (LWW converges once the op drains). 21 new
+vitest cases (deltaApply preservation/conflict/queued-delete; outboxFieldGuard
+mapping). Frontend units green (104).
 
 **Where:** `utils/deltaApply.ts` `mergeDelta` (checklist/item upsert), known
 WI-8/WI-9 tension, now delta-shaped.
@@ -158,6 +174,18 @@ skipped (every id eventually delivered exactly-or-more-than-once, none lost).
 Document the deadlock-retry expectation on the allocator.
 
 ## 5. MEDIUM — `full_resync` silently discards the meaning of queued ops
+
+**RESOLVED 2026-07-07 (WI-11).** `rebuildFromFull` now reconciles the outbox
+against the reset server BEFORE rebuilding. New `partitionResync(queue, knownIds)`
+(pure, utils/outbox) splits the queue: a `create` re-POSTs its row and any op
+whose target still exists (in the resync payload or re-created by a surviving
+queued create) survives; an `update`/`state`/`position`/`delete` (or label
+toggle) for a row the reset DB never knew would 404, so it is dropped here rather
+than draining to a silent terminal error. `OutboxEngine.reconcileResync` applies
+the partition (sparing the in-flight op), persists, and returns the dropped ops;
+`localSnapshot` emits one aggregate `resync-dropped` sync-notice → a single
+"server was reset; N pending changes couldn't be applied" toast (useSyncNotices).
+9 new vitest cases (partitionResync + engine.reconcileResync).
 
 **Where:** `utils/localSnapshot.ts` `rebuildFromFull` + outbox.
 

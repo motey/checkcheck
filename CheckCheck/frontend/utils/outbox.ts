@@ -224,6 +224,178 @@ export function queuedCreateIds(
   return ids;
 }
 
+// ── Outbox-derived field guard (WI-11, review finding #2) ────────────────────
+//
+// A queued op is an undrained local edit: until it replays, the server row still
+// carries the *old* value of the field(s) it will overwrite. A delta for a
+// DIFFERENT field of that same row (another user's concurrent edit) would take
+// the server row wholesale and visibly revert the pending field (a reorder snaps
+// back, a check un-checks) — no data loss (LWW resolves once the op drains) but
+// a user-visible flap that reads as a lost write.
+//
+// This maps the queue to the DTO field paths each entity has pending, so
+// `mergeDelta` (via the injected `EditGuard`) can keep the local value of a
+// field with a queued op — exactly the focused-edit protection idea (§4),
+// extended from "actively typing" to "typed but not yet synced". A queued
+// `delete` is reported via `isRemoved` so a delta can't resurrect a row the user
+// removed offline.
+
+import type { EditGuard, EditGuardField, EditGuardKind } from "@/utils/editGuard";
+
+/** The DTO field paths an item op will overwrite (empty for create/delete). */
+function itemOpFields(op: OutboxOp): EditGuardField[] {
+  const body = op.request.body ?? {};
+  switch (op.kind) {
+    case "update":
+      return "text" in body ? ["text"] : [];
+    case "state":
+      return ["state.checked"];
+    case "position": {
+      const fields: EditGuardField[] = [];
+      if ("index" in body) fields.push("position.index");
+      if ("indentation" in body) fields.push("position.indentation");
+      return fields;
+    }
+    default:
+      return [];
+  }
+}
+
+/** The DTO field paths a checklist op will overwrite (empty for create/delete). */
+function checklistOpFields(op: OutboxOp): EditGuardField[] {
+  const body = op.request.body ?? {};
+  switch (op.kind) {
+    case "update": {
+      const fields: EditGuardField[] = [];
+      if ("name" in body) fields.push("name");
+      if ("text" in body) fields.push("text");
+      if ("color_id" in body) fields.push("color_id");
+      return fields;
+    }
+    case "position": {
+      const fields: EditGuardField[] = [];
+      if ("index" in body) fields.push("position.index");
+      if ("pinned" in body) fields.push("position.pinned");
+      if ("archived" in body) fields.push("position.archived");
+      return fields;
+    }
+    default:
+      return [];
+  }
+}
+
+/**
+ * Build an `EditGuard` from the current queue: it protects every field a queued
+ * op will overwrite and reports queued-delete rows as removed. Composed with the
+ * focus registry (`combineGuards`) in the live delta pull so a field is kept
+ * whether the user is typing it or has an undrained op for it.
+ */
+export function outboxFieldGuard(queue: readonly OutboxOp[]): EditGuard {
+  const itemFields = new Map<string, Set<EditGuardField>>();
+  const checklistFields = new Map<string, Set<EditGuardField>>();
+  const removedItems = new Set<string>();
+  const removedChecklists = new Set<string>();
+
+  const addFields = (
+    map: Map<string, Set<EditGuardField>>,
+    id: string,
+    fields: EditGuardField[]
+  ): void => {
+    if (!fields.length) return;
+    let set = map.get(id);
+    if (!set) map.set(id, (set = new Set()));
+    for (const f of fields) set.add(f);
+  };
+
+  for (const op of queue) {
+    if (op.entityType === "item") {
+      if (op.kind === "delete") removedItems.add(op.entityId);
+      else addFields(itemFields, op.entityId, itemOpFields(op));
+    } else if (op.entityType === "checklist") {
+      if (op.kind === "delete") removedChecklists.add(op.entityId);
+      else addFields(checklistFields, op.entityId, checklistOpFields(op));
+    } else if (op.entityType === "label") {
+      // A checklist⇄label association op (entityId "{checklistId}:{labelId}")
+      // changes the card's label set; keep the local `labels` until it drains.
+      const checklistId = op.entityId.slice(0, op.entityId.indexOf(":"));
+      if (checklistId) addFields(checklistFields, checklistId, ["labels"]);
+    }
+  }
+
+  return {
+    isEditing: (kind: EditGuardKind, id: string, field: EditGuardField): boolean =>
+      (kind === "item" ? itemFields : checklistFields).get(id)?.has(field) ?? false,
+    isRemoved: (kind: EditGuardKind, id: string): boolean =>
+      (kind === "item" ? removedItems : removedChecklists).has(id),
+  };
+}
+
+/**
+ * The checklist ids with any pending (undrained) op — the card itself, any of
+ * its items, or a label association. Drives the per-card "changes not yet
+ * synced" indicator (WI-11, feeds WI-14). An item op names its card via
+ * `pathParams.checklist_id`; a label pair-op via the `"{checklistId}:"` prefix.
+ */
+export function pendingChecklistIds(queue: readonly OutboxOp[]): Set<string> {
+  const ids = new Set<string>();
+  for (const op of queue) {
+    if (op.entityType === "checklist") ids.add(op.entityId);
+    else if (op.entityType === "item") {
+      const clId = op.request.pathParams?.checklist_id;
+      if (clId) ids.add(clId);
+    } else if (op.entityType === "label") {
+      const clId = op.entityId.slice(0, op.entityId.indexOf(":"));
+      if (clId) ids.add(clId);
+    }
+  }
+  return ids;
+}
+
+/**
+ * After a `full_resync` (server DB reset/restore), decide which queued ops the
+ * reset server can still accept and drop the rest (finding #5). The rule per op:
+ *
+ * - A **checklist create** re-POSTs its card (idempotent client id) → keep.
+ * - An **item op** (any kind) needs its **parent card** to exist — in `knownIds`
+ *   or re-created by a surviving queued checklist create. If the card is gone the
+ *   `/checklist/{id}/item...` route 404s regardless, so drop it. If the card is
+ *   there: a create re-makes the item; an edit/delete additionally needs the item
+ *   itself (in `knownIds`, or re-created by a queued item create).
+ * - A **label association** needs its card to exist (its `.../label/...` 404s
+ *   otherwise).
+ * - A **checklist edit/delete** needs the card itself.
+ *
+ * Returns the pure partition so the engine can persist + surface an aggregate count.
+ */
+export function partitionResync(
+  queue: readonly OutboxOp[],
+  knownIds: ReadonlySet<string>,
+  lockedSeqs: ReadonlySet<number> = new Set()
+): { kept: OutboxOp[]; dropped: OutboxOp[] } {
+  const queuedCreates = new Set<string>();
+  for (const op of queue) if (op.kind === "create") queuedCreates.add(op.entityId);
+  const existsAfterResync = (id: string | undefined): boolean =>
+    !!id && (knownIds.has(id) || queuedCreates.has(id));
+
+  const survives = (op: OutboxOp): boolean => {
+    if (lockedSeqs.has(op.seq)) return true;
+    if (op.entityType === "label") {
+      return existsAfterResync(op.entityId.slice(0, op.entityId.indexOf(":")));
+    }
+    if (op.entityType === "item") {
+      // The parent card must survive, or the item route 404s no matter what.
+      if (!existsAfterResync(op.request.pathParams?.checklist_id)) return false;
+      return op.kind === "create" || existsAfterResync(op.entityId);
+    }
+    // checklist
+    return op.kind === "create" || existsAfterResync(op.entityId);
+  };
+  const kept: OutboxOp[] = [];
+  const dropped: OutboxOp[] = [];
+  for (const op of queue) (survives(op) ? kept : dropped).push(op);
+  return { kept, dropped };
+}
+
 // ── Replay engine ────────────────────────────────────────────────────────────
 
 /** Persisted queue backend (real impl: utils/outboxDb.ts, injected). */
@@ -329,6 +501,24 @@ export class OutboxEngine {
     await this.persist();
     this.kick();
     return op;
+  }
+
+  /**
+   * Reconcile the queue against a `full_resync` (server reset/restore): drop ops
+   * the reset server can no longer accept (WI-11 finding #5) so they don't drain
+   * to a silent 404, and return the dropped ops so the caller can surface a
+   * single "N pending changes couldn't be applied" notice. Surviving ops (creates
+   * + edits of rows that still exist) keep draining. The in-flight op is spared.
+   */
+  async reconcileResync(knownIds: ReadonlySet<string>): Promise<OutboxOp[]> {
+    const locked = this.inflightSeq != null ? new Set([this.inflightSeq]) : new Set<number>();
+    const { kept, dropped } = partitionResync(this.ops, knownIds, locked);
+    if (dropped.length > 0) {
+      this.ops = kept;
+      await this.persist();
+      this.kick();
+    }
+    return dropped;
   }
 
   /** Feed a connectivity change; going online kicks the drain immediately. */
