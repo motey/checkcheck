@@ -183,6 +183,17 @@ sentence when the doc is next touched.
   assertions when run in parallel with other card-creating specs (relative
   assertions on the shared admin board race across workers). Re-run
   individually before blaming a change.
+- **`sharing-modal.spec.ts` "owner can add and remove a collaborator" fails
+  deterministically** (4/4 runs this session, including alone), timing out on
+  the dialog's user-search input — and it fails **identically on the pre-review
+  WI-10 commit**, so it is pre-existing, not introduced by this review. It was
+  previously binned as per-run flake; today it looks environment/state-shaped
+  (its 4 sibling tests in the same file pass). Worth a focused debugging
+  session before WI-11 leans on the share dialog.
+- **`archive.spec.ts` delete-forever asserted the pre-WI-2 404** — it had not
+  been re-run since tombstones landed. Fixed inline (now expects 410); a
+  reminder that "suite green" claims in the WI logs covered *selected* specs,
+  not the whole suite.
 
 ---
 
