@@ -152,11 +152,11 @@ def test_share_permission_levels_enforced():
 def test_unrelated_user_has_no_access():
     outsider_token = _make_user_token("share-outsider")
     checklist_id = _create_checklist("Private")
-    # No share at all -> 401 from user_has_checklist_access
+    # No share at all -> 403 from user_has_checklist_access
     req(
         f"api/checklist/{checklist_id}",
         access_token=outsider_token,
-        expected_http_code=401,
+        expected_http_code=403,
     )
 
 
@@ -291,7 +291,7 @@ def test_share_lifecycle_and_cross_user_visibility():
 
     # owner revokes -> gone, and access denied
     req(f"api/checklist/{checklist_id}/shares/{collab_id}", "delete", expected_http_code=204)
-    req(f"api/checklist/{checklist_id}", access_token=collab_token, expected_http_code=401)
+    req(f"api/checklist/{checklist_id}", access_token=collab_token, expected_http_code=403)
     listing = req("api/checklist", access_token=collab_token)
     assert not list_contains_dict_that_must_contain(
         listing["items"], {"id": checklist_id}, raise_if_not_fullfilled=False
@@ -311,7 +311,7 @@ def test_collaborator_can_leave_shared_card():
         access_token=collab_token,
         expected_http_code=204,
     )
-    req(f"api/checklist/{checklist_id}", access_token=collab_token, expected_http_code=401)
+    req(f"api/checklist/{checklist_id}", access_token=collab_token, expected_http_code=403)
 
 
 # ── ownership transfer ───────────────────────────────────────────────────────
@@ -368,7 +368,7 @@ def test_non_owner_cannot_manage_shares():
         expected_http_code=403,
     )
     # the third user genuinely got no access
-    req(f"api/checklist/{checklist_id}", access_token=target_token, expected_http_code=401)
+    req(f"api/checklist/{checklist_id}", access_token=target_token, expected_http_code=403)
 
 
 def test_collaborator_cannot_revoke_another_collaborator():
@@ -494,3 +494,45 @@ def test_user_search_finds_users_without_leaking_email():
 def test_user_search_requires_min_query_length():
     # q has min_length=2 -> a single char is a validation error
     req("api/user/search", q={"q": "a"}, expected_http_code=422)
+
+
+def test_revoked_collaborator_write_is_403_terminal():
+    """Protocol §8: a write after revocation must be 403 ("access revoked",
+    terminal — the offline outbox drops the op and surfaces it) and never 401
+    (which the outbox treats as retryable session expiry, so a revoked user's
+    queued offline writes would retry forever and block the whole queue)."""
+    collab_token = _make_user_token("share-revoked-writer")
+    collab_id = _user_id(collab_token)
+    checklist_id = _create_checklist("Revoke then write")
+    _share(checklist_id, collab_id, "edit")
+    item_id = req(
+        f"api/checklist/{checklist_id}/item",
+        "post",
+        b={"text": "x"},
+        access_token=collab_token,
+    )["id"]
+
+    req(f"api/checklist/{checklist_id}/shares/{collab_id}", "delete", expected_http_code=204)
+
+    # The queued-op replay shapes the outbox sends after reconnect:
+    req(
+        f"api/checklist/{checklist_id}/item/{item_id}",
+        "patch",
+        b={"text": "stale"},
+        access_token=collab_token,
+        expected_http_code=403,
+    )
+    req(
+        f"api/checklist/{checklist_id}/item",
+        "post",
+        b={"text": "new"},
+        access_token=collab_token,
+        expected_http_code=403,
+    )
+    req(
+        f"api/checklist/{checklist_id}",
+        "patch",
+        b={"name": "nope"},
+        access_token=collab_token,
+        expected_http_code=403,
+    )

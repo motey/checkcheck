@@ -199,7 +199,7 @@ def test_share_creates_pending_invite_without_access():
     dict_must_contain(res, {"status": "pending", "permission": "edit"})
 
     # no access yet, not in grid
-    req(f"api/checklist/{checklist_id}", access_token=invitee_token, expected_http_code=401)
+    req(f"api/checklist/{checklist_id}", access_token=invitee_token, expected_http_code=403)
     assert not _card_in_grid(invitee_token, checklist_id)
 
     # invite shows in the invitee's inbox with the inviter (= owner) info
@@ -233,7 +233,7 @@ def test_accept_invite_grants_access_and_notifies_owner():
         {"checklist_id": checklist_id},
         raise_if_not_fullfilled=False,
     )
-    req(f"api/checklist/{checklist_id}", access_token=invitee_token, expected_http_code=401)
+    req(f"api/checklist/{checklist_id}", access_token=invitee_token, expected_http_code=403)
 
     # owner watches the sync stream while the invitee accepts
     with _SSECollector(_global_owner_token()) as owner_sse:
@@ -304,7 +304,7 @@ def test_decline_invite_keeps_no_access_and_allows_reinvite():
     )
 
     # still no access, not in grid, inbox no longer lists it
-    req(f"api/checklist/{checklist_id}", access_token=invitee_token, expected_http_code=401)
+    req(f"api/checklist/{checklist_id}", access_token=invitee_token, expected_http_code=403)
     assert not _card_in_grid(invitee_token, checklist_id)
     assert not list_contains_dict_that_must_contain(
         req("api/user/me/invites", access_token=invitee_token),
@@ -368,7 +368,7 @@ def test_pending_invitee_has_no_access_via_item_routes():
     req(
         f"api/checklist/{checklist_id}/item",
         access_token=invitee_token,
-        expected_http_code=401,
+        expected_http_code=403,
     )
     # the /item bootstrap listing must not include the pending card
     preview = req("api/item", access_token=invitee_token)
@@ -377,7 +377,7 @@ def test_pending_invitee_has_no_access_via_item_routes():
     req(
         f"api/checklist/{checklist_id}/item/{item_id}",
         access_token=invitee_token,
-        expected_http_code=401,
+        expected_http_code=403,
     )
 
 

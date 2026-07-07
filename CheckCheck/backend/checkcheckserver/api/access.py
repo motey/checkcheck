@@ -199,8 +199,15 @@ async def user_has_checklist_access(
         user=user, checklist=checklist, collaborators=collaborators
     )
     if not checklist_access.user_has_access():
+        # 403, not 401: the caller IS authenticated, they just have no access to
+        # this card (never shared / share revoked). The sync contract (§8) relies
+        # on the distinction — the offline outbox treats 403 as terminal
+        # ("access revoked", drop the queued op) but 401 as retryable session
+        # expiry, so a 401 here would spin a revoked user's queued writes
+        # forever. It also kept bouncing logged-in users to /login via the
+        # legacy client's global 401 handler.
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
+            status_code=status.HTTP_403_FORBIDDEN,
             detail=f"No access to checklist {checklist.id}.",
         )
     return checklist_access
@@ -211,7 +218,8 @@ def require_checklist_permission(min_level: ChecklistAccessLevel):
     user has at least ``min_level`` on the checklist, else raises 403.
 
     Builds on ``user_has_checklist_access`` (which already raises 404 for a
-    missing checklist and 401 when the user has no access at all).
+    missing checklist, 410 for a tombstoned one, and 403 when the user has no
+    access at all).
 
     Note: per-user data such as the user's own ``CheckListPosition`` (ordering,
     archived, collapse) and ``CheckListLabel`` are the *viewer's* layout, not the

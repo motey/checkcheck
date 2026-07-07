@@ -211,7 +211,7 @@ def test_group_share_unknown_group_resolves_empty():
 @requires_invite_off
 def test_group_share_requires_owner():
     """A non-owner collaborator cannot group-share (owner-only → 403); an
-    unrelated user has no access at all (401)."""
+    unrelated user has no access at all (403)."""
     collab_token, collab_id = _make_user("group-collab")
     stranger_token, _ = _make_user("group-stranger")
     checklist_id = _create_checklist("GroupOwnerOnly")
@@ -225,7 +225,7 @@ def test_group_share_requires_owner():
     _share_group(
         checklist_id, "team-alpha", "view",
         access_token=stranger_token,
-        expected_http_code=401,
+        expected_http_code=403,
     )
 
 
@@ -246,7 +246,7 @@ def test_group_share_goes_out_as_invites_when_flag_on():
     dict_must_contain(result, {"added": 1, "total_members": 1})
 
     # No access yet …
-    req(f"api/checklist/{checklist_id}", access_token=invitee_token, expected_http_code=401)
+    req(f"api/checklist/{checklist_id}", access_token=invitee_token, expected_http_code=403)
     # … but a pending invite is in the inbox …
     assert list_contains_dict_that_must_contain(
         req("api/user/me/invites", access_token=invitee_token),

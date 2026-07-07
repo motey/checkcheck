@@ -205,7 +205,7 @@ def test_public_link_create_returns_token_once_and_list_redacts():
 
 
 def test_public_link_management_is_owner_only():
-    """Creating/listing links is owner-only: an unrelated user gets 401 (no access
+    """Creating/listing links is owner-only: an unrelated user gets 403 (no access
     at all), a non-owner collaborator gets 403 (privilege-escalation guard)."""
     outsider_token = _make_user_token("pub-mgmt-outsider")
     editor_token = _make_user_token("pub-mgmt-editor")
@@ -214,12 +214,12 @@ def test_public_link_management_is_owner_only():
     checklist_id = _create_checklist("PublicOwnerOnly")
     _share(checklist_id, editor_id, "edit")
 
-    # unrelated user -> 401
-    _create_public_link(checklist_id, "view", access_token=outsider_token, expected_http_code=401)
+    # unrelated user -> 403
+    _create_public_link(checklist_id, "view", access_token=outsider_token, expected_http_code=403)
     req(
         f"api/checklist/{checklist_id}/public-links",
         access_token=outsider_token,
-        expected_http_code=401,
+        expected_http_code=403,
     )
     # non-owner collaborator -> 403
     _create_public_link(checklist_id, "view", access_token=editor_token, expected_http_code=403)
