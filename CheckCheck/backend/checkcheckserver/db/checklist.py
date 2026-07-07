@@ -223,11 +223,18 @@ class CheckListCRUD(
         after ``since`` (WI-4 delta feed).
 
         "Card-level" means any of: the ``checklist`` row itself (name/color/text),
-        the caller's own ``checklist_position`` (pin/archive/index), or one of the
-        caller's ``checklist_label`` links — all three are what the client's
-        checklist store renders per card. Item changes are handled separately (an
-        item edit does not re-emit its card). Reuses ``_add_user_has_access_query``
-        so tombstoned cards and cards the caller can't see are already excluded."""
+        the caller's own ``checklist_position`` (pin/archive/index), one of the
+        caller's ``checklist_label`` links, or the caller's own
+        ``checklist_collaborator`` row (a permission-level change) — all of which
+        the client's checklist store renders per card (``my_permission`` included).
+        Item changes are handled separately (an item edit does not re-emit its
+        card). Reuses ``_add_user_has_access_query`` so tombstoned cards and cards
+        the caller can't see are already excluded.
+
+        Note this is card-level only: a *fresh* grant (whole-tree delivery) is
+        detected separately via the position ``granted_seq`` gain query; a
+        permission bump on an already-accepted collaborator only needs the card
+        re-emitted so ``my_permission`` updates, not the tree re-shipped."""
         label_changed = (
             select(CheckListLabel.checklist_id)
             .where(
@@ -239,6 +246,18 @@ class CheckListCRUD(
             )
             .exists()
         )
+        collaborator_changed = (
+            select(CheckListCollaborator.checklist_id)
+            .where(
+                and_(
+                    CheckListCollaborator.checklist_id == CheckList.id,
+                    CheckListCollaborator.user_id == user_id,
+                    CheckListCollaborator.status == ShareStatus.accepted.value,
+                    col(CheckListCollaborator.server_seq) > since,
+                )
+            )
+            .exists()
+        )
         query = select(CheckList.id)
         query = self._add_user_has_access_query(query, user_id)
         query = query.where(
@@ -246,6 +265,7 @@ class CheckListCRUD(
                 col(CheckList.server_seq) > since,
                 col(CheckListPosition.server_seq) > since,
                 label_changed,
+                collaborator_changed,
             )
         )
         results = await self.session.exec(statement=query)

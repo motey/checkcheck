@@ -86,23 +86,6 @@ class CheckListCollaboratorCRUD(
         results = await self.session.exec(statement=query)
         return {checklist_id: permission for checklist_id, permission in results.all()}
 
-    async def list_gained_access_checklist_ids(
-        self,
-        user_id: uuid.UUID,
-        since: int,
-    ) -> List[uuid.UUID]:
-        """Checklist ids where this user's *accepted* collaborator row was created
-        or updated after ``since`` — i.e. access was (re)granted since the client's
-        cursor (WI-4). The whole card tree predates the grant, so the delta feed
-        ships it in full for these cards rather than only rows with a fresh seq."""
-        query = select(CheckListCollaborator.checklist_id).where(
-            CheckListCollaborator.user_id == user_id,
-            CheckListCollaborator.status == ShareStatus.accepted.value,
-            col(CheckListCollaborator.server_seq) > since,
-        )
-        results = await self.session.exec(statement=query)
-        return list(results.all())
-
     async def upsert(
         self,
         checklist_id: uuid.UUID,

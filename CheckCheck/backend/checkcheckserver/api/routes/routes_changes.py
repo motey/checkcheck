@@ -13,6 +13,7 @@ from checkcheckserver.db.checklist import CheckListCRUD
 from checkcheckserver.db.checklist_item import CheckListItemCRUD
 from checkcheckserver.db.checklist_label import ChecklistLabelCRUD
 from checkcheckserver.db.checklist_collaborator import CheckListCollaboratorCRUD
+from checkcheckserver.db.checklist_position import CheckListPositionCRUD
 from checkcheckserver.db.label import LabelCRUD
 from checkcheckserver.db.sync_seq import get_current_server_seq
 from checkcheckserver.model.changes import ChangesResponse
@@ -82,6 +83,9 @@ async def get_changes(
     checklist_collaborator_crud: CheckListCollaboratorCRUD = Depends(
         CheckListCollaboratorCRUD.get_crud
     ),
+    checklist_position_crud: CheckListPositionCRUD = Depends(
+        CheckListPositionCRUD.get_crud
+    ),
     label_crud: LabelCRUD = Depends(LabelCRUD.get_crud),
     current_user: User = Depends(get_current_user),
 ) -> ChangesResponse:
@@ -102,14 +106,18 @@ async def get_changes(
     accessible_ids = set(await checklist_crud.list_access_ids(user_id=user_id))
 
     # Access just (re)granted since the cursor → ship the whole tree for these.
+    # Keyed off the caller's position-row creation (granted_seq), which every grant
+    # path stamps — including ownership transfer to a non-collaborator, which the
+    # old accepted-collaborator-seq signal missed (review finding 1).
     gain_ids = set(
-        await checklist_collaborator_crud.list_gained_access_checklist_ids(
+        await checklist_position_crud.list_gained_access_checklist_ids(
             user_id=user_id, since=since
         )
     ) & accessible_ids
 
-    # Cards whose card-level state (row / this user's position / this user's
-    # labels) changed. Union with gain_ids for the card-level payload.
+    # Cards whose card-level state (row / this user's position / labels /
+    # collaborator permission) changed. Union with gain_ids for the card-level
+    # payload.
     changed_card_ids = set(
         await checklist_crud.list_changed_checklist_ids_for_user(
             user_id=user_id, since=since

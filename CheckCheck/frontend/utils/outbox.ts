@@ -110,11 +110,33 @@ export function httpStatusOf(err: unknown): number | undefined {
 //   2. `create`-then-`delete` offline cancels out: a `delete` whose entity still
 //      has a queued (un-sent) `create` removes *all* queued ops for that entity
 //      and drops the delete too — the row never reached the server, so there is
-//      nothing to send. A `delete` for an entity with no queued create supersedes
-//      any queued edits for it (they are moot) and is appended.
+//      nothing to send. Cancelling a **checklist** create also drops that card's
+//      queued *child* ops (item writes and label associations): they target a
+//      card the server never saw, so replaying them would 404 (spurious
+//      `op-dropped` events for a flow the user intended). A `delete` for an
+//      entity with no queued create supersedes any queued edits for it (they are
+//      moot) and is appended.
 
 function coalesceKey(op: Pick<OutboxOp, "entityType" | "entityId" | "kind">): string {
   return `${op.entityType}:${op.entityId}:${op.kind}`;
+}
+
+/**
+ * Whether `op` is a *child* write of the checklist `checklistId` — an item op
+ * (its request targets that card via `pathParams.checklist_id`) or a
+ * checklist⇄label association op (its composite entity id is
+ * `"{checklistId}:{labelId}"`, see `checklistLabelKey`). Used to cascade a
+ * create-then-delete cancel: when a card's never-sent create is cancelled, its
+ * children never reached the server either and must be dropped with it.
+ */
+function isChecklistChild(op: OutboxOp, checklistId: string): boolean {
+  if (op.entityType === "item") {
+    return op.request.pathParams?.checklist_id === checklistId;
+  }
+  if (op.entityType === "label") {
+    return op.entityId.startsWith(`${checklistId}:`);
+  }
+  return false;
 }
 
 const COALESCABLE: ReadonlySet<OutboxOpKind> = new Set(["update", "state", "position"]);
@@ -140,8 +162,16 @@ export function coalesce(
     );
     if (hasUnlockedCreate) {
       // Create never reached the server → drop the whole local history for this
-      // entity and the delete itself. A locked (in-flight) create is left alone.
-      return queue.filter((op) => op.entityId !== incoming.entityId || lockedSeqs.has(op.seq));
+      // entity and the delete itself. Cancelling a checklist create also cascades
+      // to its never-sent child ops (items + label links), which would otherwise
+      // 404 on replay. A locked (in-flight) op is always left alone.
+      const isChecklist = incoming.entityType === "checklist";
+      return queue.filter(
+        (op) =>
+          lockedSeqs.has(op.seq) ||
+          (op.entityId !== incoming.entityId &&
+            !(isChecklist && isChecklistChild(op, incoming.entityId)))
+      );
     }
     // No pending create → the delete supersedes any queued edits for this entity.
     const kept = queue.filter(

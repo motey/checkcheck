@@ -295,9 +295,15 @@ async def create_checklist_item(
         **checklist_item_create.model_dump(exclude=["position", "state", "id"]),
     )
 
-    await checklist_item_crud.create(checklist_item)
-    await checklist_item_pos_crud.create(checklist_item_position)
-    await checklist_item_state_crud.create(checklist_item_state)
+    # Stage the item + its position + its state and commit them in ONE transaction
+    # (review finding 6). Committing each separately left a crash window where an
+    # item existed with no position/state — invisible forever (every read path
+    # inner-joins both) and un-replayable (the response model rejects a null
+    # state/position). They share the same request-scoped session.
+    checklist_item_crud.stage_create(checklist_item)
+    checklist_item_pos_crud.stage_create(checklist_item_position)
+    checklist_item_state_crud.stage_create(checklist_item_state)
+    await checklist_item_crud.session.commit()
     await sync_crud.create(SyncNotification(
         cl_id=checklist_id, cli_id=new_checklist_item_id, upd_prop="item_created"
     ))

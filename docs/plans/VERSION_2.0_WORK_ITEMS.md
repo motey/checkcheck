@@ -106,13 +106,19 @@ and stale edits can't resurrect deleted rows.
   escape hatch for the tombstone-aware guards. Custom per-entity queries filter
   at their choke points (`CheckListCRUD._add_user_has_access_query`, the item
   list/count/get/grid queries, the label queries, and the label-chip join).
-- **`checklist_collaborator`: NOT tombstoned in WI-2** (deferred to WI-4). Revoke
-  / leave / whole-card delete keep hard-deleting collaborator + per-user position
-  rows, so access is revoked immediately and no orphaned pending-invite can be
-  read. WI-4's `removed_checklist_ids` is computed by diffing the access query
-  (the card simply drops out of the user's access set) — a collaborator tombstone
-  is one possible optimisation there, but it drags in re-share resurrection
-  semantics that belong with the delta-feed design, not here.
+- **`checklist_collaborator`: NOT tombstoned in WI-2** (deferred to WI-4). *Revoke*
+  and *leave* hard-delete the collaborator + per-user position rows, so access is
+  revoked immediately and no orphaned pending-invite can be read. A *whole-card
+  (owner) delete* is different: it **tombstones the card and keeps** the
+  collaborator + position rows, so the tombstone stays resolvable to each
+  collaborator — `list_tombstoned_checklist_ids_for_user` (WI-4) reads those rows
+  to tell a collaborator "this card is gone". (Amended 2026-07-07; the original
+  text lumped whole-card delete in with revoke/leave, but the implemented
+  `delete_checklist` never hard-deletes the link/position rows.) WI-4's
+  `removed_checklist_ids` is computed by diffing the access query (the card simply
+  drops out of the user's access set) — a collaborator tombstone is one possible
+  optimisation there, but it drags in re-share resurrection semantics that belong
+  with the delta-feed design, not here.
 - **`checklist_label`: NOT tombstoned** — it is a pure per-user association;
   remove stays a hard delete. There is no resurrection risk, and the delta feed
   re-derives a card's label set from live rows (WI-4). When the *label itself* is

@@ -151,6 +151,31 @@ class CheckListPositionCRUD(
         await self.session.commit()
         return True
 
+    async def list_gained_access_checklist_ids(
+        self,
+        user_id: uuid.UUID,
+        since: int,
+    ) -> List[uuid.UUID]:
+        """Checklist ids where THIS user's position row was *created* after
+        ``since`` — i.e. access was granted since the client's cursor (WI-4 /
+        Phase 1+2 review finding 1).
+
+        A position row exists for exactly the users who can see the card, and every
+        grant path inserts it at grant time (create, instant share, invite accept,
+        public-link join, ownership transfer), so keying gain off ``granted_seq``
+        covers all of them uniformly — including ownership transfer to a
+        non-collaborator, which leaves no fresh accepted-collaborator seq. The
+        whole card tree predates the grant, so the delta feed ships it in full for
+        these cards. ``granted_seq`` is stamped once on insert and never bumped, so
+        a later reorder/pin/touch of the same position is not mistaken for a grant.
+        """
+        query = select(CheckListPosition.checklist_id).where(
+            CheckListPosition.user_id == user_id,
+            col(CheckListPosition.granted_seq) > since,
+        )
+        results = await self.session.exec(statement=query)
+        return list(results.all())
+
     async def get_next(
         self, checklist_id: uuid.UUID, user_id: uuid.UUID
     ) -> CheckListPosition | None:

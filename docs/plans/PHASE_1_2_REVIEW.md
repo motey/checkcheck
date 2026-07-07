@@ -11,9 +11,35 @@ commits on `feature/2.0-offline-clients`); see §"Fixed inline" at the bottom.
 This file holds the findings that are **design-level or need a decision**,
 ranked most-severe first. It feeds WI-11+ planning.
 
+**Fix session 2026-07-07:** findings **1, 6, 7, 10 are now RESOLVED** (see the
+per-finding notes below).
+
+**Fix session 2026-07-07 (2nd):** findings **3 and 4 are now RESOLVED** (see their
+per-finding notes). Remaining open findings, deliberately handed to a follow-up
+session:
+- **2, 5** — outbox/delta reconciliation (undrained-edit clobber; `full_resync`
+  discarding queued ops). These belong with **WI-11** conflict/revocation UX and
+  are best done together with its edit-guard/outbox seam — not piecemeal now.
+- **8, 9** — connectivity signal on SSE error; outbox-persistence-failure
+  surfacing. Both are **WI-13/WI-14** territory (status UX) — cheap but want the
+  UI that consumes them.
+
 ---
 
 ## 1. HIGH — Ownership transfer never delivers the item tree through the feed
+
+**RESOLVED 2026-07-07 (fix session).** Access-gain is now keyed off the caller's
+`checklist_position` row creation (option 1), not the accepted-collaborator seq.
+Added a `granted_seq` column (`GrantSeqMixin` in `_base_model.py`) stamped once on
+insert and never on update; `CheckListPositionCRUD.list_gained_access_checklist_ids`
+returns cards with `granted_seq > since`, so every grant path (share, invite
+accept, public-link join, ownership transfer) delivers the full tree uniformly.
+Permission-level changes to an existing collaborator now re-emit the card
+(card-level only) via a new `collaborator_changed` EXISTS in
+`list_changed_checklist_ids_for_user`, replacing the old whole-tree collaborator
+gain. The dead `CheckListCollaboratorCRUD.list_gained_access_checklist_ids` was
+removed. Tests added: `test_ownership_transfer_delivers_the_whole_tree_to_new_owner`,
+`test_permission_level_change_re_emits_card_without_re_shipping_tree`.
 
 **Where:** `routes_checklist_share.py::transfer_ownership` vs
 `routes_changes.py` / `CheckListCollaboratorCRUD.list_gained_access_checklist_ids`
@@ -65,6 +91,17 @@ exists: `mergeDelta` already takes an injected guard.
 
 ## 3. MEDIUM — Create-then-delete cancellation orphans child ops
 
+**RESOLVED 2026-07-07 (2nd fix session).** `coalesce` rule 2 now cascades: when a
+`delete` cancels a queued **checklist** `create`, it also drops that card's
+never-sent child ops — item writes (matched by
+`request.pathParams.checklist_id === id`) and checklist⇄label association ops
+(matched by the `"{checklistId}:"` prefix of the pair `entityId`). A new
+`isChecklistChild` helper encapsulates the match; locked (in-flight) child ops are
+left alone, mirroring the existing rule-2 lock handling. Three vitest cases added
+(`tests/unit/outbox.spec.ts`): the full offline create→items→label→delete cascade,
+the no-cascade case when the card's create already drained (children are legit
+server writes), and the locked-child case. Frontend units green (26 outbox specs).
+
 **Where:** `utils/outbox.ts` `coalesce` rule 2.
 
 **Failure scenario:** offline, user creates a card, adds three items, attaches a
@@ -82,6 +119,27 @@ tests. Alternatively WI-11 can suppress the toasts for 404s that follow a
 cancelled parent — but cancelling at the queue is cleaner.
 
 ## 4. MEDIUM — No concurrency test for the `server_seq` commit-order guarantee
+
+**RESOLVED 2026-07-07 (2nd fix session).** Added
+`tests/tests_server_seq_concurrency.py` — a Postgres-only test (skips under
+`--db=sqlite`, which serialises writes and can't exercise the race). It fires 3
+barrier-synchronised bursts of 24 simultaneous item creates while a reader thread
+walks the cursor forward (never resetting `since` below what it reached), then
+asserts every created id was delivered by the forward walk — i.e. no row committed
+with a seq the cursor had already passed. Verified green on the Docker Postgres
+harness (3 runs, ~9s each). The deadlock-retry expectation is now documented on
+`_allocate_server_seq` (Postgres may abort a contending transaction → retryable
+5xx → idempotent outbox replay; self-heals, shows up only as retry noise).
+
+Incidental observation while writing the test (not a correctness bug, not chased):
+every authenticated API-token request re-stamps `UserAuth.last_used_at`
+(`api/auth/utils.py::validate_api_token` → `touch_last_used_at`), which is a
+`TimestampedModel` UPDATE and so **allocates a fresh `server_seq` on every
+request**. `UserAuth` is not in the delta feed, so this is harmless to sync
+correctness, but it means the global cursor churns upward on pure read traffic (a
+client polling `/api/changes` always sees `next_cursor` advanced even with an
+empty payload). Worth a glance if cursor-advance is ever used as a "something
+changed" signal on its own; pokes are event-driven, so nothing relies on it today.
 
 **Where:** `model/_base_model.py` `_allocate_server_seq`; test harness gap.
 
@@ -113,6 +171,13 @@ UI should show the queue was partially discarded.
 
 ## 6. LOW/MEDIUM — Item create is three separate commits
 
+**RESOLVED 2026-07-07 (fix session).** Added `CRUDBase.stage_create` (validate +
+`session.add`, no commit); `create_checklist_item` now stages item + position +
+state and commits once, and `create_checklist` stages checklist + position and
+commits once (both refresh the inserted rows afterward so relationships load
+eager, not lazily during async serialization). The crash-between-commits window
+is closed and two seq allocations per item create are saved. Full suite green.
+
 **Where:** `routes_checklist_item.py::create_checklist_item` (item, then
 position, then state — three `session.commit()`s).
 
@@ -126,6 +191,10 @@ three in one transaction; also removes two seq allocations per create).
 `create_checklist` has the same shape (checklist, then position).
 
 ## 7. LOW — `CRUDBase.get_multiple` does not mask tombstones
+
+**RESOLVED 2026-07-07 (fix session).** Added the `deleted_at IS NULL` mask
+(mirroring `list`) plus an `include_deleted` escape hatch, so the still-unused
+method is no longer a tombstone-leak landmine.
 
 **Where:** `db/_base_crud.py::get_multiple`.
 
@@ -156,6 +225,11 @@ writes. WI-14 should surface persistent-storage failure; consider
 
 ## 10. DOC — WI-2 decision block contradicts the implemented owner-delete
 
+**RESOLVED 2026-07-07 (fix session).** WI-2's `checklist_collaborator` decision
+bullet in `VERSION_2.0_WORK_ITEMS.md` now separates revoke/leave (hard-delete the
+link + position) from whole-card owner delete (tombstones the card, keeps the
+rows so the tombstone stays resolvable to collaborators).
+
 **Where:** `VERSION_2.0_WORK_ITEMS.md` WI-2 decisions ("Revoke / leave /
 whole-card delete keep hard-deleting collaborator + per-user position rows") vs
 `routes_checklist.py::delete_checklist` (owner delete tombstones the card and
@@ -172,7 +246,8 @@ sentence when the doc is next touched.
   WI-11's done-when, don't build early. The backend halves are covered
   (`tests_convergence.py`, `tests_changes.py`, and the new
   `test_revoked_collaborator_write_is_403_terminal`).
-- **`server_seq` under true concurrency** — finding 4 above.
+- **`server_seq` under true concurrency** — CLOSED (finding 4):
+  `tests/tests_server_seq_concurrency.py` (Postgres-only).
 - **Frontend units** — `outbox`, `outboxOps`, `deltaApply`, and now `editGuard`
   + `connectivity` have specs. Still unit-less: `snapshotDb` (needs
   fake-indexeddb plumbing; its logic is a thin idb wrapper — low value) and the

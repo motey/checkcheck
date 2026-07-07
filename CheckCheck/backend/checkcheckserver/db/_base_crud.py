@@ -228,13 +228,17 @@ class CRUDBase(
         self,
         ids: List[UUID],
         raise_exception_if_objects_missing: Exception = None,
+        include_deleted: bool = False,
     ) -> List[GenericCRUDReadType]:
         log.debug(f"get multiple ids: {ids}")
         log.debug(f"self.get_table_cls().id: {self.get_table_cls().id}")
         if ids:
-            query = select(self.get_table_cls()).where(
-                col(self.get_table_cls().id).in_(ids)
-            )
+            tbl = self.get_table_cls()
+            query = select(tbl).where(col(tbl.id).in_(ids))
+            # Mask tombstoned rows like every other generic read path (WI-2), so a
+            # future caller on a soft-deletable table doesn't leak deleted rows.
+            if self._is_soft_deletable() and not include_deleted:
+                query = query.where(col(tbl.deleted_at).is_(None))
             results = await self.session.exec(statement=query)
             res = results.all()
             if len(res) != len(ids) and raise_exception_if_objects_missing:
@@ -287,6 +291,26 @@ class CRUDBase(
         log.debug(
             f"Created {self.get_table_cls().__name__} object of type '{type(obj)}'.\n\tData In: <{obj}>\n\tData Out: <{new_obj}>"
         )
+        return new_obj
+
+    def stage_create(self, obj: GenericCRUDCreateType) -> GenericCRUDTableType:
+        """Validate ``obj`` into a table row and add it to the session WITHOUT
+        committing, returning the (id-populated) row.
+
+        For multi-row creates that must land in a single transaction so a crash
+        can't leave a half-built entity — e.g. an item row with no position/state,
+        which every read path inner-joins away and so becomes invisible forever
+        (Phase 1+2 review finding 6). The caller stages each row then commits once;
+        the ``before_insert`` mapper events still stamp each row's ``server_seq`` at
+        flush. Client/default UUID primary keys are assigned by ``model_validate``,
+        so the returned row's ``id`` is usable to build dependent rows before the
+        commit. Unlike ``create`` this does not catch ``IntegrityError`` — use it
+        only for rows already known to be new (guarded by an idempotency pre-check).
+        """
+        new_obj: GenericCRUDTableType = self.get_table_cls().model_validate(
+            obj.model_dump()
+        )
+        self.session.add(new_obj)
         return new_obj
 
     async def find(

@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "CheckCheck REST API",
-    "version": "0.1.dev81+g964fc71.d20260706"
+    "version": "0.1.dev94+gcfe5073c4.d20260707"
   },
   "paths": {
     "/api/health": {
@@ -3325,6 +3325,7 @@
             "required": false,
             "schema": {
               "enum": [
+                "granted_seq",
                 "created_at",
                 "updated_at",
                 "server_seq",
@@ -6155,6 +6156,17 @@
       },
       "CheckListPosition": {
         "properties": {
+          "granted_seq": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Granted Seq"
+          },
           "created_at": {
             "type": "string",
             "format": "date-time",

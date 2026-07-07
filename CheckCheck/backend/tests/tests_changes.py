@@ -216,6 +216,70 @@ def test_gaining_access_delivers_the_whole_tree():
     req(f"api/checklist/{cl_id}", "delete")
 
 
+def test_ownership_transfer_delivers_the_whole_tree_to_new_owner():
+    """Transferring ownership to a NON-collaborator must ship that user the full
+    card tree (review finding 1). The new owner never had a collaborator row, so
+    the old accepted-collaborator-seq gain signal missed the items; gain is now
+    keyed off the position row every grant path creates, so the tree arrives."""
+    other = _make_user_token("wi4-transfer")
+    other_id = _user_id(other)
+
+    # Admin owns a card + item, both created before `other` is involved at all —
+    # `other` is not (and never was) a collaborator.
+    cl_id = req("api/checklist", "post", b={"name": "handover card"})["id"]
+    item_id = req(f"api/checklist/{cl_id}/item", "post", b={"text": "predates transfer"})[
+        "id"
+    ]
+
+    base = _cursor(token=other)  # other's cursor before gaining anything
+    assert cl_id not in _cl_ids(_changes(since=base, token=other))
+
+    req(
+        f"api/checklist/{cl_id}/transfer-ownership",
+        "post",
+        b={"new_owner_id": other_id},
+    )
+
+    delta = _changes(since=base, token=other)
+    assert cl_id in _cl_ids(delta), "new owner must receive the card"
+    assert item_id in _item_ids(delta), "children of the transferred card must arrive"
+    card = find_first_dict_in_list(delta["checklists"], {"id": cl_id})
+    assert card["my_permission"] == "owner", "new owner must be reported as owner"
+
+    # Clean up as the new owner (admin no longer owns it).
+    req(f"api/checklist/{cl_id}", "delete", access_token=other)
+
+
+def test_permission_level_change_re_emits_card_without_re_shipping_tree():
+    """A permission bump on an already-accepted collaborator re-emits the card so
+    ``my_permission`` updates, but does NOT re-ship the tree (the collaborator
+    already has it). Guards the card-level collaborator-change signal that
+    replaced the old whole-tree collaborator gain."""
+    other = _make_user_token("wi4-levelup")
+    other_id = _user_id(other)
+
+    cl_id = req("api/checklist", "post", b={"name": "leveled card"})["id"]
+    item_id = req(f"api/checklist/{cl_id}/item", "post", b={"text": "already synced"})[
+        "id"
+    ]
+    req(f"api/checklist/{cl_id}/shares/{other_id}", "put", b={"permission": "view"})
+
+    # `other` has fully synced the card at this cursor.
+    synced = _cursor(token=other)
+
+    # Owner raises the level view -> edit.
+    req(f"api/checklist/{cl_id}/shares/{other_id}", "put", b={"permission": "edit"})
+
+    delta = _changes(since=synced, token=other)
+    card = find_first_dict_in_list(delta["checklists"], {"id": cl_id})
+    assert card is not None, "a permission change must re-emit the card"
+    assert card["my_permission"] == "edit", "the new level must be reported"
+    # The item did not change and predates `synced`, so it is not re-shipped.
+    assert item_id not in _item_ids(delta), "unchanged tree must not be re-shipped"
+
+    req(f"api/checklist/{cl_id}", "delete")
+
+
 def test_losing_access_is_reported_in_removed_ids():
     other = _make_user_token("wi4-lose")
     other_id = _user_id(other)

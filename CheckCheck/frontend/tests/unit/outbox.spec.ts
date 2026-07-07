@@ -97,6 +97,40 @@ function itemDelete(id: string, clId = "cl1"): OutboxOpInput {
   };
 }
 
+function checklistCreate(id: string): OutboxOpInput {
+  return {
+    entityType: "checklist",
+    entityId: id,
+    kind: "create",
+    request: { method: "post", path: "/api/checklist", body: { id } },
+  };
+}
+function checklistDelete(id: string): OutboxOpInput {
+  return {
+    entityType: "checklist",
+    entityId: id,
+    kind: "delete",
+    request: {
+      method: "delete",
+      path: "/api/checklist/{checklist_id}",
+      pathParams: { checklist_id: id },
+    },
+  };
+}
+/** A checklist⇄label association op (WI-9): entity id is the "{clId}:{labelId}" pair. */
+function labelAttach(clId: string, labelId: string): OutboxOpInput {
+  return {
+    entityType: "label",
+    entityId: `${clId}:${labelId}`,
+    kind: "create",
+    request: {
+      method: "put",
+      path: "/api/checklist/{checklist_id}/label/{label_id}",
+      pathParams: { checklist_id: clId, label_id: labelId },
+    },
+  };
+}
+
 /** Materialise an OutboxOp (with seq) from an input — for pure coalesce tests. */
 function op(seq: number, input: OutboxOpInput): OutboxOp {
   return { ...input, seq, opId: `op${seq}`, enqueuedAt: seq, attempts: 0 };
@@ -226,6 +260,38 @@ describe("coalesce", () => {
     const queue = [op(1, itemCreate("i1")), op(2, itemCreate("i2"))];
     const next = coalesce(queue, op(3, itemDelete("i1")));
     expect(next.map((o) => o.entityId)).toEqual(["i2"]);
+  });
+
+  it("cancelling a checklist create drops its queued child item + label ops", () => {
+    // Offline: create card, add two items, attach a label, then delete the card.
+    const queue = [
+      op(1, checklistCreate("cl1")),
+      op(2, itemCreate("i1", "cl1")),
+      op(3, itemCreate("i2", "cl1")),
+      op(4, itemUpdate("i1", { text: "typo" }, "cl1")),
+      op(5, labelAttach("cl1", "lab1")),
+      // An unrelated item in a different card must survive.
+      op(6, itemCreate("i9", "cl2")),
+    ];
+    const next = coalesce(queue, op(7, checklistDelete("cl1")));
+    // Card create + all its children + the delete vanish; the other card is kept.
+    expect(next.map((o) => o.entityId)).toEqual(["i9"]);
+  });
+
+  it("does not cascade to child ops when the checklist create already drained", () => {
+    // No queued create for cl1 → the card exists server-side, so its child ops
+    // are legitimate writes and the delete is simply appended.
+    const queue = [op(1, itemCreate("i1", "cl1")), op(2, labelAttach("cl1", "lab1"))];
+    const next = coalesce(queue, op(3, checklistDelete("cl1")));
+    expect(next.map((o) => o.kind)).toEqual(["create", "create", "delete"]);
+  });
+
+  it("keeps an in-flight child op when cancelling a checklist create", () => {
+    const locked = new Set([2]); // i1's create is mid-flight
+    const queue = [op(1, checklistCreate("cl1")), op(2, itemCreate("i1", "cl1")), op(3, itemCreate("i2", "cl1"))];
+    const next = coalesce(queue, op(4, checklistDelete("cl1")), locked);
+    // The locked child survives; the card create + the other child are dropped.
+    expect(next.map((o) => o.entityId)).toEqual(["i1"]);
   });
 
   it("does NOT merge into or cancel a locked (in-flight) op", () => {

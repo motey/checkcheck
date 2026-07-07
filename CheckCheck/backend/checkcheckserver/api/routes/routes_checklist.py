@@ -212,14 +212,11 @@ async def create_checklist(
                 existing.position = user_position
             attach_my_permission(existing, ChecklistAccessLevel.owner)
             return existing
-    # Drop a null `id` from the payload so the server-side default_factory
-    # assigns one; only forward a client-supplied id when it is actually set.
-    create_payload = checklist.model_dump(exclude=["position", "id"])
-    if checklist.id is not None:
-        create_payload["id"] = checklist.id
-    checklist_db: CheckList = await checklist_crud.create(
-        CheckListCreate(**create_payload, owner_id=current_user.id),
-    )
+    # Compute the grid index BEFORE staging (this reads the caller's current last
+    # position). Done first so the checklist + position can then be staged and
+    # committed together (review finding 6): committing the card before its
+    # position left a crash window where the card had no position row, which the
+    # grid inner-joins away — the owner's own card would be invisible forever.
     if checklist.position is None:
         highest_existing_index_position = await checklist_position_crud.get_last(
             user_id=current_user.id
@@ -233,22 +230,31 @@ async def create_checklist(
             if highest_existing_index_position is not None
             else 0
         )
+    else:
+        new_order_position = checklist.position.index
 
-        index = CheckListPositionCreate(
+    # Drop a null `id` from the payload so the server-side default_factory
+    # assigns one; only forward a client-supplied id when it is actually set.
+    create_payload = checklist.model_dump(exclude=["position", "id"])
+    if checklist.id is not None:
+        create_payload["id"] = checklist.id
+    checklist_db: CheckList = checklist_crud.stage_create(
+        CheckListCreate(**create_payload, owner_id=current_user.id),
+    )
+    index: CheckListPosition = checklist_position_crud.stage_create(
+        CheckListPositionCreate(
             checklist_id=checklist_db.id,
             user_id=current_user.id,
             index=new_order_position,
         )
-    else:
-        index = CheckListPositionCreate(
-            checklist_id=checklist_db.id,
-            user_id=current_user.id,
-            index=checklist.position.index,
-        )
-    index: CheckListPosition = await checklist_position_crud.create(index)
-    checklist_db: CheckList = await checklist_crud.get(
-        checklist_db.id,
     )
+    await checklist_crud.session.commit()
+    # Refresh both just-inserted rows so their relationships load as (empty) rather
+    # than lazily on access during serialization — a lazy load on the async session
+    # raises MissingGreenlet. This mirrors the refresh the old per-row create() did;
+    # only the commit count changed (two → one, review finding 6).
+    await checklist_crud.session.refresh(checklist_db)
+    await checklist_position_crud.session.refresh(index)
     checklist_db.position = index
     # The creator is always the owner.
     attach_my_permission(checklist_db, ChecklistAccessLevel.owner)

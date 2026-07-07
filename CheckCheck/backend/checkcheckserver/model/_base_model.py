@@ -102,6 +102,24 @@ class TimestampedModel(SQLModel):
     server_seq: Optional[int] = SQLField(default=None, nullable=True, index=True)
 
 
+class GrantSeqMixin(SQLModel):
+    """A per-user access-grant row whose *creation* is the canonical
+    "access gained" signal for the delta feed (WI-4 / Phase 1+2 review finding 1).
+
+    Applied to ``checklist_position`` — a row exists for exactly the users who can
+    see the card, and every grant path (create, instant share, invite accept,
+    public-link join, ownership transfer) inserts it at grant time. ``granted_seq``
+    is stamped once on insert (to the same value as ``server_seq``) and, unlike
+    ``server_seq``, is **never** bumped on update. That lets the feed tell a fresh
+    grant — ship the whole card tree, whose rows predate the cursor — apart from a
+    mere reorder/pin/touch of an existing position, which ``server_seq`` alone
+    cannot distinguish from a first insert. Nullable only for schema tolerance of
+    pre-2.0 rows; every row inserted through the ORM gets a value.
+    """
+
+    granted_seq: Optional[int] = SQLField(default=None, nullable=True, index=True)
+
+
 class SoftDeleteMixin(SQLModel):
     """Tombstone marker for syncable *parent* rows (WI-2).
 
@@ -155,6 +173,17 @@ def _allocate_server_seq(connection) -> int:  # noqa: ANN001
     is what makes committed ``server_seq`` values monotonic in *commit* order (see
     ``TimestampedModel.server_seq``). Two statements instead of ``UPDATE ...
     RETURNING`` so we don't depend on a minimum SQLite version.
+
+    Deadlock note (Postgres): serialising every write through this one counter row
+    means a multi-row transaction holds the counter lock alongside its other row
+    locks, which widens the deadlock surface — two transactions that grab the
+    counter and a data row in opposite orders can deadlock. Postgres resolves that
+    by aborting one with a deadlock error (→ 5xx), which the client outbox
+    classifies as *retryable* and replays; the write is idempotent, so it
+    self-heals. Under real concurrency this shows up as occasional retry noise, not
+    lost or skipped rows — the commit-order guarantee still holds (verified by
+    ``tests/tests_server_seq_concurrency.py``). If the noise ever matters, allocate
+    the seq in its own short autonomous transaction instead of the flush's.
     """
     connection.execute(
         text("UPDATE sync_seq SET value = value + 1 WHERE id = :row_id"),
@@ -178,6 +207,12 @@ def _allocate_server_seq(connection) -> int:  # noqa: ANN001
 def _stamp_server_seq_on_insert(mapper, connection, target):  # noqa: ANN001
     if isinstance(target, TimestampedModel):
         target.server_seq = _allocate_server_seq(connection)
+        # A grant row (checklist_position) records its creation seq once, so the
+        # delta feed can recognise a freshly-granted card and ship its full tree
+        # (see GrantSeqMixin). Never touched by before_update, so a later reorder
+        # cannot masquerade as a new grant.
+        if isinstance(target, GrantSeqMixin) and target.granted_seq is None:
+            target.granted_seq = target.server_seq
 
 
 @_sa_event.listens_for(_SAMapper, "before_update")
