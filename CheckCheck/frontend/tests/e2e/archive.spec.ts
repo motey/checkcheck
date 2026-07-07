@@ -138,8 +138,9 @@ test.describe("archive & permanent delete", () => {
     // Gone from the archive board.
     await expect(page.getByText(name, { exact: true })).not.toBeVisible({ timeout: 5_000 });
 
-    // Gone from the backend.
+    // Gone from the backend. Since WI-2 a delete is a tombstone, so the row
+    // reads as 410 Gone (terminal for the sync outbox), not 404 (never existed).
     const res = await page.request.get(`/api/checklist/${cl.id}`);
-    expect(res.status()).toBe(404);
+    expect(res.status()).toBe(410);
   });
 });
