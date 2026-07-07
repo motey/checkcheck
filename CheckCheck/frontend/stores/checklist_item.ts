@@ -2,7 +2,25 @@ import { defineStore } from "pinia";
 import { findNewPlacementForItem, sortBySubset } from "~/utils/helpers";
 import { isLocalFirstEnabled } from "@/utils/localFirst";
 import { useOutbox } from "@/composables/useOutbox";
-import { itemCreateOp, itemDeleteOp, itemStateOp, itemUpdateOp, nextItemIndex } from "@/utils/outboxOps";
+import {
+  fractionalIndexBetween,
+  itemCreateOp,
+  itemDeleteOp,
+  itemPositionOp,
+  itemStateOp,
+  itemUpdateOp,
+  nextItemIndex,
+} from "@/utils/outboxOps";
+
+/**
+ * Deterministic item order: by fractional `position.index`, then `id` as the
+ * tiebreak (WI-9). Two items can share an index after concurrent offline
+ * reorders converge on the same midpoint, or transiently mid-drag; ordering by
+ * id then keeps the list stable across clients instead of flapping.
+ */
+function compareByPositionThenId(a: CheckListItemType, b: CheckListItemType): number {
+  return a.position.index - b.position.index || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
+}
 
 export type CheckListItemState = {
   checkListsItems: { [key: string]: CheckListItemType[] };
@@ -202,6 +220,7 @@ export const useCheckListsItemStore = defineStore("checkListitem", {
       checklistidItemId: string,
       pos: CheckListItemPositionUpdateType
     ): Promise<CheckListItemPositionType> {
+      if (isLocalFirstEnabled()) return this._localUpdatePosition(checkListId, checklistidItemId, pos);
       const { $checkapi } = useNuxtApp();
       try {
         const resPos = await $checkapi("/api/checklist/{checklist_id}/item/{checklist_item_id}/position", {
@@ -262,6 +281,7 @@ export const useCheckListsItemStore = defineStore("checkListitem", {
       itemToMove: CheckListItemType,
       otherItem: CheckListItemType
     ): Promise<CheckListItemPositionType> {
+      if (isLocalFirstEnabled()) return this._localMoveItem(checkListId, itemToMove, otherItem, "under");
       const { $checkapi } = useNuxtApp();
       let resPos: CheckListItemPositionType;
       try {
@@ -286,6 +306,7 @@ export const useCheckListsItemStore = defineStore("checkListitem", {
       itemToMove: CheckListItemType,
       otherItem: CheckListItemType
     ): Promise<CheckListItemPositionType> {
+      if (isLocalFirstEnabled()) return this._localMoveItem(checkListId, itemToMove, otherItem, "above");
       const { $checkapi } = useNuxtApp();
       let resPos: CheckListItemPositionType;
       try {
@@ -306,7 +327,7 @@ export const useCheckListsItemStore = defineStore("checkListitem", {
       return resPos;
     },
     async _sort(checkListId: string) {
-      this.checkListsItems[checkListId]!.sort((a, b) => a.position.index - b.position.index);
+      this.checkListsItems[checkListId]!.sort(compareByPositionThenId);
     },
     async _sortAll() {
       for (const checkListId of Object.keys(this.checkListsItems)) {
@@ -412,6 +433,75 @@ export const useCheckListsItemStore = defineStore("checkListitem", {
       }
       useOutbox().enqueue(itemStateOp(checkListId, checklistidItemId, { checked: state.checked }));
       return newState;
+    },
+    /**
+     * Optimistic position write (index and/or indentation). Mutates the cached
+     * row, re-sorts, and enqueues a plain position PATCH — the endpoint stores the
+     * given `index` verbatim, so the client-computed fractional key survives the
+     * round-trip. Only the fields actually supplied are sent (so a pure reorder
+     * doesn't overwrite indentation and vice-versa).
+     */
+    _localUpdatePosition(
+      checkListId: string,
+      checklistidItemId: string,
+      pos: CheckListItemPositionUpdateType
+    ): CheckListItemPositionType {
+      const now = new Date().toISOString();
+      const list = this.checkListsItems[checkListId];
+      const idx = list?.findIndex((item) => item.id == checklistidItemId) ?? -1;
+      let resultPos: CheckListItemPositionType;
+      if (list && idx !== -1) {
+        const cur = list[idx]!.position;
+        resultPos = {
+          ...cur,
+          ...(pos.index != null ? { index: pos.index } : {}),
+          ...(pos.indentation != null ? { indentation: pos.indentation } : {}),
+          updated_at: now,
+        };
+        list[idx]!.position = resultPos;
+        this._sort(checkListId);
+      } else {
+        resultPos = {
+          index: pos.index ?? 0,
+          indentation: pos.indentation ?? 0,
+          updated_at: now,
+        } as CheckListItemPositionType;
+      }
+      const body: { index?: number; indentation?: number } = {};
+      if (pos.index != null) body.index = pos.index;
+      if (pos.indentation != null) body.indentation = pos.indentation;
+      useOutbox().enqueue(itemPositionOp(checkListId, checklistidItemId, body));
+      return resultPos;
+    },
+    /**
+     * Offline reorder: compute the target's new fractional index client-side
+     * (mirroring the server's `move/{above,under}` midpoint math) and route it
+     * through `_localUpdatePosition`. Neighbours are read from the current cached
+     * order — sorted by (index, id) — exactly as the server reads current DB rows,
+     * so dragging an item to where it already sits is a harmless near-no-op.
+     */
+    _localMoveItem(
+      checkListId: string,
+      itemToMove: CheckListItemType,
+      otherItem: CheckListItemType,
+      direction: "above" | "under"
+    ): CheckListItemPositionType {
+      const sorted = (this.checkListsItems[checkListId] ?? []).slice().sort(compareByPositionThenId);
+      const otherIdx = sorted.findIndex((i) => i.id === otherItem.id);
+      const otherIndex = otherItem.position.index;
+      let newIndex: number;
+      if (direction === "under") {
+        // Land between the other item and its next-higher neighbour (or past the end).
+        const successor = otherIdx !== -1 ? sorted[otherIdx + 1] : undefined;
+        newIndex = fractionalIndexBetween(otherIndex, successor?.position.index ?? null);
+      } else {
+        // Land between the other item's next-lower neighbour and it (or before the start).
+        const predecessor = otherIdx !== -1 ? sorted[otherIdx - 1] : undefined;
+        newIndex = fractionalIndexBetween(predecessor?.position.index ?? null, otherIndex);
+      }
+      return this._localUpdatePosition(checkListId, itemToMove.id, {
+        index: newIndex,
+      } as CheckListItemPositionUpdateType);
     },
     async _insertNewAtCorrectIndex(checkListItemList: CheckListItemType[], checklistitem: CheckListItemType) {
       if (checkListItemList.findIndex((item) => item.id == checklistitem.id) !== -1) {

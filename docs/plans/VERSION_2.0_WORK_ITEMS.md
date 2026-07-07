@@ -594,6 +594,72 @@ drops; a manual offline-edit → restart → reconnect round-trip syncs.
 **Done when:** creating, editing, reordering, labeling, archiving and deleting
 checklists and items all work offline and converge.
 
+**Decisions taken in-session (2026-07-07, implemented):**
+
+- **Same dual-path shape as WI-8**, extended to the checklist store, the item
+  position/reorder actions, and the two label-association actions. Each action
+  gets a one-line `if (isLocalFirstEnabled()) return this._local…(...)` guard at
+  the top; flag-off falls through to the untouched legacy `$checkapi` body
+  byte-for-byte. `archive` / `setPinned` / `reorderCheckLists` /
+  `reorderChecklistItems` need **no** guard — they already delegate to
+  `updatePosition` / the `move*` helpers, which now carry the guard, so both
+  paths compose for free. Verified against the flag-off legacy path (`git diff`
+  is guard-lines-only in the legacy bodies) and by re-running the legacy suite.
+- **Client-side fractional index in `utils/outboxOps.ts`** (`fractionalIndexBetween`,
+  decimal.js): the midpoint of two present neighbours, or one `POSITION_END_GAP`
+  (`"0.4"`, matching the server) past a single end neighbour. It is the exact
+  twin of the server's `move/{above,under}` math, so the client-computed key and
+  the (later-online) server assignment agree. **Neighbours are read from the
+  current cached order, NOT excluding the moved item** — this mirrors the
+  server's `get_prev`/`get_next` over live DB rows, which makes "drag an item to
+  where it already sits" a harmless near-no-op instead of a jump. The offline op
+  is a **plain position PATCH** (`kind:"position"`, coalescable) — the plain
+  endpoint stores the given index verbatim, so no server recomputation and a
+  clean round-trip. The legacy `move/{above,under}` PUTs stay for flag-off.
+- **Items sort ascending, checklists descending** (`_sort`), so "above"/"under"
+  map to opposite index directions between the two stores — the item move helper
+  and the checklist move helper pass the (before, after) neighbour pair
+  accordingly into the one shared `fractionalIndexBetween`.
+- **Sort tiebreak `(index, id)`** added to the item `_sort` (and the neighbour
+  sorts) so equal fractional keys — possible after two clients converge on the
+  same midpoint — order deterministically instead of flapping. Harmless on the
+  legacy path (equal indices are degenerate there).
+- **Checklist `create` synthesises a full `CheckListApiWithSubObj` row** with a
+  client UUID (`crypto.randomUUID()`), `my_permission:"owner"`, `owner_id` from
+  the user store, an empty **fully-loaded** item list (so the board renders it
+  without the online path's offline-failing `refreshAllCheckListItems`), and an
+  index of `highest + 0.4` (mirrors the server). The create op sends that
+  **explicit** `position.index` so a replay stores the same slot the board shows
+  (omitting it makes the server recompute `highest+0.4` at replay time — a
+  divergence). Colour edits resolve the nested `color` object from the colour
+  store on the optimistic row (the board renders `color`, not `color_id`).
+- **Label attach/detach is a `(checklist,label)`-pair op**, not label CRUD (which
+  stays online — WI-12). `entityType:"label"`, `entityId:"{clId}:{labelId}"`,
+  `kind` create (PUT) / delete (DELETE) — both idempotent, and an attach-then-
+  detach of the same pair cancels via the WI-7 create/delete coalesce (rule 2).
+- **Op builders live in `utils/outboxOps.ts`** (the WI-8 module), extended with
+  `itemPositionOp`, `checklist{Create,Update,Delete,Position}Op`,
+  `checklistLabel{Add,Remove}Op`, `checklistLabelKey`, `fractionalIndexBetween`
+  and `POSITION_END_GAP`. Unit-tested in `tests/unit/outboxOps.spec.ts` (28
+  tests: builders + the fractional math incl. a 20-deep mid-list-insert
+  no-drift check). `bun run test:unit`.
+- **Verified:** new E2E `tests/e2e/local-checklist-offline.spec.ts` (flag on) —
+  (A) create a card offline (client UUID from the `/card/<id>` URL), title it,
+  reload still-offline → it hydrates titled from the snapshot and the ops stay
+  queued; restore the API + reload → the outbox drains and the server card
+  carries the title under the client id. (B) drag one item below another offline
+  → optimistic reorder + a queued position op; restore + reload → the server
+  converges on the new order. Re-ran the flag-off `item-movement` /
+  `card-movement` / `checklist` / `label-reorder` and the WI-8
+  `local-item-offline` to confirm the legacy + item paths are untouched. The
+  E2E backend's `openapi.json` version churn was `git checkout`-ed out.
+- **Known gaps (deferred, not blockers):** offline **restore-from-Archive** goes
+  through `checkListStore.fetch()`, which refreshes (throws offline) for a card
+  not in `checkLists` — archive-from-board (the common flow) works; the
+  archive-view edge is WI-10/12 territory. Reconciliation is still the legacy SSE
+  refetch until WI-10, so the WI-8 "resync can momentarily clobber undrained
+  optimistic rows" tension applies to checklists/positions too.
+
 ### WI-10 — Delta application replaces `useSync` refetch (M)
 
 **Goal:** One code path applies server truth, live or after an offline gap.
