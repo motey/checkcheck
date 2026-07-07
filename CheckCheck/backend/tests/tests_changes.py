@@ -145,6 +145,33 @@ def test_item_and_checklist_tombstones_are_reported():
     assert cl_id not in _cl_ids(delta2), "tombstoned card must not be a live change"
 
 
+def test_label_attach_and_detach_surface_the_card():
+    """Attaching/detaching a label is a card-level change (§3 grouping rules).
+    Detach is the tricky half: the link row is HARD-deleted, so there is no live
+    row carrying a fresh server_seq — without an explicit signal an offline
+    device would keep the stale chip forever."""
+    cl_id = req("api/checklist", "post", b={"name": "labeled card"})["id"]
+    label_id = req("api/label", "post", b={"display_name": "chip", "sort_order": 10})["id"]
+
+    # Attach: the card must be re-emitted with the label present.
+    mid = _cursor()
+    req(f"api/checklist/{cl_id}/label/{label_id}", "put")
+    delta = _changes(since=mid)
+    card = find_first_dict_in_list(delta["checklists"], {"id": cl_id})
+    assert card is not None, "label attach must re-emit the card"
+    assert label_id in [l["id"] for l in card["labels"]]
+
+    # Detach: the card must be re-emitted again, now WITHOUT the label.
+    mid2 = delta["next_cursor"]
+    req(f"api/checklist/{cl_id}/label/{label_id}", "delete")
+    delta2 = _changes(since=mid2)
+    card2 = find_first_dict_in_list(delta2["checklists"], {"id": cl_id})
+    assert card2 is not None, "label detach must re-emit the card"
+    assert label_id not in [l["id"] for l in card2["labels"]]
+
+    req(f"api/checklist/{cl_id}", "delete")
+
+
 def test_label_change_and_tombstone_are_reported():
     start = _cursor()
     label_id = req("api/label", "post", b={"display_name": "delta-label"})["id"]

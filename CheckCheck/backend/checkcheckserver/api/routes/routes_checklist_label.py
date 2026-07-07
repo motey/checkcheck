@@ -35,6 +35,7 @@ from checkcheckserver.model.label import (
 from checkcheckserver.model.checklist_label import CheckListLabel, CheckListLabelCreate
 from checkcheckserver.db.label import LabelCRUD
 from checkcheckserver.db.checklist_label import ChecklistLabelCRUD
+from checkcheckserver.db.checklist_position import CheckListPositionCRUD
 from checkcheckserver.db.checklist_color_scheme import (
     ChecklistColorSchemeCRUD,
     ChecklistColorScheme,
@@ -153,7 +154,10 @@ async def update_label(
         include_deleted=True,
     )
     if existing_label.owner_id != current_user.id:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED)
+        # 404, not 401: labels are strictly per-user, so a foreign label reads as
+        # "does not exist" (no existence leak — matches add_label_to_checklist).
+        # 401 would additionally trip the client's global session-expiry handling.
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
     if existing_label.deleted_at is not None:
         # Stale edit of a tombstoned label must not resurrect it (WI-2).
         raise HTTPException(
@@ -178,7 +182,8 @@ async def delete_label(
         include_deleted=True,
     )
     if existing_label.owner_id != current_user.id:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED)
+        # 404, not 401 — same reasoning as update_label above.
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
     # Soft delete (WI-2). Idempotent: re-deleting an already-tombstoned label is a
     # no-op success so an outbox replay is safe. Chips referencing this label are
     # masked at read time (the CheckListLabel link rows are left in place).
@@ -268,6 +273,9 @@ async def remove_label_from_checklist(
     ),
     label_crud: LabelCRUD = Depends(LabelCRUD.get_crud),
     checklist_label_crud: ChecklistLabelCRUD = Depends(ChecklistLabelCRUD.get_crud),
+    checklist_position_crud: CheckListPositionCRUD = Depends(
+        CheckListPositionCRUD.get_crud
+    ),
     sync_crud: SyncNotifiationCRUD = Depends(SyncNotifiationCRUD.get_crud),
     current_user: User = Depends(get_current_user),
 ):
@@ -275,5 +283,13 @@ async def remove_label_from_checklist(
         checklist_id=checklist_access.checklist.id,
         label_id=label_id,
         user_id=current_user.id,
+    )
+    # The link row is HARD-deleted (WI-2 kept checklist_label untombstoned), so
+    # the detach itself leaves no server_seq trace and the delta feed would never
+    # re-emit the card — an offline device would keep the stale chip forever.
+    # Re-stamp the caller's position row (per-user, like the label set) so the
+    # feed's card-level query picks the card up for this user only.
+    await checklist_position_crud.touch(
+        checklist_id=checklist_access.checklist.id, user_id=current_user.id
     )
     await sync_crud.create(SyncNotification(cl_id=checklist_access.checklist.id, upd_prop="checklist_label"))

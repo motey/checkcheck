@@ -32,6 +32,7 @@ from checkcheckserver.model.checklist_position import (
     CheckListPositionUpdate,
 )
 from checkcheckserver.db._base_crud import create_crud_base
+from checkcheckserver.model._base_model import naive_utc_now
 from checkcheckserver.api.paginator import QueryParamsInterface
 from checkcheckserver.model.checklist_collaborator import CheckListCollaborator
 from checkcheckserver.model.checklist import CheckList
@@ -124,6 +125,31 @@ class CheckListPositionCRUD(
         if result_item is None and raise_exception_if_none:
             raise raise_exception_if_none
         return result_item
+
+    async def touch(
+        self,
+        checklist_id: uuid.UUID,
+        user_id: uuid.UUID,
+    ) -> bool:
+        """Re-stamp the caller's position row so the delta feed re-emits the card
+        for THIS user (WI-4 grouping: card-level = row / caller's position /
+        caller's labels).
+
+        Needed for per-user card-level changes that leave no ``server_seq`` trace
+        of their own — currently label *detach*, which HARD-deletes the link row
+        (WI-2 kept ``checklist_label`` untombstoned). Dirtying ``updated_at``
+        makes the flush emit an UPDATE, so the ``before_update`` mapper event
+        allocates a fresh ``server_seq``; the position's fields are unchanged, so
+        LWW-wise this is a no-op for other devices. Returns False when the caller
+        has no position row (should not happen for owner/accepted collaborator).
+        """
+        existing = await self.get(checklist_id=checklist_id, user_id=user_id)
+        if existing is None:
+            return False
+        existing.updated_at = naive_utc_now()
+        self.session.add(existing)
+        await self.session.commit()
+        return True
 
     async def get_next(
         self, checklist_id: uuid.UUID, user_id: uuid.UUID
