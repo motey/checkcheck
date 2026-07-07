@@ -392,3 +392,4 @@ CheckCheck/frontend/playwright-report/
 CheckCheck/frontend/test-results/
 CheckCheck/frontend/tests/e2e/.auth/
 CheckCheck/frontend/tests/e2e/.e2e-server.pid
+NEXT_SESSION.md

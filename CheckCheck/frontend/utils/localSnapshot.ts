@@ -6,6 +6,8 @@ import { useCheckListsLabelStore } from "@/stores/label";
 import { useUserStore } from "@/stores/user";
 import { usePublicConfigStore } from "@/stores/publicConfig";
 import { readSnapshot, writeSnapshots, readCursor, writeCursor, dropSnapshot } from "@/utils/snapshotDb";
+import { mergeDelta, type DeltaTarget, type ItemCountMaps } from "@/utils/deltaApply";
+import { defaultEditGuard } from "@/utils/editGuard";
 
 // ── Store snapshot registry (WI-6) ───────────────────────────────────────────
 //
@@ -116,45 +118,197 @@ export function registerSnapshotPersistence(pinia: Pinia): void {
   });
 }
 
+// ── Delta application (WI-10) ────────────────────────────────────────────────
+//
+// The single read path for server truth once the localFirst flag is on: pull
+// GET /api/changes from the persisted cursor and fold the result into the live
+// stores (upsert rows, drop tombstones + revoked cards, persist the new cursor).
+// Driven on boot (runBackgroundSync), on the SSE `changes_available` poke, and
+// on SSE reconnect (composables/useSync.ts) — replacing the legacy per-entity
+// refetch. Application is idempotent (utils/deltaApply), so overlapping triggers
+// are harmless; a module-level chain still serialises pulls so concurrent pokes
+// don't race the cursor.
+
+/** Serialises overlapping pulls (bursty pokes) — idempotent, but avoids churn. */
+let syncChain: Promise<void> = Promise.resolve();
+
+/** A delta with nothing in it — the signal to stop walking the cursor (§3). */
+function isEmptyDelta(res: ChangesResponseType): boolean {
+  return (
+    !res.checklists.length &&
+    !res.items.length &&
+    !res.labels.length &&
+    !res.checklist_tombstones.length &&
+    !res.item_tombstones.length &&
+    !res.label_tombstones.length &&
+    !res.removed_checklist_ids.length
+  );
+}
+
+/** Live store slices as the deltaApply target (mutating these is reactive). */
+function deltaTarget(pinia: Pinia): DeltaTarget {
+  const itemStore = useCheckListsItemStore(pinia);
+  const counts: ItemCountMaps = {
+    total: itemStore.total_backend_count_per_checklist,
+    checked: itemStore.total_backend_count_checked_per_checklist,
+    unchecked: itemStore.total_backend_count_unchecked_per_checklist,
+    fullyLoaded: itemStore.checklistWasFullLoadedOnce,
+  };
+  return {
+    checkLists: useCheckListsStore(pinia).checkLists,
+    items: itemStore.checkListsItems,
+    labels: useCheckListsLabelStore(pinia).labels,
+    itemCounts: counts,
+  };
+}
+
+// Debounced sidebar-count refresh — the same behaviour as the legacy
+// `scheduleCountsRefresh` in useSync, but driven only when a delta actually
+// changed something card-level (create/delete/archive/pin/label/revoke), not on
+// every poke.
+let countsTimer: ReturnType<typeof setTimeout> | null = null;
+function scheduleCountsRefresh(pinia: Pinia): void {
+  if (countsTimer) clearTimeout(countsTimer);
+  countsTimer = setTimeout(() => {
+    countsTimer = null;
+    void useCheckListsStore(pinia).fetchCounts();
+  }, 500);
+}
+
+/** Drop cards the delta removed (tombstone / revoked access) from the open filtered view too. */
+function pruneSearchResults(pinia: Pinia, removed: Set<string>): void {
+  const store = useCheckListsStore(pinia);
+  if (!store.searchResults || removed.size === 0) return;
+  const kept = store.searchResults.filter((c) => !removed.has(c.id));
+  if (kept.length !== store.searchResults.length) {
+    store.searchTotalCount = Math.max(0, store.searchTotalCount - (store.searchResults.length - kept.length));
+    store.searchOffset = Math.max(0, store.searchOffset - (store.searchResults.length - kept.length));
+    store.searchResults = kept;
+  }
+}
+
 /**
- * Background delta pull on boot (WI-6 scope). After hydration, advance the
- * device's sync cursor from GET /api/changes?since=<cursor> and persist it, and
- * handle `full_resync` by dropping the disposable cache.
- *
- * NOTE — scope boundary: WI-6 does NOT apply the returned rows into the live
- * stores; the legacy fetch path still loads the board and the debounced
- * persistence above keeps the snapshot fresh from it. Turning this pull into the
- * authoritative store-application path (replacing the useSync.ts refetch) is
- * WI-10. Here it only owns the cursor + full_resync so WI-10 can take over
- * incremental pulls from a correct high-water mark.
+ * A `full_resync` response is computed as `since=0` (the caller's entire
+ * accessible state, §5/§6): drop the disposable cache and rebuild the stores
+ * wholesale from it, then persist the fresh cursor.
  */
-export async function runBackgroundSync(pinia: Pinia): Promise<void> {
+async function rebuildFromFull(pinia: Pinia, res: ChangesResponseType): Promise<void> {
+  await dropSnapshot();
+  const checkListStore = useCheckListsStore(pinia);
+  const itemStore = useCheckListsItemStore(pinia);
+  const labelStore = useCheckListsLabelStore(pinia);
+
+  // Group the flat item list by checklist. A since=0 pull ships every live item,
+  // so every card is fully loaded.
+  const itemsByChecklist: Record<string, CheckListItemType[]> = {};
+  for (const cl of res.checklists) itemsByChecklist[cl.id] = [];
+  for (const item of res.items) {
+    (itemsByChecklist[item.checklist_id] ??= []).push(item);
+  }
+  const total: Record<string, number> = {};
+  const checked: Record<string, number> = {};
+  const unchecked: Record<string, number> = {};
+  const fullyLoaded: Record<string, boolean> = {};
+  for (const [clId, list] of Object.entries(itemsByChecklist)) {
+    list.sort((a, b) => a.position.index - b.position.index || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+    const c = list.filter((i) => i.state.checked).length;
+    total[clId] = list.length;
+    checked[clId] = c;
+    unchecked[clId] = list.length - c;
+    fullyLoaded[clId] = true;
+  }
+
+  checkListStore.checkLists = [...res.checklists].sort(
+    (a, b) =>
+      Number(b.position?.pinned ?? false) - Number(a.position?.pinned ?? false) ||
+      (b.position?.index ?? 0) - (a.position?.index ?? 0)
+  );
+  checkListStore.total_backend_count = res.checklists.length;
+  checkListStore.clearSearch();
+  itemStore.checkListsItems = itemsByChecklist;
+  itemStore.checklistWasFullLoadedOnce = fullyLoaded;
+  itemStore.total_backend_count_per_checklist = total;
+  itemStore.total_backend_count_checked_per_checklist = checked;
+  itemStore.total_backend_count_unchecked_per_checklist = unchecked;
+  labelStore.labels = [...res.labels].sort((a, b) => (b.sort_order ?? 0) - (a.sort_order ?? 0));
+
+  await writeCursor(res.next_cursor);
+  void checkListStore.fetchCounts();
+}
+
+/** One cursor-walk: pull from the persisted cursor and apply until the delta is empty. */
+async function pullAndApply(pinia: Pinia, opts?: { sinceSeq?: number }): Promise<void> {
   const { $checkapi } = useNuxtApp();
   const checkListStore = useCheckListsStore(pinia);
-  const cursor = await readCursor();
-  // Report cached checklist ids so the server can compute revocations (§7).
-  const known = checkListStore.checkLists.map((c) => c.id).join(",");
+  let since = await readCursor();
 
-  let res: any;
-  try {
-    res = await $checkapi("/api/changes", {
-      method: "get",
-      query: { since: cursor, ...(known ? { known } : {}) },
-      // We own the outcome (best-effort background pull) — no generic toast.
-      skipErrorToast: true,
-    });
-  } catch (err) {
-    // Offline / server error — the stored cursor stands; retried next boot or by
-    // WI-10's poke-driven pull.
-    console.warn("[localFirst] background delta pull failed", err);
-    return;
-  }
+  // Poke skip (§9b): the poke carries the server's high-water mark; if it is not
+  // ahead of our cursor we are already caught up — no request needed.
+  if (opts?.sinceSeq != null && opts.sinceSeq <= since) return;
 
-  if (res.full_resync) {
-    // The cursor was unusable (client ahead of a reset DB). Drop the disposable
-    // cache; the legacy fetch path + debounced persistence rebuild it from the
-    // now-current server state.
-    await dropSnapshot();
+  // No server-side pagination today (§3), but walk the cursor to empty so a
+  // mid-pull commit (delivered again next pull) still converges. Bounded so a
+  // write storm can't spin forever.
+  for (let page = 0; page < 20; page++) {
+    // Report cached checklist ids so the server can compute revocations (§7).
+    const known = checkListStore.checkLists.map((c) => c.id).join(",");
+    let res: ChangesResponseType;
+    try {
+      res = (await $checkapi("/api/changes", {
+        method: "get",
+        query: { since, ...(known ? { known } : {}) },
+        // We own the outcome (best-effort background pull) — no generic toast.
+        skipErrorToast: true,
+      })) as ChangesResponseType;
+    } catch (err) {
+      // Offline / server error — the stored cursor stands; retried on the next
+      // boot, poke, or reconnect.
+      console.warn("[localFirst] delta pull failed", err);
+      return;
+    }
+
+    if (res.full_resync) {
+      await rebuildFromFull(pinia, res);
+      return;
+    }
+
+    const summary = mergeDelta(deltaTarget(pinia), res, defaultEditGuard);
+    if (checkListStore.total_backend_count >= 0 && summary.cardCountDelta !== 0) {
+      checkListStore.total_backend_count = Math.max(0, checkListStore.total_backend_count + summary.cardCountDelta);
+    }
+    pruneSearchResults(pinia, summary.removedCheckListIds);
+    if (summary.cardLevelChanged) scheduleCountsRefresh(pinia);
+    await writeCursor(res.next_cursor);
+
+    // Converged: the delta is empty and the cursor didn't advance past where we
+    // started this page.
+    if (isEmptyDelta(res)) return;
+    if (res.next_cursor <= since) return;
+    since = res.next_cursor;
   }
-  await writeCursor(res.next_cursor);
+}
+
+/**
+ * Pull GET /api/changes and apply it into the live stores. The single read path
+ * for server truth (WI-10). Serialised so overlapping pokes/reconnects don't
+ * race; each call is best-effort (a failed pull leaves the cursor untouched).
+ *
+ * @param opts.sinceSeq the poke's `server_seq`; skips the pull when the client
+ *   is already caught up (§9b).
+ */
+export function applyDelta(pinia: Pinia, opts?: { sinceSeq?: number }): Promise<void> {
+  const next = syncChain.then(() => pullAndApply(pinia, opts)).catch((err) => {
+    console.warn("[localFirst] applyDelta failed", err);
+  });
+  syncChain = next;
+  return next;
+}
+
+/**
+ * Boot delta pull (called from pages/index.vue after hydration). Now the real
+ * apply path (WI-10): advances from the persisted cursor and folds the delta
+ * into the stores. Kept as a named wrapper so the boot call site reads clearly.
+ */
+export async function runBackgroundSync(pinia: Pinia): Promise<void> {
+  await applyDelta(pinia);
 }

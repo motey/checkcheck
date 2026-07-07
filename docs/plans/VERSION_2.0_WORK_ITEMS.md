@@ -674,6 +674,73 @@ checklists and items all work offline and converge.
 **Done when:** two browsers converge live via poke→delta, and a browser that
 was offline for an hour converges on reconnect — no full refetches.
 
+**Decisions taken in-session (2026-07-07, implemented):**
+
+- **One framework-free merge core (`utils/deltaApply.ts` `mergeDelta`)** folds a
+  `ChangesResponse` into plain array/record slices that the app backs with the
+  live Pinia store state (`checkLists`, `checkListsItems`, `labels`, plus the
+  item count maps). Kept Nuxt/Vue-free like the WI-7 outbox engine, so it
+  unit-tests in plain vitest (`tests/unit/deltaApply.spec.ts`, 21 tests: upsert,
+  sort, tombstone, `removed_checklist_ids`, LWW-on-focused-field, count
+  recompute/adjust, and an **idempotent re-apply** no-op). Mutating the reactive
+  store arrays in place is reactive, so the same function serves both tests and
+  the live app.
+- **`applyDelta(pinia)` in `utils/localSnapshot.ts` is the single read path.** It
+  pulls `GET /api/changes?since=<cursor>&known=<ids>`, calls `mergeDelta`,
+  persists `next_cursor`, and walks the cursor to empty (bounded to 20 pages).
+  Overlapping triggers are serialised through a module-level promise chain
+  (idempotent, but avoids cursor races from bursty pokes). `runBackgroundSync`
+  (the WI-6 boot pull) is now a thin wrapper over it — the "NOTE: scope boundary"
+  is gone; boot applies rows.
+- **`full_resync` = drop + wholesale rebuild** (`rebuildFromFull`): a since=0
+  response is the caller's entire accessible state, so it replaces the stores
+  outright and marks every card **fully loaded** (a bootstrap ships all live
+  items). A **normal** since=0 pull (cursor 0, no snapshot) stays an *upsert* via
+  `mergeDelta`, NOT a rebuild — a rebuild would wipe undrained offline-optimistic
+  rows the outbox hasn't sent yet; upsert is non-destructive (it only removes
+  ids the server explicitly tombstoned/revoked). `rebuildFromFull` is reserved
+  for the genuine "client ahead of a reset DB" case (§5).
+- **`useSync.ts` dual path.** Flag-on, the SSE `changes_available` poke is the
+  ONLY board-reconcile trigger (`applyDelta(pinia, { sinceSeq: server_seq })`,
+  skipping the pull when `server_seq <= cursor`, §9b); an SSE **reconnect** does
+  one `applyDelta` instead of the legacy `resync()` + `fetchCounts()`. The frozen
+  per-entity events are ignored for board state flag-on, but the **side-channel
+  stores that are NOT in the delta feed** (shares → `refreshIfOpen`, invites,
+  notifications — online-only, WI-12) still react to their own events via a new
+  `handleSideChannel`. Flag-**off** keeps the entire legacy switch byte-for-byte.
+- **Sidebar counts are delta-driven, not blanket.** `mergeDelta` returns a
+  `cardLevelChanged` flag set only when a card create/delete/tombstone/revoke or
+  an **archived/pinned/label-set** change lands (a pure name/text edit does not);
+  `applyDelta` then debounces a server-authoritative `fetchCounts()`. Per-checklist
+  item preview counts are maintained the WI-8 `_adjustCounts` way (incremental for
+  preview lists; recomputed exactly from the array for fully-loaded lists).
+  `total_backend_count` follows `cardCountDelta` (guarded against the −1 "never
+  loaded" sentinel).
+- **Focused-edit protection lifted to the store layer.** New `utils/editGuard.ts`
+  is a tiny module-level registry (a `Set`, connectivity.ts-style) that
+  CheckList.vue / CheckListItem.vue mark on focus and clear on blur/unmount;
+  `mergeDelta` consults it and keeps the local `name`/`text` for a field the user
+  is actively editing while still applying the rest of the server row (§4). This
+  is the seam WI-11's conflict toast plugs into. The existing component
+  `localName`/`localText` focus guards stay as the textarea-level defence.
+- **Card-open no longer blind-refetches flag-on.** The `refreshAllCheckListItems`
+  on opening a card now runs flag-on **only the first time** a card is opened
+  (never fully loaded locally — backfills a preview-only card); once loaded,
+  deltas keep it fresh, so we don't refetch and don't clobber undrained optimistic
+  edits (the known WI-8 tension). Flag-off is unchanged. The board's initial
+  `fetchNextPage` on mount is deliberately kept for both paths (boot bootstrap, not
+  an SSE-driven refetch — outside the "no full refetches" done-when).
+- **Verified:** new E2E `tests/e2e/local-delta-apply.spec.ts` (flag on) — (1) a
+  change in tab A converges into tab B via poke→delta, asserting B hit
+  `/api/changes` and **not** a `GET /api/checklist` board list; (2) a tab put
+  offline with `context.setOffline(true)` (drops the SSE stream) misses a rename
+  made from an independent online context, then converges on reconnect via one
+  delta pull, again no board refetch. Re-ran the flag-off `sync` (legacy SSE) and
+  the WI-8/9 `local-item-offline` / `local-checklist-offline` /
+  `local-persistence` / movement specs — both paths green. Typecheck adds no new
+  errors over the pre-existing baseline; `openapi.json` version churn
+  `git checkout`-ed out.
+
 ### WI-11 — Conflict & revocation UX (M)
 
 **Goal:** Concurrent shared-list editing feels sane; losing access offline is

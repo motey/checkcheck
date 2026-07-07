@@ -87,12 +87,24 @@ declare global {
         | "checklist" | "checklist_position" | "checklist_created" | "checklist_deleted"
         | "checklist_label"
         | "share_added" | "share_removed" | "share_invited" | "notification"
+        // WI-5 local-first poke: emitted alongside every board-mutating event.
+        // The legacy path ignores it (no matching switch branch); the flag-on
+        // path (WI-10) uses it as its single "pull GET /api/changes" trigger.
+        | "changes_available"
     type SyncNotificationType = {
         timestamp: number
         cl_id: string
         cli_id: string | null
         upd_prop: SyncNotificationUpdateProp
+        // Present only on `changes_available` pokes: the server's global
+        // high-water mark at emit time (WI-5). The client may skip the pull when
+        // this is <= its stored cursor.
+        server_seq?: number
     }
+
+    // Delta feed (WI-4): the GET /api/changes response the local-first client
+    // applies (WI-10). Same nested shapes as the per-entity REST endpoints.
+    type ChangesResponseType = components["schemas"]["ChangesResponse"]
 
     // Labels
     type LabelType = components["schemas"]["LabelReadAPI"]

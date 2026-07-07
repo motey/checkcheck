@@ -37,8 +37,8 @@
       :style="{ color: textColor }"
       class="min-w-0 flex-1 grow cursor-auto m-0"
       :class="{ strikethrough: checkListItem?.state.checked }"
-      @focus="textFocused = true"
-      @blur="textFocused = false"
+      @focus="onTextFocus"
+      @blur="onTextBlur"
       @keydown.enter="onEnter"
     />
   </div>
@@ -51,6 +51,7 @@ import type { PropType } from "vue";
 import { useCheckListsItemStore } from "@/stores/checklist_item";
 import { useTextareaAutosize } from '@vueuse/core'
 import { highlightText } from "@/utils/highlight";
+import { markEditing, clearEditing } from "@/utils/editGuard";
 
 const props = defineProps({
   checkListItem: { type: Object as PropType<CheckListItemType>, required: false },
@@ -71,6 +72,20 @@ onMounted(() => {
 const hover = ref(false);
 const textFocused = ref(false);
 const textareaComp = ref();
+
+// Keep the local textarea guard AND the WI-10 store-apply guard in sync so an
+// incoming delta never clobbers the item text mid-edit (SYNC §4).
+function onTextFocus() {
+  textFocused.value = true;
+  if (props.checkListItem) markEditing("item", props.checkListItem.id, "text");
+}
+function onTextBlur() {
+  textFocused.value = false;
+  if (props.checkListItem) clearEditing("item", props.checkListItem.id, "text");
+}
+onBeforeUnmount(() => {
+  if (props.checkListItem) clearEditing("item", props.checkListItem.id, "text");
+});
 // Phones get a smaller, lighter checkbox (Keep-like density) without shrinking
 // the item text; desktop keeps the larger md checkbox.
 const isMobile = useMediaQuery("(max-width: 639px)");
