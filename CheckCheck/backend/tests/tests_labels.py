@@ -1,6 +1,20 @@
-from utils import req, dict_must_contain
+from utils import (
+    req,
+    dict_must_contain,
+    create_test_user,
+    authorize_for_access_token,
+)
 
 # ── Label CRUD ────────────────────────────────────────────────────────────────
+
+def test_first_label_of_fresh_user_gets_default_sort_order():
+    """A brand-new user's very first label create (no sort_order supplied) must
+    not error: get_max_sort_order has no rows for this user and returned None,
+    which the `+ 10` default then crashed on (500)."""
+    create_test_user("label-fresh", "label-fresh_pw1", "label-fresh@test.de")
+    token = authorize_for_access_token("label-fresh", "label-fresh_pw1")
+    label = req("api/label", "post", b={"display_name": "first"}, access_token=token)
+    assert isinstance(label["sort_order"], int)
 
 def test_label_create_and_list():
     # Create two labels (no color)

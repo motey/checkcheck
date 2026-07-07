@@ -111,10 +111,10 @@ class CheckListItemCRUD(
             .order_by(CheckListItemPosition.index)
         )
         if checked is not None:
-            if checked is not None:
-                query.join(CheckListItemState).where(
-                    CheckListItemState.checked == checked
-                )
+            query = query.join(
+                CheckListItemState,
+                CheckListItemState.checklist_item_id == CheckListItem.id,
+            ).where(CheckListItemState.checked == checked)
         if pagination:
             query = pagination.append_to_query(query)
         results = await self.session.exec(statement=query)
