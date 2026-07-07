@@ -175,6 +175,25 @@ export function coalesce(
   return [...queue, incoming];
 }
 
+/**
+ * Entity ids with a queued (not yet successfully sent) `create` op. The delta
+ * pull excludes these from the `known=` param it reports to the server: a card
+ * created offline is not accessible server-side until its create drains, so the
+ * server would otherwise report it in `removed_checklist_ids` and the client
+ * would delete its own optimistic row (it reappears after the drain — a visible
+ * flap, and a lost card if the user reloads in between).
+ */
+export function queuedCreateIds(
+  queue: readonly OutboxOp[],
+  entityType: OutboxEntityType
+): Set<string> {
+  const ids = new Set<string>();
+  for (const op of queue) {
+    if (op.entityType === entityType && op.kind === "create") ids.add(op.entityId);
+  }
+  return ids;
+}
+
 // ── Replay engine ────────────────────────────────────────────────────────────
 
 /** Persisted queue backend (real impl: utils/outboxDb.ts, injected). */

@@ -200,6 +200,17 @@ export function mergeDelta(
     const sid = String(id);
     const idx = target.labels.findIndex((l) => l.id === sid);
     if (idx !== -1) target.labels.splice(idx, 1);
+    // Also strip the chip from every card: the server does NOT re-emit cards on
+    // a label delete (the link rows are only masked at read time, no fresh
+    // server_seq), so without this a deleted label's chip lingers on cached
+    // cards forever.
+    for (const card of target.checkLists) {
+      const cIdx = card.labels?.findIndex((l) => l.id === sid) ?? -1;
+      if (cIdx !== -1) {
+        card.labels!.splice(cIdx, 1);
+        summary.cardLevelChanged = true;
+      }
+    }
   }
 
   // ── 7. Re-sort + recount every touched item list ───────────────────────────

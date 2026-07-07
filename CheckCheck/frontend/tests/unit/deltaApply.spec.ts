@@ -228,6 +228,19 @@ describe("mergeDelta — removals", () => {
     mergeDelta(t, emptyDelta({ label_tombstones: ["a"] }));
     expect(t.labels.map((l) => l.id)).toEqual(["b"]);
   });
+
+  it("strips a tombstoned label's chip from cached cards", () => {
+    // The server never re-emits cards on a label delete (link rows are only
+    // masked at read time), so the client must strip the chip itself.
+    const t = target({
+      labels: [LABEL("a")],
+      checkLists: [CL("c1", { labels: [LABEL("a"), LABEL("x")] }), CL("c2", { labels: [LABEL("a")] })],
+    });
+    const s = mergeDelta(t, emptyDelta({ label_tombstones: ["a"] }));
+    expect(t.checkLists[0]!.labels!.map((l: any) => l.id)).toEqual(["x"]);
+    expect(t.checkLists[1]!.labels).toEqual([]);
+    expect(s.cardLevelChanged).toBe(true);
+  });
 });
 
 // ── Labels ───────────────────────────────────────────────────────────────────

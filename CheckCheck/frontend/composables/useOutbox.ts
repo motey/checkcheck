@@ -2,6 +2,8 @@ import { createSharedComposable } from "@vueuse/core";
 import { ref } from "vue";
 import {
   OutboxEngine,
+  queuedCreateIds,
+  type OutboxEntityType,
   type OutboxEvent,
   type OutboxOp,
   type OutboxOpInput,
@@ -88,6 +90,13 @@ export const useOutbox = createSharedComposable(() => {
     pendingCount,
     /** Reactive connectivity for the UI. */
     online,
+    /**
+     * Entity ids with a queued, not-yet-drained `create` op. The delta pull
+     * (utils/localSnapshot) excludes these from `known=` so the server doesn't
+     * report an offline-created card as revoked before its create replays.
+     */
+    queuedCreateIds: (entityType: OutboxEntityType): Set<string> =>
+      queuedCreateIds(engine.queue, entityType),
     /** Subscribe to outbox events (`op-dropped` / `idle`); returns unsubscribe. */
     onEvent(listener: (e: OutboxEvent) => void): () => void {
       listeners.add(listener);

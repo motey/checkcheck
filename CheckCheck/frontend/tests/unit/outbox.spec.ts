@@ -5,6 +5,7 @@ import {
   classifyError,
   coalesce,
   httpStatusOf,
+  queuedCreateIds,
   type OutboxEvent,
   type OutboxOp,
   type OutboxOpInput,
@@ -100,6 +101,38 @@ function itemDelete(id: string, clId = "cl1"): OutboxOpInput {
 function op(seq: number, input: OutboxOpInput): OutboxOp {
   return { ...input, seq, opId: `op${seq}`, enqueuedAt: seq, attempts: 0 };
 }
+
+// ── queuedCreateIds (the `known=` filter for the delta pull) ─────────────────
+
+describe("queuedCreateIds", () => {
+  it("returns only ids with a queued create of the requested entity type", () => {
+    const queue = [
+      op(1, itemCreate("i1")),
+      op(2, itemUpdate("i1", { text: "t" })),
+      op(3, {
+        entityType: "checklist",
+        entityId: "cl-new",
+        kind: "create",
+        request: { method: "post", path: "/api/checklist", body: { id: "cl-new" } },
+      }),
+      op(4, {
+        entityType: "checklist",
+        entityId: "cl-old",
+        kind: "update",
+        request: {
+          method: "patch",
+          path: "/api/checklist/{checklist_id}",
+          pathParams: { checklist_id: "cl-old" },
+          body: { name: "n" },
+        },
+      }),
+    ];
+    // The delta pull excludes these from `known=` so the server can't report an
+    // offline-created card as revoked before its create drains.
+    expect(queuedCreateIds(queue, "checklist")).toEqual(new Set(["cl-new"]));
+    expect(queuedCreateIds(queue, "item")).toEqual(new Set(["i1"]));
+  });
+});
 
 // ── Error classification (protocol §8) ───────────────────────────────────────
 

@@ -8,6 +8,7 @@ import { usePublicConfigStore } from "@/stores/publicConfig";
 import { readSnapshot, writeSnapshots, readCursor, writeCursor, dropSnapshot } from "@/utils/snapshotDb";
 import { mergeDelta, type DeltaTarget, type ItemCountMaps } from "@/utils/deltaApply";
 import { defaultEditGuard } from "@/utils/editGuard";
+import { useOutbox } from "@/composables/useOutbox";
 
 // ── Store snapshot registry (WI-6) ───────────────────────────────────────────
 //
@@ -175,6 +176,29 @@ function scheduleCountsRefresh(pinia: Pinia): void {
   }, 500);
 }
 
+// Debounced per-card preview-count refresh. For a card that is NOT fully loaded
+// locally, the cached item list is only a preview window: when a delta ships an
+// item we don't hold, we cannot tell "brand new" (count +1) from "existed all
+// along outside the window" (count unchanged) — and an item tombstone outside
+// the window decrements nothing. mergeDelta's incremental adjustment is an
+// immediate best-effort estimate; this refetch replaces it with the server's
+// authoritative per-card counts (and backfills the preview list if it was empty).
+let previewCountsTimer: ReturnType<typeof setTimeout> | null = null;
+const pendingPreviewCountIds = new Set<string>();
+function schedulePreviewCountsRefresh(pinia: Pinia, ids: Iterable<string>): void {
+  for (const id of ids) pendingPreviewCountIds.add(id);
+  if (pendingPreviewCountIds.size === 0) return;
+  if (previewCountsTimer) clearTimeout(previewCountsTimer);
+  previewCountsTimer = setTimeout(() => {
+    previewCountsTimer = null;
+    const batch = [...pendingPreviewCountIds];
+    pendingPreviewCountIds.clear();
+    void useCheckListsItemStore(pinia)
+      .fetchMultipleChecklistsItemsPreview(batch)
+      .catch(() => {});
+  }, 500);
+}
+
 /** Drop cards the delta removed (tombstone / revoked access) from the open filtered view too. */
 function pruneSearchResults(pinia: Pinia, removed: Set<string>): void {
   const store = useCheckListsStore(pinia);
@@ -250,8 +274,15 @@ async function pullAndApply(pinia: Pinia, opts?: { sinceSeq?: number }): Promise
   // mid-pull commit (delivered again next pull) still converges. Bounded so a
   // write storm can't spin forever.
   for (let page = 0; page < 20; page++) {
-    // Report cached checklist ids so the server can compute revocations (§7).
-    const known = checkListStore.checkLists.map((c) => c.id).join(",");
+    // Report cached checklist ids so the server can compute revocations (§7) —
+    // but never a card whose `create` op is still queued in the outbox: the
+    // server doesn't know it yet, so it would come back in
+    // `removed_checklist_ids` and we would delete our own optimistic card.
+    const pendingCreates = useOutbox().queuedCreateIds("checklist");
+    const known = checkListStore.checkLists
+      .map((c) => c.id)
+      .filter((id) => !pendingCreates.has(id))
+      .join(",");
     let res: ChangesResponseType;
     try {
       res = (await $checkapi("/api/changes", {
@@ -278,6 +309,13 @@ async function pullAndApply(pinia: Pinia, opts?: { sinceSeq?: number }): Promise
     }
     pruneSearchResults(pinia, summary.removedCheckListIds);
     if (summary.cardLevelChanged) scheduleCountsRefresh(pinia);
+    // Preview-only (not fully loaded) cards can't derive exact item counts from
+    // a delta — re-read their counts from the server (see the helper above).
+    const itemStore = useCheckListsItemStore(pinia);
+    const previewTouched = [...summary.touchedItemChecklistIds].filter(
+      (clId) => !itemStore.checklistWasFullLoadedOnce[clId]
+    );
+    if (previewTouched.length) schedulePreviewCountsRefresh(pinia, previewTouched);
     await writeCursor(res.next_cursor);
 
     // Converged: the delta is empty and the cursor didn't advance past where we
