@@ -101,3 +101,33 @@ export async function probe(url = "/api/public-config"): Promise<boolean> {
     return false;
   }
 }
+
+/**
+ * What the global API error handler (plugins/api.ts) should do with a failed
+ * response, factoring in the offline-auth grace (WI-13). Pure and dependency-free
+ * so it unit-tests without a Nuxt harness — the plugin injects the live flag /
+ * connectivity signals.
+ *
+ *   - `"redirect"` → bounce to /login (a real 401 while we can reach the server).
+ *   - `"toast"`    → surface a generic "request failed" error toast.
+ *   - `"suppress"` → do nothing: the offline-first layer is holding the fort.
+ *
+ * The grace only applies when the local-first flag is on AND the device is
+ * offline: a returning user then lives off the IndexedDB snapshot (WI-6) with
+ * writes queued in the outbox (WI-7), so a 401 must NOT tear down the usable
+ * board (the session refreshes on reconnect) and an expected network-class
+ * failure must NOT stack an error toast. With the flag off — or while online —
+ * behaviour is exactly the legacy path (redirect on 401, toast otherwise).
+ */
+export type ApiErrorAction = "redirect" | "toast" | "suppress";
+
+export function decideApiErrorAction(
+  status: number | undefined,
+  opts: { localFirstEnabled: boolean; online: boolean },
+): ApiErrorAction {
+  const offlineGrace = opts.localFirstEnabled && !opts.online;
+  if (status === 401) return offlineGrace ? "suppress" : "redirect";
+  // A network-class failure (no HTTP status) offline is expected under the grace.
+  if (status === undefined && offlineGrace) return "suppress";
+  return "toast";
+}

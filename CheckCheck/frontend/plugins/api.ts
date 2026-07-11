@@ -1,4 +1,4 @@
-import { initConnectivity, isOnline } from '@/utils/connectivity'
+import { initConnectivity, isOnline, decideApiErrorAction } from '@/utils/connectivity'
 import { isLocalFirstEnabled } from '@/utils/localFirst'
 
 export default defineNuxtPlugin({
@@ -39,17 +39,23 @@ export default defineNuxtPlugin({
     // session expiry should always bounce to login regardless of this flag.
     const skipsErrorToast = (ctx: any): boolean => Boolean(ctx?.options?.skipErrorToast)
 
-    // Offline auth grace (WI-13): while the device is offline AND the local-first
-    // layer is on, a returning user lives off the IndexedDB snapshot (WI-6) and
-    // queues writes in the outbox (WI-7). A 401 in that window must NOT bounce
-    // them to /login (or an OIDC redirect) and tear down the usable offline board
-    // — the session simply refreshes when connectivity returns. Gated on the flag
-    // so the legacy path (no local data to fall back to) keeps redirecting.
-    const offlineAuthGrace = () => isLocalFirstEnabled() && !isOnline()
+    // Offline auth grace (WI-13): the redirect/toast/suppress decision lives in
+    // the pure `decideApiErrorAction` (utils/connectivity.ts, unit-tested); the
+    // plugin just injects the live flag + connectivity signals. While the
+    // local-first layer is on AND the device is offline, a 401 is suppressed
+    // (keep the cached board; the session refreshes on reconnect) and an expected
+    // network-class failure is suppressed instead of toasting. Flag off / online
+    // ⇒ exactly the legacy path.
+    const errorAction = (status: number | undefined) =>
+      decideApiErrorAction(status, {
+        localFirstEnabled: isLocalFirstEnabled(),
+        online: isOnline(),
+      })
 
-    // Handle 401 responses: redirect to login (server handles session cleanup)
+    // Handle 401 responses: redirect to login (server handles session cleanup).
+    // Self-guards on the grace so the onResponse 401 path is covered too.
     const handleUnauthorized = () => {
-      if (offlineAuthGrace()) return
+      if (errorAction(401) !== 'redirect') return
       const current = router.currentRoute.value // Must access .value for reactivity
       if (current.fullPath !== '/login' && !current.query.redirect) {
         router.push({ path: '/login', query: { redirect: current.fullPath } })
@@ -58,15 +64,12 @@ export default defineNuxtPlugin({
 
     const handleError = (ctx: any) => {
       const status = ctx.response?.status
-      if (status === 401) {
+      const action = errorAction(status)
+      if (action === 'redirect') {
         handleUnauthorized()
         return
       }
-      // A network-class failure (no HTTP response) while offline is expected —
-      // the outbox is holding the write and the board runs on local data. Don't
-      // stack a generic "Error request failed" toast on top of that. Only
-      // suppress under the local-first flag; the legacy path still surfaces it.
-      if (status === undefined && offlineAuthGrace()) return
+      if (action === 'suppress') return
       const method = ctx.request ? String(ctx.request).split('?')[0] : 'request'
       toast.add({
         title: `Error ${status ?? ''}`.trim(),

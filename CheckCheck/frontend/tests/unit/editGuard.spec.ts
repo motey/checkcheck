@@ -19,6 +19,7 @@ import {
   probe,
   assertOnline,
   OfflineError,
+  decideApiErrorAction,
 } from "@/utils/connectivity";
 
 describe("editGuard registry", () => {
@@ -118,5 +119,42 @@ describe("connectivity signal", () => {
       expect((err as OfflineError).offline).toBe(true);
       expect((err as Error).message).toBe("Sharing isn't available offline.");
     }
+  });
+});
+
+// WI-13: the pure redirect/toast/suppress decision for the global API error
+// handler (plugins/api.ts). The offline-auth grace only kicks in when the
+// local-first flag is ON *and* the device is offline; every other combination
+// must behave exactly like the legacy path.
+describe("decideApiErrorAction (WI-13 offline-auth grace)", () => {
+  const on = { localFirstEnabled: true, online: true };
+  const offlineFlag = { localFirstEnabled: true, online: false };
+  const offlineNoFlag = { localFirstEnabled: false, online: false };
+  const onlineNoFlag = { localFirstEnabled: false, online: true };
+
+  it("401 offline with the flag on is suppressed — no /login bounce (the grace)", () => {
+    expect(decideApiErrorAction(401, offlineFlag)).toBe("suppress");
+  });
+
+  it("401 redirects to /login in every other case (online, or flag off)", () => {
+    expect(decideApiErrorAction(401, on)).toBe("redirect");
+    expect(decideApiErrorAction(401, onlineNoFlag)).toBe("redirect");
+    // Flag off ⇒ no local data to fall back on ⇒ legacy redirect even offline.
+    expect(decideApiErrorAction(401, offlineNoFlag)).toBe("redirect");
+  });
+
+  it("a network-class failure (no status) offline with the flag on is suppressed", () => {
+    expect(decideApiErrorAction(undefined, offlineFlag)).toBe("suppress");
+  });
+
+  it("a network-class failure toasts when online, or when the flag is off", () => {
+    expect(decideApiErrorAction(undefined, on)).toBe("toast");
+    expect(decideApiErrorAction(undefined, offlineNoFlag)).toBe("toast");
+  });
+
+  it("a real server error (defined, non-401 status) always toasts — even under the grace", () => {
+    expect(decideApiErrorAction(500, offlineFlag)).toBe("toast");
+    expect(decideApiErrorAction(404, offlineFlag)).toBe("toast");
+    expect(decideApiErrorAction(403, on)).toBe("toast");
   });
 });
