@@ -5,7 +5,15 @@ import { useCheckListsItemStore } from "@/stores/checklist_item";
 import { useCheckListsLabelStore } from "@/stores/label";
 import { useUserStore } from "@/stores/user";
 import { usePublicConfigStore } from "@/stores/publicConfig";
-import { readSnapshot, writeSnapshots, readCursor, writeCursor, dropSnapshot } from "@/utils/snapshotDb";
+import {
+  readSnapshot,
+  writeSnapshots,
+  readCursor,
+  writeCursor,
+  dropSnapshot,
+  readSnapshotOwner,
+  writeSnapshotOwner,
+} from "@/utils/snapshotDb";
 import { mergeDelta, type DeltaTarget, type ItemCountMaps } from "@/utils/deltaApply";
 import { combineGuards, defaultEditGuard } from "@/utils/editGuard";
 import { emitSyncNotice } from "@/utils/syncNotices";
@@ -119,6 +127,69 @@ export function registerSnapshotPersistence(pinia: Pinia): void {
       { deep: true, debounce: 500, maxWait: 2000 }
     );
   });
+}
+
+// ── Account lifecycle (Chunk A1) ─────────────────────────────────────────────
+//
+// The local cache (snapshot + cursor + outbox) is keyed to ONE user but lives in
+// fixed-name IndexedDB DBs shared by whoever uses this browser. If user B logs in
+// after user A without invalidation, B inherits A's board (privacy leak), A's
+// cursor (B's own older rows are never delivered and nothing heals it — the
+// cursor is *valid*, so no `full_resync`), and A's queued writes drain under B.
+//
+// The fix: stamp the cache with its owning user id and, at every identity
+// resolution (post-login / boot once `me` is known), drop everything on a
+// mismatch before any pull or drain runs. Offline you cannot switch users (login
+// needs the server), so trusting the stored identity offline is sound — this only
+// runs when `me` resolved, i.e. online.
+
+/** Reset the in-memory board stores (used on account switch, before a fresh pull). */
+function resetBoardStores(pinia: Pinia): void {
+  (useCheckListsStore(pinia) as any).$reset();
+  (useCheckListsItemStore(pinia) as any).$reset();
+  (useCheckListsLabelStore(pinia) as any).$reset();
+}
+
+/**
+ * Reconcile the local cache against the authenticated user (Chunk A1). Call once
+ * `me` is known (post-login and on boot), BEFORE the boot delta pull / outbox
+ * drain. On a mismatch with the cache's recorded owner, drop the snapshot,
+ * cursor, and outbox and clear the (already-hydrated) in-memory board, so the
+ * boot pull runs fresh from `since=0` for the new user. Returns whether it
+ * switched (dropped the cache).
+ */
+export async function reconcileAccount(pinia: Pinia, userId: string): Promise<boolean> {
+  const owner = await readSnapshotOwner();
+  if (owner && owner !== userId) {
+    // Someone else logged in on this browser — invalidate everything the previous
+    // user left behind before it is read or drained under the new session.
+    await dropSnapshot(); // clears snapshot + cursor (readCursor → 0 → since=0 pull)
+    try {
+      await useOutbox().clearAll();
+    } catch (err) {
+      console.warn("[localFirst] failed to clear outbox on account switch", err);
+    }
+    resetBoardStores(pinia); // drop A's hydrated board from memory
+    await writeSnapshotOwner(userId);
+    return true;
+  }
+  if (owner !== userId) await writeSnapshotOwner(userId); // first login on this device
+  return false;
+}
+
+/**
+ * Wipe all local-first state (snapshot + cursor + outbox) unconditionally —
+ * explicit-logout hygiene (Chunk A1). The page reloads to /login right after, so
+ * the in-memory stores are torn down anyway; this just makes sure the next user's
+ * boot starts from a clean slate rather than the previous user's cache.
+ */
+export async function clearLocalState(): Promise<void> {
+  await dropSnapshot();
+  try {
+    await useOutbox().clearAll();
+  } catch (err) {
+    console.warn("[localFirst] failed to clear outbox on logout", err);
+  }
 }
 
 // ── Delta application (WI-10) ────────────────────────────────────────────────

@@ -1,4 +1,4 @@
-import { openDB, deleteDB, type IDBPDatabase } from "idb";
+import { openDB, deleteDB, type IDBPDatabase, type IDBPTransaction } from "idb";
 import type { OutboxOp, OutboxStore } from "@/utils/outbox";
 
 // ── Outbox persistence (WI-7) ────────────────────────────────────────────────
@@ -15,23 +15,46 @@ import type { OutboxOp, OutboxStore } from "@/utils/outbox";
 //   its own DB, versioned independently by OUTBOX_SCHEMA_VERSION — a snapshot
 //   bump can never touch it, and vice-versa.
 //
-// One object store, `ops`, keyed by the op's monotonic `seq`. The engine treats
-// the store as a whole-queue read/rewrite (utils/outbox.ts `OutboxStore`): the
-// queue is small, so `persist` clears and rewrites it in one transaction rather
-// than maintaining per-op diffs.
+// One object store, `ops`, keyed by the op's unique `opId`. The engine persists
+// per op (`put`/`remove`, utils/outbox.ts `OutboxStore`) rather than rewriting
+// the whole queue, so concurrent browser tabs sharing this DB never clobber each
+// other's queued-but-undrained writes (Chunk A2). Keying by `opId` (a UUID)
+// instead of the per-tab monotonic `seq` also removes cross-tab key collisions.
 
 const DB_NAME = "checkcheck-outbox";
 const STORE = "ops";
 
 // Bump ONLY when the persisted `OutboxOp` shape changes in a way the engine
 // can't read. Unlike the snapshot version, a bump here MUST NOT silently drop
-// queued writes — if a real migration is ever needed, handle it in `upgrade`.
-// (There are none yet; v1 is the first shape.)
-export const OUTBOX_SCHEMA_VERSION = 1;
+// queued writes — handle a real migration in `upgrade`.
+//
+//   v1: object store keyed by `seq`, whole-queue rewrite persistence.
+//   v2 (Chunk A2): re-keyed to `opId` for per-op, multi-tab-safe persistence.
+//       The `upgrade` copies every existing op across so no queued write is lost.
+export const OUTBOX_SCHEMA_VERSION = 2;
 
-function upgrade(db: IDBPDatabase) {
+async function upgrade(
+  db: IDBPDatabase,
+  oldVersion: number,
+  _newVersion: number | null,
+  tx: IDBPTransaction<unknown, string[], "versionchange">
+) {
   if (!db.objectStoreNames.contains(STORE)) {
-    db.createObjectStore(STORE, { keyPath: "seq" });
+    db.createObjectStore(STORE, { keyPath: "opId" });
+    return;
+  }
+  // v1 → v2: the store was keyed by `seq`; re-key to `opId` WITHOUT dropping any
+  // queued write (the outbox is precious). Read the existing ops out of the old
+  // store, recreate it with the new keyPath, and re-insert them.
+  if (oldVersion < 2) {
+    const existing = (await tx.objectStore(STORE).getAll()) as OutboxOp[];
+    db.deleteObjectStore(STORE);
+    const store = db.createObjectStore(STORE, { keyPath: "opId" });
+    for (const op of existing) {
+      // Guard against any legacy row without an opId (shouldn't happen — opId has
+      // been on every op since v1) so the migration can't throw and wipe the DB.
+      if (op && typeof op.opId === "string") store.put(op);
+    }
   }
 }
 
@@ -96,6 +119,14 @@ export function createOutboxStore(opts?: { onStorageError?: () => void }): Outbo
       console.warn("[outbox] onStorageError handler threw", err);
     }
   };
+  // A persist failure means the in-memory queue still drains this session, but a
+  // reload before it drains would lose the op. Surface loudly, and tell the UI
+  // (WI-14 finding #9) so the user knows to stay online.
+  const onPersistError = (err: unknown): void => {
+    console.error("[outbox] failed to persist queued op", err);
+    reportStorageError();
+  };
+
   return {
     async load(): Promise<OutboxOp[]> {
       if (!available()) return [];
@@ -109,19 +140,33 @@ export function createOutboxStore(opts?: { onStorageError?: () => void }): Outbo
       }
     },
 
-    async persist(ops: OutboxOp[]): Promise<void> {
+    async put(op: OutboxOp): Promise<void> {
       if (!available()) return;
       try {
         const db = await open();
-        const tx = db.transaction(STORE, "readwrite");
-        await tx.store.clear();
-        await Promise.all([...ops.map((op) => tx.store.put(op)), tx.done]);
+        await db.put(STORE, op);
       } catch (err) {
-        // Persistence failed — the in-memory queue still drains this session, but
-        // a reload before it drains would lose these ops. Surface loudly, and tell
-        // the UI (WI-14 finding #9) so the user knows to stay online.
-        console.error("[outbox] failed to persist queued ops", err);
-        reportStorageError();
+        onPersistError(err);
+      }
+    },
+
+    async remove(opId: string): Promise<void> {
+      if (!available()) return;
+      try {
+        const db = await open();
+        await db.delete(STORE, opId);
+      } catch (err) {
+        onPersistError(err);
+      }
+    },
+
+    async clear(): Promise<void> {
+      if (!available()) return;
+      try {
+        const db = await open();
+        await db.clear(STORE);
+      } catch (err) {
+        onPersistError(err);
       }
     },
   };

@@ -78,6 +78,8 @@
 import type { DropdownMenuItem } from "@nuxt/ui";
 import { useUserStore } from "@/stores/user";
 import { useConnectivity } from "@/composables/useConnectivity";
+import { isLocalFirstEnabled } from "@/utils/localFirst";
+import { clearLocalState } from "@/utils/localSnapshot";
 
 const emit = defineEmits<{ toggleSidebar: [] }>();
 
@@ -129,6 +131,12 @@ async function logout() {
     await $checkapi("/api/auth/logout", { method: "POST" });
   } catch {
     // Session may already be invalid; navigate to login regardless.
+  }
+  // Wipe this user's local-first cache (snapshot + cursor + outbox) so the next
+  // user to log in on this browser doesn't inherit it (Chunk A1). Best-effort —
+  // the boot-time reconcile is the backstop if this fails.
+  if (isLocalFirstEnabled()) {
+    await clearLocalState().catch(() => {});
   }
   window.location.href = "/login";
 }

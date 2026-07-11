@@ -307,8 +307,10 @@ test.describe("offline sync — conflict, no-revert, revocation", () => {
     expect(revoke.status(), "revoke should 204").toBe(204);
     await admin.close();
 
-    // Back online → the queued rename replays to a terminal 403 → op-dropped →
-    // the card is discarded from the board and a "no longer available" toast fires.
+    // Back online → the queued rename replays to a terminal 403 → op-dropped.
+    // The drop no longer splices the card out locally (a 403 can be a mere
+    // permission downgrade — Chunk A3); it triggers a delta pull instead, and the
+    // real revocation comes back in `removed_checklist_ids`, which removes the card.
     await collab.unrouteAll();
     await collab.goto("about:blank");
     await collab.goto("/?localFirst=1");

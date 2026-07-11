@@ -2,7 +2,8 @@ import { createSharedComposable } from "@vueuse/core";
 import { onSyncNotice, type SyncNotice } from "@/utils/syncNotices";
 import { useOutbox } from "@/composables/useOutbox";
 import { useCheckListsStore } from "@/stores/checklist";
-import { useCheckListsItemStore } from "@/stores/checklist_item";
+import { isLocalFirstEnabled } from "@/utils/localFirst";
+import { applyDelta } from "@/utils/localSnapshot";
 import type { OutboxEvent, OutboxOp } from "@/utils/outbox";
 
 // ── Sync-notice UI (WI-11) ───────────────────────────────────────────────────
@@ -25,7 +26,9 @@ const DEDUPE_WINDOW_MS = 4000;
 export const useSyncNotices = createSharedComposable(() => {
   const toast = useToast();
   const checkListStore = useCheckListsStore();
-  const itemStore = useCheckListsItemStore();
+  // Captured at setup so async event handlers can drive a delta pull without a
+  // live component context (Chunk A3).
+  const pinia = useNuxtApp().$pinia as any;
 
   const recent = new Map<string, number>();
   // A durable-storage failure is a persistent environment condition, not a
@@ -85,47 +88,43 @@ export const useSyncNotices = createSharedComposable(() => {
     droppedOp(e.op, e.status);
   }
 
+  // A 403 is NOT proof the card is gone: a permission *downgrade* (edit→view)
+  // also 403s a queued write, but the user keeps view access and the card must
+  // stay (Chunk A3). Only 403/404/410 (and 409) mean the row/access is truly
+  // gone; a terminal 400/422 is a malformed op, not a deletion (finding B5).
+  const impliesRowGone = (status: number | undefined): boolean =>
+    status === 403 || status === 404 || status === 409 || status === 410;
+
   function droppedOp(op: OutboxOp, status: number | undefined): void {
     if (op.entityType === "checklist") {
       const key = `dropped:checklist:${op.entityId}`;
-      const name = cardName(op.entityId); // resolve BEFORE removing
-      removeChecklistLocally(op.entityId);
+      const name = cardName(op.entityId);
+      // Don't remove the card locally on a drop. Let the server decide: pull a
+      // delta — the card id is still in `known=`, so a genuine revocation comes
+      // back in `removed_checklist_ids` and the normal removal path takes it out;
+      // a downgrade re-emits the card (view access) and it stays put (Chunk A3).
+      if (isLocalFirstEnabled()) applyDelta(pinia).catch(() => {});
       if (!firstInWindow(key)) return;
       toast.add({
-        title: `“${name}” is no longer available`,
-        description:
-          status === 403
-            ? "Your access was removed — offline changes to it were discarded."
-            : "It was deleted — your offline changes to it were discarded.",
+        title: `Offline changes to “${name}” couldn’t be saved`,
+        description: impliesRowGone(status)
+          ? "They were discarded — you may no longer have edit access to it."
+          : "They were discarded.",
         icon: "i-lucide-ban",
-        color: "error",
+        color: impliesRowGone(status) ? "error" : "neutral",
       });
     } else if (op.entityType === "item") {
       const clId = op.request.pathParams?.checklist_id;
       if (!firstInWindow(`dropped:item:${op.entityId}`)) return;
       toast.add({
         title: "An offline change couldn’t be applied",
-        description: `An item in “${clId ? cardName(clId) : "a list"}” was removed on the server — your change was discarded.`,
+        description: `A change to an item in “${clId ? cardName(clId) : "a list"}” was discarded.`,
         icon: "i-lucide-ban",
         color: "neutral",
       });
     }
     // label association drops (a card/label vanished) are benign — the card-level
     // toast above already covers the meaningful case; stay quiet to avoid noise.
-  }
-
-  /** Cleanly drop a card the server no longer accepts writes for, plus its items. */
-  function removeChecklistLocally(id: string): void {
-    const idx = checkListStore.checkLists.findIndex((c) => c.id === id);
-    if (idx !== -1) {
-      checkListStore.checkLists.splice(idx, 1);
-      checkListStore.total_backend_count = Math.max(0, checkListStore.total_backend_count - 1);
-    }
-    if (checkListStore.searchResults) {
-      const sIdx = checkListStore.searchResults.findIndex((c) => c.id === id);
-      if (sIdx !== -1) checkListStore.searchResults.splice(sIdx, 1);
-    }
-    delete itemStore.checkListsItems[id];
   }
 
   onSyncNotice(handleNotice);

@@ -398,12 +398,24 @@ export function partitionResync(
 
 // ── Replay engine ────────────────────────────────────────────────────────────
 
-/** Persisted queue backend (real impl: utils/outboxDb.ts, injected). */
+/**
+ * Persisted queue backend (real impl: utils/outboxDb.ts, injected).
+ *
+ * Per-op `put`/`remove` (keyed by the op's unique `opId`), NOT a whole-queue
+ * rewrite: multiple browser tabs share this one IndexedDB queue, and a
+ * clear+rewrite from one tab would erase another tab's queued-but-undrained ops
+ * (Chunk A2). A tab only ever touches the specific op it enqueued or drained, so
+ * concurrent tabs no longer clobber each other's writes.
+ */
 export interface OutboxStore {
   /** All persisted ops, ascending by `seq`. */
   load(): Promise<OutboxOp[]>;
-  /** Persist the full queue (small — a full rewrite is fine at this app's scale). */
-  persist(ops: OutboxOp[]): Promise<void>;
+  /** Upsert one op by its `opId` (add on enqueue, replace on coalesce-merge / retry). */
+  put(op: OutboxOp): Promise<void>;
+  /** Delete one op by its `opId` (drain success / terminal drop / resync prune). */
+  remove(opId: string): Promise<void>;
+  /** Wipe the whole queue (account switch / logout — Chunk A1). */
+  clear(): Promise<void>;
 }
 
 export type OutboxEvent =
@@ -429,6 +441,13 @@ export interface OutboxDeps {
   scheduler?: (fn: () => void, delayMs: number) => Cancel;
   /** Clock — injectable for deterministic tests. Default: Date.now. */
   now?: () => number;
+  /**
+   * Wrap a drain pass so only one context drains the shared queue at a time
+   * (Chunk A2). The real wiring (composables/useOutbox.ts) uses the Web Locks API
+   * for cross-tab single-writer election; the framework-free engine stays unaware
+   * of it. Default: run the pass directly (single-context / tests).
+   */
+  drainLock?: <T>(run: () => Promise<T>) => Promise<T>;
 }
 
 const BASE_BACKOFF_MS = 1_000;
@@ -463,10 +482,12 @@ export class OutboxEngine {
   private retryCancel: Cancel | null = null;
   private readonly scheduler: (fn: () => void, delayMs: number) => Cancel;
   private readonly now: () => number;
+  private readonly drainLock: <T>(run: () => Promise<T>) => Promise<T>;
 
   constructor(private readonly deps: OutboxDeps) {
     this.scheduler = deps.scheduler ?? defaultScheduler;
     this.now = deps.now ?? Date.now;
+    this.drainLock = deps.drainLock ?? ((run) => run());
   }
 
   /** Number of ops still queued (pending + any in-flight). */
@@ -497,8 +518,9 @@ export class OutboxEngine {
       attempts: 0,
     };
     const locked = this.inflightSeq != null ? new Set([this.inflightSeq]) : new Set<number>();
-    this.ops = coalesce(this.ops, op, locked);
-    await this.persist();
+    const before = this.ops;
+    this.ops = coalesce(before, op, locked);
+    await this.persistDiff(before, this.ops);
     this.kick();
     return op;
   }
@@ -515,10 +537,29 @@ export class OutboxEngine {
     const { kept, dropped } = partitionResync(this.ops, knownIds, locked);
     if (dropped.length > 0) {
       this.ops = kept;
-      await this.persist();
+      for (const op of dropped) await this.deps.store.remove(op.opId);
+      this.deps.onChange?.(this.ops.length);
       this.kick();
     }
     return dropped;
+  }
+
+  /**
+   * Wipe the queue entirely — both in memory and on disk (Chunk A1). Called when
+   * the browser's local state is invalidated on an account switch or logout, so a
+   * new user's session never drains the previous user's queued writes. Cancels
+   * any armed retry so a stale op can't fire after the reset.
+   */
+  async reset(): Promise<void> {
+    if (this.retryCancel) {
+      this.retryCancel();
+      this.retryCancel = null;
+    }
+    this.ops = [];
+    this.nextSeq = 1;
+    this.inflightSeq = null;
+    await this.deps.store.clear();
+    this.deps.onChange?.(this.ops.length);
   }
 
   /** Feed a connectivity change; going online kicks the drain immediately. */
@@ -559,8 +600,24 @@ export class OutboxEngine {
     void this.drain();
   }
 
-  private async persist(): Promise<void> {
-    await this.deps.store.persist(this.ops.slice());
+  /**
+   * Persist the delta between two queue states with per-op `put`/`remove`, so a
+   * write never rewrites the whole (tab-shared) queue (Chunk A2). Ops are keyed
+   * by `opId`; a coalesce that merges into an existing op replaces it in place
+   * (same `opId`, new object → `put`), an append is a `put`, a cancel is a
+   * `remove`.
+   */
+  private async persistDiff(before: OutboxOp[], after: OutboxOp[]): Promise<void> {
+    const afterIds = new Set(after.map((o) => o.opId));
+    const beforeById = new Map(before.map((o) => [o.opId, o]));
+    for (const o of before) {
+      if (!afterIds.has(o.opId)) await this.deps.store.remove(o.opId);
+    }
+    for (const o of after) {
+      // Reference inequality catches both a brand-new op and a coalesce-merged
+      // one (coalesce replaces the merged op with a fresh object).
+      if (beforeById.get(o.opId) !== o) await this.deps.store.put(o);
+    }
     this.deps.onChange?.(this.ops.length);
   }
 
@@ -573,43 +630,52 @@ export class OutboxEngine {
     if (!this.isOnline()) return;
     this.draining = true;
     try {
-      while (this.ops.length > 0) {
-        if (!this.isOnline()) break;
-        const op = this.ops[0]!;
-        let failedRetryable = false;
-        this.inflightSeq = op.seq;
-        try {
-          await this.deps.transport(op);
-        } catch (err) {
-          const status = httpStatusOf(err);
-          if (classifyError(status) === "retryable") {
-            op.attempts += 1;
-            failedRetryable = true;
-          } else {
-            // Terminal — drop this op and surface it, then keep draining.
-            this.remove(op.seq);
-            await this.persist();
-            this.deps.emit?.({ type: "op-dropped", op, status });
-            continue;
-          }
-        } finally {
-          this.inflightSeq = null;
-        }
-
-        if (failedRetryable) {
-          await this.persist(); // record the bumped attempt count
-          this.scheduleRetry(op.attempts);
-          return; // stop the drain; the timer (or a reconnect) resumes it
-        }
-
-        // Success — the endpoint is idempotent so a duplicate delivery is safe.
-        this.remove(op.seq);
-        await this.persist();
-      }
-      if (this.ops.length === 0) this.deps.emit?.({ type: "idle" });
+      // Single-writer across tabs (Chunk A2): only one context drains the shared
+      // queue at a time. Default (no lock injected) runs the pass directly.
+      await this.drainLock(() => this.drainLoop());
     } finally {
       this.draining = false;
     }
+  }
+
+  private async drainLoop(): Promise<void> {
+    while (this.ops.length > 0) {
+      if (!this.isOnline()) break;
+      const op = this.ops[0]!;
+      let failedRetryable = false;
+      this.inflightSeq = op.seq;
+      try {
+        await this.deps.transport(op);
+      } catch (err) {
+        const status = httpStatusOf(err);
+        if (classifyError(status) === "retryable") {
+          op.attempts += 1;
+          failedRetryable = true;
+        } else {
+          // Terminal — drop this op and surface it, then keep draining.
+          this.remove(op.seq);
+          await this.deps.store.remove(op.opId);
+          this.deps.onChange?.(this.ops.length);
+          this.deps.emit?.({ type: "op-dropped", op, status });
+          continue;
+        }
+      } finally {
+        this.inflightSeq = null;
+      }
+
+      if (failedRetryable) {
+        await this.deps.store.put(op); // record the bumped attempt count
+        this.deps.onChange?.(this.ops.length);
+        this.scheduleRetry(op.attempts);
+        return; // stop the drain; the timer (or a reconnect) resumes it
+      }
+
+      // Success — the endpoint is idempotent so a duplicate delivery is safe.
+      this.remove(op.seq);
+      await this.deps.store.remove(op.opId);
+      this.deps.onChange?.(this.ops.length);
+    }
+    if (this.ops.length === 0) this.deps.emit?.({ type: "idle" });
   }
 
   private scheduleRetry(attempts: number): void {

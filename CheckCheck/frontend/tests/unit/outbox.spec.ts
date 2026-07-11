@@ -22,18 +22,33 @@ const settle = async (n = 12) => {
   for (let i = 0; i < n; i++) await new Promise((r) => setTimeout(r, 0));
 };
 
-/** In-memory OutboxStore for engine-logic tests (no IndexedDB). */
+/** In-memory OutboxStore for engine-logic tests (no IndexedDB). Per-op like the
+ *  real store: keyed by `opId`, so concurrent engines don't clobber each other. */
 function memStore(initial: OutboxOp[] = []) {
-  const state = { ops: initial.slice() };
+  const map = new Map<string, OutboxOp>(initial.map((o) => [o.opId, o]));
   const store: OutboxStore = {
     async load() {
-      return state.ops.slice();
+      return [...map.values()].sort((a, b) => a.seq - b.seq);
     },
-    async persist(next) {
-      state.ops = next.slice();
+    async put(op) {
+      map.set(op.opId, op);
+    },
+    async remove(opId) {
+      map.delete(opId);
+    },
+    async clear() {
+      map.clear();
     },
   };
-  return { store, state };
+  // `state.ops` kept as a live view for the existing assertions.
+  return {
+    store,
+    state: {
+      get ops() {
+        return [...map.values()].sort((a, b) => a.seq - b.seq);
+      },
+    },
+  };
 }
 
 /** A backoff scheduler we can flush by hand — deterministic retry timing. */
@@ -598,8 +613,49 @@ describe("outbox persistence across a restart", () => {
   it("invokes onStorageError when a persist write fails", async () => {
     const onStorageError = vi.fn();
     const store = createOutboxStore({ onStorageError });
-    await store.persist([{ seq: 1, boom: () => {} } as unknown as OutboxOp]);
+    // A value IndexedDB can't structured-clone makes the put throw.
+    await store.put({ opId: "boom", seq: 1, boom: () => {} } as unknown as OutboxOp);
     expect(onStorageError).toHaveBeenCalledTimes(1);
+  });
+
+  // Chunk A2: two tabs share ONE IndexedDB queue. Per-op persistence means a tab
+  // only ever touches the op it enqueued — it must not erase another tab's
+  // queued-but-undrained op (the pre-fix whole-queue `clear()`+rewrite did).
+  it("does not clobber another tab's queued ops (multi-tab persistence)", async () => {
+    const store = createOutboxStore();
+    await store.clear(); // start from a clean shared DB
+
+    // Two independent engines (tabs) over the one store, both offline so neither
+    // drains; each only knows about the op it enqueued.
+    const tabA = new OutboxEngine({ store, isOnline: () => false, transport: async () => {} });
+    const tabB = new OutboxEngine({ store, isOnline: () => false, transport: async () => {} });
+    await tabA.init();
+    await tabB.init();
+
+    // Interleave: A queues op1, then B — which never loaded op1 — queues op2.
+    await tabA.enqueue(itemCreate("iA", "clA"));
+    await tabB.enqueue(itemCreate("iB", "clB"));
+
+    // Both survive on disk. Pre-fix, B's clear()+rewrite of its own [op2] would
+    // have wiped A's op1 — a lost offline write on a reload/crash of tab A.
+    const persisted = await store.load();
+    expect(persisted.map((o) => o.entityId).sort()).toEqual(["iA", "iB"]);
+  });
+
+  // Chunk A1: account switch / logout wipes the queue in memory and on disk so a
+  // new user's session never drains the previous user's writes.
+  it("reset() clears the queue in memory and on disk", async () => {
+    const store = createOutboxStore();
+    await store.clear();
+    const engine = new OutboxEngine({ store, isOnline: () => false, transport: async () => {} });
+    await engine.init();
+    await engine.enqueue(itemCreate("i1"));
+    await engine.enqueue(itemCreate("i2"));
+    expect(engine.pending).toBe(2);
+
+    await engine.reset();
+    expect(engine.pending).toBe(0);
+    expect(await store.load()).toHaveLength(0);
   });
 });
 

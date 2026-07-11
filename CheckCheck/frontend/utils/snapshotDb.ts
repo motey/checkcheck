@@ -22,8 +22,12 @@ const STORE = "kv";
 export const SNAPSHOT_SCHEMA_VERSION = 1;
 
 // Reserved keys inside the single kv object store. Store snapshots live under
-// their Pinia `$id`; these two are metadata.
+// their Pinia `$id`; these are metadata.
 const CURSOR_KEY = "__cursor__";
+// The id of the user this local cache belongs to (Chunk A1). Compared on login /
+// boot: a mismatch means someone else logged in on this browser, so the cache
+// (snapshot + cursor + outbox) must be dropped before it is read or drained.
+const OWNER_KEY = "__owner__";
 
 function upgrade(db: IDBPDatabase) {
   // Any version change (first create or a schema bump) resets the store — the
@@ -100,16 +104,39 @@ export async function writeCursor(cursor: number): Promise<void> {
   await writeSnapshots({ [CURSOR_KEY]: cursor });
 }
 
+/** The user id this local cache belongs to (null on a fresh device — Chunk A1). */
+export async function readSnapshotOwner(): Promise<string | null> {
+  if (!available()) return null;
+  try {
+    const db = await open();
+    const val = (await db.get(STORE, OWNER_KEY)) as string | undefined;
+    return typeof val === "string" ? val : null;
+  } catch (err) {
+    console.warn("[localFirst] failed to read snapshot owner", err);
+    return null;
+  }
+}
+
+/** Record which user this local cache belongs to (Chunk A1). */
+export async function writeSnapshotOwner(userId: string): Promise<void> {
+  await writeSnapshots({ [OWNER_KEY]: userId });
+}
+
 /**
- * Drop the entire snapshot (all store state AND the cursor). Used on
- * `full_resync` (protocol §5) — the cache is disposable and rebuilt from the
- * server's full state.
+ * Drop the snapshot (all store state AND the cursor). Used on `full_resync`
+ * (protocol §5) — the cache is disposable and rebuilt from the server's full
+ * state. The `__owner__` key is preserved: it identifies whose cache this is
+ * (Chunk A1), which a same-user resync must not forget. An account switch drops
+ * it too, but rewrites it to the new owner immediately after (see
+ * `reconcileAccount`).
  */
 export async function dropSnapshot(): Promise<void> {
   if (!available()) return;
   try {
     const db = await open();
+    const owner = (await db.get(STORE, OWNER_KEY)) as string | undefined;
     await db.clear(STORE);
+    if (typeof owner === "string") await db.put(STORE, owner, OWNER_KEY);
   } catch (err) {
     console.warn("[localFirst] failed to drop snapshot", err);
   }

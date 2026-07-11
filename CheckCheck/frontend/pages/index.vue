@@ -33,7 +33,7 @@ import { useCheckListsStore } from "@/stores/checklist";
 import { useUserStore } from "@/stores/user";
 import { usePublicConfigStore } from "@/stores/publicConfig";
 import { isLocalFirstEnabled } from "@/utils/localFirst";
-import { runBackgroundSync } from "@/utils/localSnapshot";
+import { runBackgroundSync, reconcileAccount } from "@/utils/localSnapshot";
 
 // This page also responds to `/card/<cardId>` (see alias below). The board and
 // the modals stay mounted across that path change, so an opened card is just a
@@ -53,6 +53,13 @@ const { connect, disconnect } = useSync();
 const userStore = useUserStore();
 const publicConfigStore = usePublicConfigStore();
 onMounted(() => {
+  if (isLocalFirstEnabled()) {
+    // Local-first boot needs `me` before the count fetch / delta pull so it can
+    // invalidate a stale cache left by a previous user on this browser (A1).
+    void bootLocalFirst(useNuxtApp().$pinia as any);
+    return;
+  }
+  // Legacy (flag-off) boot — call order preserved exactly.
   // Load the current user once; needed by the permission/share/notification UI.
   userStore.fetchMe();
   // Load server feature flags once; gates the sharing UI (P0.2).
@@ -60,14 +67,27 @@ onMounted(() => {
   // Load the sidebar count badges once; kept fresh thereafter by useSync.
   checkListStore.fetchCounts();
   connect();
-  // Local-first (WI-6): after the plugin has hydrated stores from cache, advance
-  // the sync cursor in the background (best-effort; no-op offline). The board
-  // already rendered from the hydrated snapshot. Applying deltas into the stores
-  // and replacing the legacy refetch is WI-10.
-  if (isLocalFirstEnabled()) {
-    runBackgroundSync(useNuxtApp().$pinia as any).catch(() => {});
-  }
 });
+
+// Local-first boot ordering (Chunk A1). Resolve the authenticated user first,
+// then reconcile the hydrated cache against it: if a different user owns the
+// local state, it is dropped (snapshot + cursor + outbox) BEFORE the sidebar
+// counts fetch, the SSE connect, and the background delta pull run — so none of
+// them operate on the previous user's cursor or queued writes.
+async function bootLocalFirst(pinia: any): Promise<void> {
+  // Independent of identity — gates the sharing UI (P0.2); fire it early.
+  publicConfigStore.fetch();
+  const me = await userStore.fetchMe();
+  if (me?.id) {
+    await reconcileAccount(pinia, me.id).catch(() => {});
+  }
+  // Load the sidebar count badges once; kept fresh thereafter by useSync.
+  checkListStore.fetchCounts();
+  connect();
+  // Advance the sync cursor in the background (best-effort; no-op offline). The
+  // board already rendered from the hydrated snapshot (WI-10).
+  runBackgroundSync(pinia).catch(() => {});
+}
 onUnmounted(disconnect);
 
 const { cardId, editLabels, closeCard, closeLabelEditor } = useAppRoute();

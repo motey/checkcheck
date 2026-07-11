@@ -51,6 +51,20 @@ async function sendOp($checkapi: any, op: OutboxOp): Promise<void> {
   });
 }
 
+// Cross-tab single-writer election for the drain (Chunk A2). Every tab may
+// enqueue, but only one drains the shared IndexedDB queue at a time — otherwise
+// two tabs replay the same ops concurrently (idempotent, but noisy) against the
+// one queue. The Web Locks API serialises them: a tab awaits the named lock,
+// drains, then releases it for the next. Where Web Locks is unavailable (SSR /
+// older browsers) we run the pass directly — the pre-existing single-writer-ish
+// behaviour, no worse than before.
+const DRAIN_LOCK_NAME = "checkcheck-outbox-drain";
+function withDrainLock<T>(run: () => Promise<T>): Promise<T> {
+  const locks = (globalThis.navigator as any)?.locks;
+  if (!locks?.request) return run();
+  return locks.request(DRAIN_LOCK_NAME, run);
+}
+
 export const useOutbox = createSharedComposable(() => {
   const { $checkapi } = useNuxtApp();
 
@@ -67,6 +81,7 @@ export const useOutbox = createSharedComposable(() => {
     // conflicts land, so the user learns their offline writes may not survive a reload.
     store: createOutboxStore({ onStorageError: () => emitSyncNotice({ type: "storage-failed" }) }),
     transport: (op) => sendOp($checkapi, op),
+    drainLock: withDrainLock,
     isOnline,
     onChange: (pending) => {
       pendingCount.value = pending;
@@ -105,6 +120,12 @@ export const useOutbox = createSharedComposable(() => {
     online,
     /** Force an immediate drain of queued writes — the WI-14 manual "Sync now". */
     drainNow: (): void => engine.kickDrain(),
+    /**
+     * Wipe the queue (memory + IndexedDB). Called when the browser's local state
+     * is invalidated on an account switch or logout (Chunk A1), so the incoming
+     * user's session never drains the previous user's queued writes.
+     */
+    clearAll: (): Promise<void> => engine.reset(),
     /**
      * Entity ids with a queued, not-yet-drained `create` op. The delta pull
      * (utils/localSnapshot) excludes these from `known=` so the server doesn't
