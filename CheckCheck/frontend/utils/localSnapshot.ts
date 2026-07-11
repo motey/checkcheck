@@ -9,6 +9,7 @@ import { readSnapshot, writeSnapshots, readCursor, writeCursor, dropSnapshot } f
 import { mergeDelta, type DeltaTarget, type ItemCountMaps } from "@/utils/deltaApply";
 import { combineGuards, defaultEditGuard } from "@/utils/editGuard";
 import { emitSyncNotice } from "@/utils/syncNotices";
+import { beginSync, endSync } from "@/utils/syncStatus";
 import { useOutbox } from "@/composables/useOutbox";
 
 // ── Store snapshot registry (WI-6) ───────────────────────────────────────────
@@ -277,15 +278,20 @@ async function rebuildFromFull(pinia: Pinia, res: ChangesResponseType): Promise<
   void checkListStore.fetchCounts();
 }
 
-/** One cursor-walk: pull from the persisted cursor and apply until the delta is empty. */
-async function pullAndApply(pinia: Pinia, opts?: { sinceSeq?: number }): Promise<void> {
+/**
+ * One cursor-walk: pull from the persisted cursor and apply until the delta is
+ * empty. Returns whether the pull reached the server and converged — `false`
+ * means an offline / error attempt (the caller's last-synced clock must not
+ * advance). "Already caught up" counts as a successful sync.
+ */
+async function pullAndApply(pinia: Pinia, opts?: { sinceSeq?: number }): Promise<boolean> {
   const { $checkapi } = useNuxtApp();
   const checkListStore = useCheckListsStore(pinia);
   let since = await readCursor();
 
   // Poke skip (§9b): the poke carries the server's high-water mark; if it is not
   // ahead of our cursor we are already caught up — no request needed.
-  if (opts?.sinceSeq != null && opts.sinceSeq <= since) return;
+  if (opts?.sinceSeq != null && opts.sinceSeq <= since) return true;
 
   // No server-side pagination today (§3), but walk the cursor to empty so a
   // mid-pull commit (delivered again next pull) still converges. Bounded so a
@@ -312,12 +318,12 @@ async function pullAndApply(pinia: Pinia, opts?: { sinceSeq?: number }): Promise
       // Offline / server error — the stored cursor stands; retried on the next
       // boot, poke, or reconnect.
       console.warn("[localFirst] delta pull failed", err);
-      return;
+      return false;
     }
 
     if (res.full_resync) {
       await rebuildFromFull(pinia, res);
-      return;
+      return true;
     }
 
     // Guard = focused edits (§4) + undrained outbox ops (WI-11 finding #2), so a
@@ -344,10 +350,13 @@ async function pullAndApply(pinia: Pinia, opts?: { sinceSeq?: number }): Promise
 
     // Converged: the delta is empty and the cursor didn't advance past where we
     // started this page.
-    if (isEmptyDelta(res)) return;
-    if (res.next_cursor <= since) return;
+    if (isEmptyDelta(res)) return true;
+    if (res.next_cursor <= since) return true;
     since = res.next_cursor;
   }
+  // Ran the page bound without converging (write storm) — still a real,
+  // server-reaching pull, so count it as synced; the next trigger catches up.
+  return true;
 }
 
 /**
@@ -359,9 +368,21 @@ async function pullAndApply(pinia: Pinia, opts?: { sinceSeq?: number }): Promise
  *   is already caught up (§9b).
  */
 export function applyDelta(pinia: Pinia, opts?: { sinceSeq?: number }): Promise<void> {
-  const next = syncChain.then(() => pullAndApply(pinia, opts)).catch((err) => {
-    console.warn("[localFirst] applyDelta failed", err);
-  });
+  const next = syncChain
+    .then(async () => {
+      // Drive the global sync-status indicator (WI-14): spinner on for the
+      // duration, last-synced clock advances only on a server-reaching pull.
+      beginSync();
+      let ok = false;
+      try {
+        ok = await pullAndApply(pinia, opts);
+      } finally {
+        endSync(ok);
+      }
+    })
+    .catch((err) => {
+      console.warn("[localFirst] applyDelta failed", err);
+    });
   syncChain = next;
   return next;
 }

@@ -28,6 +28,10 @@ export const useSyncNotices = createSharedComposable(() => {
   const itemStore = useCheckListsItemStore();
 
   const recent = new Map<string, number>();
+  // A durable-storage failure is a persistent environment condition, not a
+  // transient event — toast it once per session rather than on every failed
+  // persist (which would fire on every enqueue/drain).
+  let storageWarned = false;
   /** True the first time a subject is seen in the window (and starts/refreshes its timer). */
   function firstInWindow(key: string): boolean {
     const now = Date.now();
@@ -57,6 +61,18 @@ export const useSyncNotices = createSharedComposable(() => {
           title: "The server was reset",
           description: `${n.count} pending ${plural} couldn’t be applied and were discarded.`,
           icon: "i-lucide-server-crash",
+          color: "error",
+        });
+        break;
+      }
+      case "storage-failed": {
+        if (storageWarned) return;
+        storageWarned = true;
+        toast.add({
+          title: "Couldn’t save changes on this device",
+          description:
+            "Your browser blocked local storage. Offline changes may be lost if you reload — stay online so they sync.",
+          icon: "i-lucide-database-backup",
           color: "error",
         });
         break;

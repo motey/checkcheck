@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import {
   OutboxEngine,
   backoffMs,
@@ -394,6 +394,54 @@ describe("OutboxEngine retry", () => {
     expect(sent).toEqual(["i1", "i1"]); // create retried, then update, in order
     expect(engine.pending).toBe(0);
   });
+
+  // WI-14 manual "Sync now": bypass the armed backoff timer and drain immediately.
+  it("kickDrain cancels an armed backoff and drains right away", async () => {
+    const { store } = memStore();
+    const sched = manualScheduler();
+    const sent: string[] = [];
+    let attempts = 0;
+    const engine = new OutboxEngine({
+      store,
+      isOnline: () => true,
+      scheduler: sched.scheduler,
+      transport: async (o) => {
+        attempts++;
+        if (attempts === 1) throw networkError(); // arm a backoff retry
+        sent.push(o.entityId);
+      },
+    });
+    await engine.init();
+
+    await engine.enqueue(itemCreate("i1"));
+    await settle();
+    expect(sent).toEqual([]);
+    expect(sched.size).toBe(1); // a retry is armed
+
+    engine.kickDrain(); // manual sync — cancel the timer and try now
+    await settle();
+
+    expect(sent).toEqual(["i1"]);
+    expect(engine.pending).toBe(0);
+  });
+
+  it("kickDrain is a no-op while offline", async () => {
+    const { store } = memStore();
+    const sent: string[] = [];
+    const engine = new OutboxEngine({
+      store,
+      isOnline: () => false,
+      transport: async (o) => {
+        sent.push(o.entityId);
+      },
+    });
+    await engine.init();
+    await engine.enqueue(itemCreate("i1"));
+    engine.kickDrain();
+    await settle();
+    expect(sent).toEqual([]);
+    expect(engine.pending).toBe(1);
+  });
 });
 
 // ── Engine: terminal drops ───────────────────────────────────────────────────
@@ -543,6 +591,15 @@ describe("outbox persistence across a restart", () => {
 
     expect(sent).toEqual(["i1:create", "i1:update"]);
     expect((await store.load())).toHaveLength(0); // queue drained + persisted empty
+  });
+
+  // WI-14 / review finding #9: a persist failure must reach the UI, not just the
+  // console. A value IndexedDB can't structured-clone makes the write throw.
+  it("invokes onStorageError when a persist write fails", async () => {
+    const onStorageError = vi.fn();
+    const store = createOutboxStore({ onStorageError });
+    await store.persist([{ seq: 1, boom: () => {} } as unknown as OutboxOp]);
+    expect(onStorageError).toHaveBeenCalledTimes(1);
   });
 });
 

@@ -22,9 +22,8 @@ WI-11 as planned (they share its edit-guard/outbox seam). See their per-finding
 notes and the WI-11 entry in [VERSION_2.0_WORK_ITEMS.md](VERSION_2.0_WORK_ITEMS.md).
 **WI-12 session 2026-07-11:** finding **8 is now RESOLVED** — folded in alongside
 WI-12's connectivity gating (`es.onerror` feeds `setConnectivity(false)`, flag-on).
-Remaining open finding, deliberately handed to a follow-up session:
-- **9** — outbox-persistence-failure surfacing. **WI-14** territory (status UX) —
-  cheap but wants the UI that consumes it.
+**WI-14 session 2026-07-11:** finding **9 is now RESOLVED** — folded into WI-14's
+sync-status UI. All review findings (1–10) are now resolved.
 
 ---
 
@@ -251,6 +250,15 @@ the outbox believes it is online and burns drain attempts into network errors
 showing connectivity state to the user, so the indicator isn't lying.
 
 ## 9. LOW — Outbox persistence failure is only a console line
+
+**RESOLVED 2026-07-11 (WI-14).** `createOutboxStore({ onStorageError })`
+(`utils/outboxDb.ts`) now fires a callback from the `persist` catch; `useOutbox`
+routes it to `emitSyncNotice({ type: "storage-failed" })`, which
+`useSyncNotices` turns into a one-per-session error toast ("Couldn't save changes
+on this device… stay online so they sync") — the same consistent place drops and
+conflicts surface. `navigator.storage.persist()` is now requested best-effort at
+boot (`plugins/outbox.client.ts` → `requestPersistentStorage`) to keep the queue
+out of the eviction line in the first place.
 
 **Where:** `utils/outboxDb.ts` `persist` catch.
 

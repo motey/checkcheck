@@ -12,6 +12,7 @@ import {
 } from "@/utils/outbox";
 import type { EditGuard } from "@/utils/editGuard";
 import { createOutboxStore } from "@/utils/outboxDb";
+import { emitSyncNotice } from "@/utils/syncNotices";
 import {
   initConnectivity,
   isOnline,
@@ -61,7 +62,10 @@ export const useOutbox = createSharedComposable(() => {
   const listeners = new Set<(e: OutboxEvent) => void>();
 
   const engine = new OutboxEngine({
-    store: createOutboxStore(),
+    // A durable-storage failure (finding #9) surfaces as a one-time toast via the
+    // sync-notice consumer (composables/useSyncNotices) — the same place drops and
+    // conflicts land, so the user learns their offline writes may not survive a reload.
+    store: createOutboxStore({ onStorageError: () => emitSyncNotice({ type: "storage-failed" }) }),
     transport: (op) => sendOp($checkapi, op),
     isOnline,
     onChange: (pending) => {
@@ -99,6 +103,8 @@ export const useOutbox = createSharedComposable(() => {
     pendingCardIds,
     /** Reactive connectivity for the UI. */
     online,
+    /** Force an immediate drain of queued writes — the WI-14 manual "Sync now". */
+    drainNow: (): void => engine.kickDrain(),
     /**
      * Entity ids with a queued, not-yet-drained `create` op. The delta pull
      * (utils/localSnapshot) excludes these from `known=` so the server doesn't

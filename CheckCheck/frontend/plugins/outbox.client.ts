@@ -1,6 +1,7 @@
 import { isLocalFirstEnabled } from "@/utils/localFirst";
 import { useOutbox } from "@/composables/useOutbox";
 import { useSyncNotices } from "@/composables/useSyncNotices";
+import { requestPersistentStorage } from "@/utils/outboxDb";
 
 // ── Outbox boot (WI-7) ───────────────────────────────────────────────────────
 //
@@ -14,6 +15,9 @@ import { useSyncNotices } from "@/composables/useSyncNotices";
 // available for the transport.
 export default defineNuxtPlugin(() => {
   if (!isLocalFirstEnabled()) return;
+  // Best-effort: ask the browser to keep our storage out of the eviction line so
+  // queued offline writes survive storage pressure (WI-14 finding #9).
+  void requestPersistentStorage();
   // Touching the shared composable constructs the engine and kicks `init()`.
   useOutbox();
   // Start the WI-11 sync-notice consumer: subscribes to conflict / resync / op-

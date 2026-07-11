@@ -532,6 +532,21 @@ export class OutboxEngine {
     }
   }
 
+  /**
+   * Force an immediate drain, cancelling any armed backoff timer — the manual
+   * "Sync now" affordance (WI-14). No-op offline (nothing can drain). Unlike a
+   * fresh `enqueue`, this deliberately bypasses the backoff head-of-line block:
+   * the user explicitly asked to retry now.
+   */
+  kickDrain(): void {
+    if (!this.isOnline()) return;
+    if (this.retryCancel) {
+      this.retryCancel();
+      this.retryCancel = null;
+    }
+    void this.drain();
+  }
+
   private isOnline(): boolean {
     return this.deps.isOnline ? this.deps.isOnline() : true;
   }

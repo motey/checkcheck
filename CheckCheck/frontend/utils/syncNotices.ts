@@ -28,7 +28,13 @@ export type SyncNotice =
    */
   | { type: "dropped"; entity: "checklist" | "item" | "label"; checklistId?: string; status: number | undefined }
   /** A `full_resync` (server reset/restore) discarded `count` queued writes it no longer knew. */
-  | { type: "resync-dropped"; count: number };
+  | { type: "resync-dropped"; count: number }
+  /**
+   * Local durable storage for the offline outbox failed (quota / private-mode
+   * eviction — WI-14 finding #9). Queued writes still drain this session, but a
+   * reload before they drain would lose them; the user is told to stay online.
+   */
+  | { type: "storage-failed" };
 
 type Listener = (notice: SyncNotice) => void;
 

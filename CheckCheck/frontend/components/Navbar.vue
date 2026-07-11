@@ -21,6 +21,7 @@
       </div>
 
       <div class="flex items-center gap-1 shrink-0">
+        <SyncStatusIndicator />
         <NotificationBell />
 
         <UDropdownMenu
