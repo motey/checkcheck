@@ -808,6 +808,39 @@ belongs with that suite and its two-context/offline harness.
 
 **Done when:** every UI surface either works offline or clearly says why not.
 
+**Status (2026-07-11): done.** Frontend-only; no backend change. 107 vitest units
+green, type-clean over the pre-existing baseline.
+
+- **Reactive connectivity primitive.** New `composables/useConnectivity.ts` wraps
+  the framework-light `utils/connectivity` signal in a Vue `readonly(ref)`.
+  Deliberately **flag-agnostic** (not `useOutbox().online`, which keys off the
+  localFirst flag): the share/invite/notification surfaces stay
+  server-authoritative in both the legacy and localFirst worlds, so the gate must
+  not depend on the rollout flag.
+- **Store-level guard = "queue nothing".** New `assertOnline(msg)` / `OfflineError`
+  in `utils/connectivity.ts`; every **mutating** action of `stores/share`,
+  `stores/invite`, `stores/notification` calls it up-front (before `$checkapi`), so
+  offline it throws instead of hitting the network or queueing. Reads are left
+  untouched (they already fail soft). This is the backstop; the UI is the primary
+  gate.
+- **UI gating with a hint.** ShareModal shows an offline `UAlert` and makes the
+  entire owner-management area `inert` (+dimmed) offline — one gate covers all five
+  sub-actions (invite people / group / public links / transfer / leave). InviteInbox
+  disables Accept/Decline + shows an "Offline" chip; NotificationBell hides
+  "Mark all read" behind an "Offline" chip and skips mark-read on row click
+  (rows still navigate to the locally-cached card).
+- **Component `$checkapi` sweep.** The only direct `$checkapi` outside stores is:
+  `usePublicCard` (the `/p/[token]` viewer — online-only by design, untouched),
+  `useOutbox`/`localSnapshot` (the sync transport itself), and `login.vue` /
+  `Navbar.vue` logout. **Login/logout are auth surfaces → left to WI-13** (offline
+  auth grace); nothing else in components hits the API directly.
+- **Finding #8 folded in** (`docs/plans/PHASE_1_2_REVIEW.md`): `useSync.ts`
+  `es.onerror` now feeds `setConnectivity(false)` (flag-on), so the reactive gate
+  reacts to a dropped SSE socket, not just the browser `offline` event.
+- **E2E deferred to WI-15** (the offline/two-context suite); WI-12 is verified by
+  units (assertOnline/OfflineError contract) + typecheck. Finding **#9** (outbox
+  persist-failure surfacing) remains open → **WI-14**.
+
 ---
 
 ## Phase 3 — Offline PWA

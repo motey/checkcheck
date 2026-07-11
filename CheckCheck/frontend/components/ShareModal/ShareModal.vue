@@ -16,12 +16,31 @@
           />
         </div>
 
+        <!-- Offline notice (WI-12): sharing stays server-authoritative, so all
+             the management controls below are inert until reconnected. -->
+        <UAlert
+          v-if="!online"
+          color="neutral"
+          variant="subtle"
+          icon="i-lucide-wifi-off"
+          title="You're offline"
+          description="Sharing changes need a connection. Reconnect to invite people, manage access, or create links."
+          data-testid="share-offline-notice"
+        />
+
         <!-- Owner: full management ------------------------------------------
              Each card below is a *separate, independent* way to share — the
              owner can use any one of them on its own; none requires the others.
              Keeping them in distinct bordered cards (rather than one long form)
-             makes that "or" relationship obvious. -->
-        <template v-if="isOwner">
+             makes that "or" relationship obvious.
+
+             Offline (WI-12): the whole management area goes `inert` so no share
+             mutation can be triggered; the banner above says why. -->
+        <div
+          v-if="isOwner"
+          :inert="!online"
+          :class="['flex flex-col gap-6', { 'opacity-50 pointer-events-none': !online }]"
+        >
           <!-- Invite specific people -->
           <div class="flex flex-col gap-3 rounded-lg border border-default p-4">
             <div class="flex items-start gap-3">
@@ -100,7 +119,7 @@
             </div>
             <ShareModalTransferOwnership :check-list-id="checkListId" />
           </div>
-        </template>
+        </div>
 
         <!-- Non-owner: collaborator notice + leave --------------------------
              The collaborator list endpoint (GET /shares) is owner-only, so a
@@ -119,13 +138,18 @@
               variant="soft"
               icon="i-lucide-log-out"
               :loading="leaving"
+              :disabled="!online"
               block
               @click="leaveList"
             >
               Leave list
             </UButton>
             <p class="mt-2 text-xs text-muted">
-              You'll lose access to this list. The owner can re-share it with you later.
+              {{
+                online
+                  ? "You'll lose access to this list. The owner can re-share it with you later."
+                  : "You're offline — reconnect to leave this list."
+              }}
             </p>
           </div>
         </template>
@@ -157,6 +181,7 @@ const userStore = useUserStore();
 const publicConfig = usePublicConfigStore();
 const toast = useToast();
 const { isOwner: isOwnerOf } = usePermissions();
+const { online } = useConnectivity();
 
 const card = computed(() => checkListsStore.get(props.checkListId));
 const isOwner = computed(() => isOwnerOf(card.value));

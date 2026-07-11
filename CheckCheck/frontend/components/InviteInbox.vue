@@ -6,8 +6,16 @@
     class="border-b border-default"
     data-testid="invite-section"
   >
-    <div class="px-3 py-2 bg-elevated">
+    <div class="px-3 py-2 bg-elevated flex items-center justify-between gap-2">
       <span class="text-sm font-semibold">Invites</span>
+      <span
+        v-if="!online"
+        class="flex items-center gap-1 text-xs text-muted"
+        data-testid="invite-offline-hint"
+      >
+        <UIcon name="i-lucide-wifi-off" class="size-3.5" />
+        Offline
+      </span>
     </div>
 
     <div
@@ -32,7 +40,7 @@
             color="primary"
             size="xs"
             :loading="busy === inv.checklist_id"
-            :disabled="busy !== null"
+            :disabled="busy !== null || !online"
             data-testid="invite-accept"
             @click="onAccept(inv.checklist_id)"
           >
@@ -42,7 +50,7 @@
             color="neutral"
             variant="subtle"
             size="xs"
-            :disabled="busy !== null"
+            :disabled="busy !== null || !online"
             data-testid="invite-decline"
             @click="onDecline(inv.checklist_id)"
           >
@@ -59,6 +67,7 @@ import { ref } from "vue";
 import { useInviteStore } from "@/stores/invite";
 
 const store = useInviteStore();
+const { online } = useConnectivity();
 
 // The checklist id currently being accepted/declined (drives the row's loading
 // state and disables all buttons so a double-click can't fire two calls).

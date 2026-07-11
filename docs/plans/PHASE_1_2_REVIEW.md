@@ -20,10 +20,11 @@ per-finding notes).
 **WI-11 session 2026-07-07:** findings **2 and 5 are now RESOLVED** — folded into
 WI-11 as planned (they share its edit-guard/outbox seam). See their per-finding
 notes and the WI-11 entry in [VERSION_2.0_WORK_ITEMS.md](VERSION_2.0_WORK_ITEMS.md).
-Remaining open findings, deliberately handed to a follow-up session:
-- **8, 9** — connectivity signal on SSE error; outbox-persistence-failure
-  surfacing. Both are **WI-13/WI-14** territory (status UX) — cheap but want the
-  UI that consumes them.
+**WI-12 session 2026-07-11:** finding **8 is now RESOLVED** — folded in alongside
+WI-12's connectivity gating (`es.onerror` feeds `setConnectivity(false)`, flag-on).
+Remaining open finding, deliberately handed to a follow-up session:
+- **9** — outbox-persistence-failure surfacing. **WI-14** territory (status UX) —
+  cheap but wants the UI that consumes it.
 
 ---
 
@@ -232,6 +233,13 @@ the next person to call it on checklist/item/label gets tombstone leakage.
 Either add the mask (mirroring `list`) or delete the method.
 
 ## 8. LOW — SSE error does not feed the connectivity signal
+
+**RESOLVED 2026-07-11 (WI-12 session).** `es.onerror` now calls
+`setConnectivity(false)` (gated flag-on, mirroring `onopen`'s
+`setConnectivity(true)`), so a dropped sync socket is the earliest signal of lost
+reachability. `onopen` flips it back true on reconnect. This also drives WI-12's
+reactive `useConnectivity()` gate on the online-only surfaces. Original finding
+below.
 
 **Where:** `composables/useSync.ts` `es.onerror` / `utils/connectivity.ts`.
 

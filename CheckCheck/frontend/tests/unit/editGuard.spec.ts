@@ -12,7 +12,14 @@ import {
   combineGuards,
   type EditGuard,
 } from "@/utils/editGuard";
-import { isOnline, setConnectivity, onConnectivityChange, probe } from "@/utils/connectivity";
+import {
+  isOnline,
+  setConnectivity,
+  onConnectivityChange,
+  probe,
+  assertOnline,
+  OfflineError,
+} from "@/utils/connectivity";
 
 describe("editGuard registry", () => {
   afterEach(() => {
@@ -93,5 +100,23 @@ describe("connectivity signal", () => {
     }));
     await expect(probe()).resolves.toBe(false);
     expect(isOnline()).toBe(false);
+  });
+
+  // WI-12: the guard the online-only stores (share/invite/notification) call so
+  // nothing is queued and no request is made while offline.
+  it("assertOnline throws OfflineError only when offline, with a passable message", () => {
+    setConnectivity(true);
+    expect(() => assertOnline("nope")).not.toThrow();
+
+    setConnectivity(false);
+    expect(() => assertOnline()).toThrow(OfflineError);
+    try {
+      assertOnline("Sharing isn't available offline.");
+      expect.unreachable();
+    } catch (err) {
+      expect(err).toBeInstanceOf(OfflineError);
+      expect((err as OfflineError).offline).toBe(true);
+      expect((err as Error).message).toBe("Sharing isn't available offline.");
+    }
   });
 });

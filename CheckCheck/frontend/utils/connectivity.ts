@@ -62,6 +62,29 @@ export function onConnectivityChange(listener: Listener): () => void {
 }
 
 /**
+ * Thrown by `assertOnline` when an online-only action (share / invite /
+ * notification mutations — WI-12) is attempted offline. Distinguishable from a
+ * network failure so call sites can surface a clear "you're offline" hint rather
+ * than a generic error, and so nothing gets queued.
+ */
+export class OfflineError extends Error {
+  readonly offline = true;
+  constructor(message = "This action isn't available offline.") {
+    super(message);
+    this.name = "OfflineError";
+  }
+}
+
+/**
+ * Guard for online-only store actions: throw `OfflineError` up-front when
+ * offline so no request is made and nothing is queued. The UI disables these
+ * affordances when offline (WI-12); this is the belt-and-suspenders backstop.
+ */
+export function assertOnline(message?: string): void {
+  if (!isOnline()) throw new OfflineError(message);
+}
+
+/**
  * Actively confirm reachability with a cheap same-origin request. Used when
  * `navigator.onLine` is optimistic (interface up but server unreachable). Updates
  * the connectivity signal as a side effect and returns the result.

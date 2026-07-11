@@ -86,6 +86,13 @@ export const useSync = createSharedComposable(() => {
     es.onerror = () => {
       // The browser retries automatically; log for visibility only.
       console.warn("[sync] SSE connection error — browser will retry");
+      // A dropped sync socket is our earliest proof of lost reachability (the
+      // `offline` window event may lag, or the interface may be up but the
+      // server unreachable). Feed the connectivity signal (finding #8) so the
+      // outbox stops draining and online-only surfaces (WI-12) disable; `onopen`
+      // flips it back true on reconnect. Gated flag-on like onopen so the legacy
+      // path's behaviour is untouched.
+      if (isLocalFirstEnabled()) setConnectivity(false);
     };
   }
 
