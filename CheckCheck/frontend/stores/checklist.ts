@@ -2,6 +2,7 @@ import { defineStore } from "pinia";
 import { findNewPlacementForItem, sortBySubset } from "~/utils/helpers";
 import { isLocalFirstEnabled } from "@/utils/localFirst";
 import { useOutbox } from "@/composables/useOutbox";
+import { useUserStore } from "@/stores/user";
 import {
   checklistCreateOp,
   checklistDeleteOp,
@@ -189,8 +190,39 @@ export const useCheckListsStore = defineStore("checkList", {
     async archive(checkListId: string, state: boolean = true) {
       if (!checkListId) throw new Error("Checklistid empty");
       const checkList = await this.fetch(checkListId);
+      const wasArchived = checkList.position.archived;
       checkList.position.archived = state;
+      // Local-first: adjust the sidebar count badges immediately. The delta pull
+      // that later confirms this archive is BLIND to it — our optimistic update
+      // already set `position.archived`, so mergeDelta sees no change and never
+      // triggers a counts refresh. So the actor's own archive must move the counts
+      // here (this also keeps the badges right while offline). Any later absolute
+      // `fetchCounts` (another user's edit, a reload) reconciles precisely. Flag-off
+      // keeps refreshing counts off the SSE `checklist_position` event instead.
+      if (isLocalFirstEnabled() && wasArchived !== state) {
+        this._adjustCountsForArchive(checkList, state);
+      }
       checkList.position = await this.updatePosition(checkListId, checkList.position);
+    },
+    /** Move the sidebar count badges when a card is archived/unarchived locally.
+     *  `home`/`archived`/`labels` are exact from the card; `shared_with_me` keys
+     *  off ownership. `shared_by_me` needs collaborator info the card DTO doesn't
+     *  carry, so it is left for the next absolute `fetchCounts` to reconcile (see
+     *  docs/ISSUES.md). */
+    _adjustCountsForArchive(checkList: CheckListType, archived: boolean) {
+      const counts = this.counts;
+      if (!counts) return; // not loaded yet — the first fetch will be correct
+      const d = archived ? -1 : 1; // leaving/returning to the non-archived buckets
+      counts.home = Math.max(0, counts.home + d);
+      counts.archived = Math.max(0, counts.archived - d);
+      const myId = useUserStore().myId;
+      if (myId && checkList.owner_id !== myId) {
+        counts.shared_with_me = Math.max(0, counts.shared_with_me + d);
+      }
+      for (const label of checkList.labels ?? []) {
+        const cur = counts.labels[label.id];
+        if (cur != null) counts.labels[label.id] = Math.max(0, cur + d);
+      }
     },
     // Permanently delete a checklist (used from the Archive view only; the
     // normal trash action soft-archives via archive()). The backend broadcasts

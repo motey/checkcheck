@@ -5,6 +5,40 @@ that discovered them. Newest first.
 
 ---
 
+## Sidebar count badges: `shared_by_me` not adjusted on the actor's own archive
+
+**Status:** open · **Severity:** low · **Discovered:** 2026-07-11 (WI-15, flag-on flip)
+
+**Symptom**
+
+Under the local-first default, archiving/unarchiving one of *your own* cards
+that you have shared can leave the "Shared by me" sidebar badge off by one until
+the next unrelated counts refetch.
+
+**Root cause**
+
+A delta pull that *confirms the actor's own* optimistic change is blind to it:
+the optimistic update already moved the local field (`position.archived`), so
+`mergeDelta` sees `existing == merged`, never sets `cardLevelChanged`, and skips
+the `fetchCounts`. So the actor's own edits can't refresh the sidebar counts via
+the delta path — they must be adjusted optimistically at the action site.
+`stores/checklist.ts::_adjustCountsForArchive` does this for `home`, `archived`,
+`labels`, and `shared_with_me` (keyed off `owner_id`), but **`shared_by_me`**
+needs "does this card have ≥1 collaborator", which the `CheckListApiWithSubObj`
+DTO doesn't carry, so it is left for the next absolute `fetchCounts` (another
+user's edit, a reload) to reconcile.
+
+**Impact**
+
+Minor and self-healing — off-by-one on one badge for your own cards until any
+counts refetch. No data loss.
+
+**Suggested fix**
+
+(a) Add a `collaborator_count`/`is_shared` flag to the card DTO so the client can
+adjust `shared_by_me` too; or (b) trigger one `fetchCounts` (server truth) when
+the archive outbox op drains — exact for every bucket, at the cost of a request.
+
 ## Shared-card listing eager-loads an arbitrary user's `CheckListPosition`
 
 **Status:** resolved (2026-07-05) · **Severity:** low-to-medium · **Discovered:** 2026-06-23
