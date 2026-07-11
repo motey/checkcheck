@@ -18,3 +18,7 @@ historical notes that used to clutter the repo root.
 - [`ISSUES.md`](ISSUES.md) — running log of known bugs / rough edges, newest
   first. Add to it when you find an issue that's out of scope for the change
   that surfaced it.
+- [`UPGRADING.md`](UPGRADING.md) — self-hoster / developer upgrade notes per
+  release; pairs with the root [`CHANGELOG.md`](../CHANGELOG.md).
+- [`SYNC_PROTOCOL.md`](SYNC_PROTOCOL.md) — the 2.0 local-first delta-sync
+  contract (`/api/changes` + `/api/sync`).
