@@ -301,6 +301,33 @@ def test_losing_access_is_reported_in_removed_ids():
     req(f"api/checklist/{cl_id}", "delete")
 
 
+def test_revocation_advances_the_global_seq_so_the_poke_is_not_skipped():
+    """A revoked local-first client only pulls `/api/changes` when the
+    `changes_available` poke carries a server_seq AHEAD of its cursor (the §9b
+    poke-skip). Revocation HARD-deletes the collaborator + position rows, which
+    leaves no server_seq trace, so the route must advance the global seq itself
+    (re-stamping the owner's position). Without that, the poke sits AT the removed
+    user's cursor, the client skips the pull, and the card lingers until a manual
+    reload — the WI-15 flag-on regression this guards against."""
+    other = _make_user_token("wi15-revoke-seq")
+    other_id = _user_id(other)
+
+    cl_id = req("api/checklist", "post", b={"name": "revoke seq"})["id"]
+    req(f"api/checklist/{cl_id}/shares/{other_id}", "put", b={"permission": "edit"})
+
+    # The cursor `other` holds right after the share — the poke must beat this.
+    after_share = _cursor(token=other)
+
+    req(f"api/checklist/{cl_id}/shares/{other_id}", "delete")
+
+    # The poke's server_seq is the global high-water mark; it must now be ahead.
+    assert _cursor() > after_share, (
+        "revocation must advance the global server_seq so the poke is not skipped"
+    )
+
+    req(f"api/checklist/{cl_id}", "delete")
+
+
 # ── full resync ───────────────────────────────────────────────────────────────
 
 

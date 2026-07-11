@@ -146,8 +146,14 @@ test.describe("item movement", () => {
     const handle1 = item1Row.locator(".list-item-drag-handle");
     await expect(handle1).toBeVisible({ timeout: 3_000 });
 
+    // Legacy (flag-off) reorders via PUT `.../move/{above,under}/{id}`; the
+    // local-first default (WI-9/WI-15) drains a plain PATCH
+    // `.../item/{itemId}/position` through the outbox. Accept either.
     const moveResponsePromise = page.waitForResponse(
-      (r) => r.url().includes("/move/") && r.request().method() === "PUT",
+      (r) =>
+        (r.url().includes("/move/") && r.request().method() === "PUT") ||
+        (/\/item\/[^/]+\/position(\?|$)/.test(r.url()) &&
+          r.request().method() === "PATCH"),
       { timeout: 10_000 }
     );
     await drag(page, handle1, item2Row);

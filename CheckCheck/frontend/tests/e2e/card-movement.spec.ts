@@ -122,9 +122,16 @@ test.describe("card movement", () => {
       .locator("[data-testid=checklist-board] .checklist-preview")
       .filter({ hasText: nameA });
 
-    // Wait for the board move API call before asserting.
+    // Wait for the board move to reach the server before reloading. The legacy
+    // (flag-off) path calls PUT `.../move/{above,under}/{id}`; the local-first
+    // default (WI-9/WI-15) reorders optimistically and drains a plain
+    // PATCH `/api/checklist/{id}/position` through the outbox. Accept either so
+    // the assertion holds regardless of the localFirst rollout state.
     const moveResponsePromise = page.waitForResponse(
-      (r) => r.url().includes("/move/") && r.request().method() === "PUT",
+      (r) =>
+        (r.url().includes("/move/") && r.request().method() === "PUT") ||
+        (/\/checklist\/[^/]+\/position(\?|$)/.test(r.url()) &&
+          r.request().method() === "PATCH"),
       { timeout: 10_000 }
     );
     await drag(page, cardB, cardA);
