@@ -858,6 +858,61 @@ green, type-clean over the pre-existing baseline.
 
 **Done when:** airplane-mode cold start renders the board with local data.
 
+**Decisions taken in-session (2026-07-11, implemented):**
+
+- **`@vite-pwa/nuxt` (Workbox `generateSW`)**, configured in `nuxt.config.ts`
+  `pwa`. Precaches the SPA app shell (`globPatterns` js/css/html/icons/fonts,
+  ~54 entries) and sets `navigateFallback: "/"` so offline navigations to
+  client-only routes (`/login`, `/card/:id`, `/p/:token`) resolve to the
+  precached shell. `nuxt generate` emits `sw.js` + `workbox-*.js` into
+  `.output/public`, served by the same backend that serves the frontend.
+- **The API is NEVER cached.** No `runtimeCaching` entry for `/api`, and
+  `navigateFallbackDenylist: [/^\/api\//, /^\/docs/, /^\/openapi\.json/]` so the
+  fallback can't swallow API/doc/schema requests — they always hit the network
+  and fail cleanly offline. Offline reads come from the IndexedDB snapshot
+  (WI-6), writes from the outbox (WI-7); a stale HTTP response is never served.
+- **The service worker is flag-agnostic** (installability/offline-shell is a
+  general PWA feature, not gated on `localFirst`); the **offline behaviours it
+  enables are flag-gated**. Safe to ship globally pre-release since there is no
+  production deployment yet.
+- **Update flow = `registerType: "prompt"`.** A freshly deployed worker waits
+  instead of auto-activating (never reloads a user mid-edit); `$pwa.needRefresh`
+  drives a single non-dismissing "New version available → Reload" toast
+  (`plugins/pwa.client.ts`, `updateServiceWorker(true)`). `devOptions.enabled:
+  false` keeps `nuxt dev`/HMR and the flag-off legacy path untouched.
+- **Offline auth grace lives in `plugins/api.ts`**, gated on
+  `isLocalFirstEnabled() && !isOnline()` (init the connectivity signal early in
+  the plugin). In that window a `401` does **not** bounce to `/login`/OIDC — the
+  returning user keeps the cached board and the session simply refreshes on
+  reconnect — and a network-class error (no HTTP status) is swallowed instead of
+  raising a generic "Error request failed" toast. The legacy path (no local data
+  to fall back to) still redirects/toasts exactly as before.
+- **Login/logout stay online-only** (the `$checkapi` calls WI-12 left in place).
+  Logout additionally **disables offline** (`components/Navbar.vue`, reactive
+  `useConnectivity`, "(offline)" hint): it must reach the server to invalidate
+  the session and it hard-navigates to `/login`, which offline would strand the
+  user on a dead login page and drop their still-usable cached board. The grace
+  keeps them working; disabling logout keeps them there.
+- **Icons** generated from the CheckCheck brand (amber `#FBBF24` tile + white
+  `list-checks`) via `rsvg-convert` into `public/icons/` (64/192/512 + a
+  full-bleed maskable-512 + apple-touch-180). Manifest: standalone, `theme_color`
+  amber, white splash `background_color`; `theme-color` meta + apple-touch-icon
+  link added in `app.head`.
+- **Toolchain gotcha:** `bun add @vite-pwa/nuxt` re-hoisted `pathe` to `1.1.2`
+  at the tree root, which lacks `reverseResolveAlias` and broke Nuxt 4's kit
+  module loader ("Could not load @vite-pwa/nuxt"). Fixed with a
+  `"overrides": { "pathe": "2.0.3" }` in `package.json` (every other consumer
+  already resolves 2.0.3; vitest/vite tolerate it — 107 units stay green).
+- **Verified:** new E2E `tests/e2e/offline-cold-start.spec.ts` — flag on, card
+  created + snapshot persisted, service worker `ready`, reload to become
+  SW-controlled, then **`context.setOffline(true)` (full airplane mode)** and
+  reload: the shell is served by the Workbox precache and the board hydrates from
+  IndexedDB, with no bounce to `/login`. Green alongside a regression batch
+  (`auth`/`board-empty`/`add-item`/`sync`/`local-persistence`/`mobile-navbar` all
+  pass — the SW is transparent to the online legacy flows). Typecheck adds no
+  errors over the pre-existing baseline. Full offline/two-context suite still
+  deferred to **WI-15**.
+
 ### WI-14 — Sync status UI (S/M)
 
 **Goal:** The user always knows where their data stands.

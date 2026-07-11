@@ -1,3 +1,6 @@
+import { initConnectivity, isOnline } from '@/utils/connectivity'
+import { isLocalFirstEnabled } from '@/utils/localFirst'
+
 export default defineNuxtPlugin({
   enforce: 'pre', // Load early so API clients are available to other plugins/stores
   setup() {
@@ -5,6 +8,11 @@ export default defineNuxtPlugin({
     const clients = useRuntimeConfig().public.openFetch
     const router = useRouter()
     const toast = useToast()
+
+    // Wire the browser online/offline signal early so the offline-auth grace
+    // below can consult it regardless of whether the outbox/connectivity
+    // composables have booted yet. Idempotent.
+    initConnectivity()
 
     if (!clients) return { provide: {} }
 
@@ -31,8 +39,17 @@ export default defineNuxtPlugin({
     // session expiry should always bounce to login regardless of this flag.
     const skipsErrorToast = (ctx: any): boolean => Boolean(ctx?.options?.skipErrorToast)
 
+    // Offline auth grace (WI-13): while the device is offline AND the local-first
+    // layer is on, a returning user lives off the IndexedDB snapshot (WI-6) and
+    // queues writes in the outbox (WI-7). A 401 in that window must NOT bounce
+    // them to /login (or an OIDC redirect) and tear down the usable offline board
+    // — the session simply refreshes when connectivity returns. Gated on the flag
+    // so the legacy path (no local data to fall back to) keeps redirecting.
+    const offlineAuthGrace = () => isLocalFirstEnabled() && !isOnline()
+
     // Handle 401 responses: redirect to login (server handles session cleanup)
     const handleUnauthorized = () => {
+      if (offlineAuthGrace()) return
       const current = router.currentRoute.value // Must access .value for reactivity
       if (current.fullPath !== '/login' && !current.query.redirect) {
         router.push({ path: '/login', query: { redirect: current.fullPath } })
@@ -45,6 +62,11 @@ export default defineNuxtPlugin({
         handleUnauthorized()
         return
       }
+      // A network-class failure (no HTTP response) while offline is expected —
+      // the outbox is holding the write and the board runs on local data. Don't
+      // stack a generic "Error request failed" toast on top of that. Only
+      // suppress under the local-first flag; the legacy path still surfaces it.
+      if (status === undefined && offlineAuthGrace()) return
       const method = ctx.request ? String(ctx.request).split('?')[0] : 'request'
       toast.add({
         title: `Error ${status ?? ''}`.trim(),
