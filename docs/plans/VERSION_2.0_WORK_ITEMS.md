@@ -941,6 +941,38 @@ shows accurate states.
 
 **Done when:** offline suite green, flag default on, 2.0 tagged.
 
+**Status (2026-07-11) — core done; migrations + docs + tag deferred:**
+- ✅ **Offline suite** — `tests/e2e/offline-sync.spec.ts`: two-context concurrent
+  edit (local kept + conflict toast + LWW converge), offline-edit-then-delta
+  no-revert, revocation-while-offline discard. (Blocks API writes via a route
+  predicate that leaves the SSE `/api/sync` + delta `/api/changes` GETs live, so
+  the poke→delta→conflict path is deterministic.) WI-11's deferred offline cases
+  are folded in here.
+- ✅ **Flag default ON** — `runtimeConfig.public.localFirst = true`; legacy path
+  parked behind the `?localFirst=0` kill-switch (NUXT_PUBLIC_LOCAL_FIRST to
+  override per-deploy). Full E2E suite green under the flag-on default except
+  the **pre-existing** `sharing-modal.spec.ts:93` deterministic failure
+  (documented in PHASE_1_2_REVIEW.md — not introduced here).
+- ✅ **Flag-on regressions found & fixed while flipping:**
+  - Revoke/leave didn't live-remove the card (hard-delete leaves no server_seq,
+    so the §9b poke-skip skipped the pull). Fixed backend-side by advancing the
+    seq on revoke (owner-position `touch`); regression test in `tests_changes.py`.
+  - `card/item-movement` waited for the legacy `PUT .../move/` endpoint; flag-on
+    reorders via a plain PATCH `.../position`. Matchers now accept either.
+  - Sidebar counts never refreshed on the actor's own archive (the confirming
+    delta is blind to an optimistic change → no `cardLevelChanged`). Fixed with
+    an optimistic count adjustment in `stores/checklist.ts` (`shared_by_me` edge
+    case noted in `docs/ISSUES.md`).
+- ⏸️ **Migrations** — DEFERRED (maintainer). `0010` is already a clean no-op
+  baseline; `create_all` builds the schema and autogenerate is wired
+  (`target_metadata = SQLModel.metadata`). Only the *policy* flip (require real
+  revisions from 2.0 on, stop model-only + recreate) remains — do it when ready
+  to freeze the schema and tag.
+- ⏸️ **User-facing docs** — DEFERRED (maintainer): changelog + self-hoster
+  upgrade notes (recreate-DB pre-2.0, the `/api/changes` + `/api/sync` surface,
+  offline-PWA default).
+- ⏸️ **Tag 2.0** — maintainer action (not done here).
+
 ---
 
 ## Explicitly deferred (2.1+)
