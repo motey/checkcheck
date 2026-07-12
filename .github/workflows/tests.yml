@@ -1,16 +1,16 @@
 name: tests
 
 # Gates every push / PR on the backend test suite before any image is shipped.
-# Mirrors run_backend_tests_with_sqlite.sh (the quick, Docker-free path).
-# Postgres is the primary target locally; adding a Postgres service matrix here
-# is a sensible follow-up.
+# Runs against PostgreSQL (the primary target) — the pytest conftest starts a
+# throwaway `postgres:16-alpine` Docker container itself, which the GitHub
+# ubuntu runners can do out of the box, so no `services:` block is needed.
 on:
   push:
     branches: ["**"]
   pull_request:
 
 jobs:
-  pytest-sqlite:
+  pytest-postgres:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -30,5 +30,26 @@ jobs:
           # dev + test groups (not part of the compiled runtime requirements)
           pip install pytest requests oidc-provider-mock pyyaml
 
-      - name: Run backend test suite (SQLite)
-        run: ./run_backend_tests_with_sqlite.sh
+      # The test harness reads CheckCheck/backend/tests/.env (gitignored, so it
+      # never reaches CI) for the two required secrets and the server port. The
+      # conftest pins CHECKCHECK_DOT_ENV_FILE to exactly this path, so we
+      # materialize a throwaway CI copy here. These are test-only values.
+      - name: Write test .env
+        run: |
+          cat > CheckCheck/backend/tests/.env <<'EOF'
+          LOG_LEVEL=INFO
+          DEBUG_SQL=False
+          AUTH_JWT_SECRET=ci-test-jwt-secret-0000000000000000000000000000000000000000000000
+          SERVER_SESSION_SECRET=ci-test-session-secret-000000000000000000000000000000000000000000
+          SERVER_LISTENING_PORT=8888
+          SERVER_HOSTNAME=localhost
+          SET_SESSION_COOKIE_SECURE=false
+          AUTH_BASIC_LOGIN_IS_ENABLED=true
+          AUTH_BASIC_USER_DB_REGISTER_ENABLED=false
+          AUTH_ACCESS_TOKEN_EXPIRES_MINUTES=1000
+          AUTH_OIDC_TOKEN_STORAGE_SECRET=ci-test-oidc-storage-secret-checkcheck
+          CHECKCHECK_TESTS_RESET_DB=True
+          EOF
+
+      - name: Run backend test suite (PostgreSQL)
+        run: ./run_backend_tests_with_postgres.sh
