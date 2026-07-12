@@ -39,36 +39,6 @@ How much the server logs. `DEBUG` is noisy but the quickest way to see why somet
 
 ---
 
-## `DEBUG_SQL`
-
-*Log SQL statements*
-
-When true, the database engine prints every SQL query to the log. Very verbose; leave off unless debugging queries.
-
-| Property | Value |
-|---|---|
-| Type | bool |
-| Required | No |
-| Default | `false` |
-| Environment variable | `DEBUG_SQL` |
-
----
-
-## `DOCKER_MODE`
-
-*Running inside the official Docker image*
-
-Set automatically by the Docker image. Only affects a few path defaults; do not set it by hand outside a container.
-
-| Property | Value |
-|---|---|
-| Type | bool |
-| Required | No |
-| Default | `false` |
-| Environment variable | `DOCKER_MODE` |
-
----
-
 ## `SERVER_LISTENING_HOST`
 
 *Listening host*
@@ -183,130 +153,6 @@ The scheme (`http` or `https`) used to build absolute URLs. Set this to `https` 
 
 ---
 
-## `CLIENT_URL`
-
-*Extra allowed origin*
-
-An additional browser origin allowed to call the API (CORS), on top of the server's own URL. Only needed when the frontend is served from a different origin than the backend, for example during frontend development.
-
-| Property | Value |
-|---|---|
-| Type | str |
-| Required | No |
-| Default | `null` |
-| Environment variable | `CLIENT_URL` |
-
-**Examples:**
-
-```yaml
-CLIENT_URL: http://localhost:3000
-```
-
----
-
-## `SERVER_UVICORN_LOG_LEVEL`
-
-*Uvicorn log level*
-
-Log level for the uvicorn web server. Falls back to LOG_LEVEL when unset.
-
-| Property | Value |
-|---|---|
-| Type | str |
-| Required | No |
-| Default | `null` |
-| Environment variable | `SERVER_UVICORN_LOG_LEVEL` |
-
-**Examples:**
-
-*Example 1:*
-
-```yaml
-SERVER_UVICORN_LOG_LEVEL: info
-```
-
-*Example 2:*
-
-```yaml
-SERVER_UVICORN_LOG_LEVEL: warning
-```
-
----
-
-## `SERVER_SESSION_SECRET`
-
-*Session secret*
-
-Secret used to sign the browser session cookie. Provide a long random string and keep it stable: changing it logs everyone out. Required, minimum 64 characters. Generate one with `openssl rand -hex 32`.
-
-| Property | Value |
-|---|---|
-| Type | Object |
-| Required | **Yes** |
-| Constraints | MinLen(min_length=64) |
-| Environment variable | `SERVER_SESSION_SECRET` |
-
----
-
-## `SET_SESSION_COOKIE_SECURE`
-
-*Secure session cookie*
-
-When true the session cookie is only sent over HTTPS. Set to false for local development over plain HTTP, otherwise the browser drops the cookie and login appears to do nothing. Keep it true in production.
-
-| Property | Value |
-|---|---|
-| Type | bool |
-| Required | No |
-| Default | `true` |
-| Environment variable | `SET_SESSION_COOKIE_SECURE` |
-
----
-
-## `API_TOKEN_DEFAULT_EXPIRY_TIME_MINUTES`
-
-*Default API token lifetime (minutes)*
-
-How long a newly created API token stays valid. Applies to the token minted on login and to tokens created in the token manager. Set to null for no default expiry.
-
-| Property | Value |
-|---|---|
-| Type | int |
-| Required | No |
-| Default | `10080` |
-| Environment variable | `API_TOKEN_DEFAULT_EXPIRY_TIME_MINUTES` |
-
-**Examples:**
-
-*Example 1:*
-
-```yaml
-API_TOKEN_DEFAULT_EXPIRY_TIME_MINUTES: 10080
-```
-
-*Example 2:*
-
-```yaml
-API_TOKEN_DEFAULT_EXPIRY_TIME_MINUTES: 43200
-```
-
----
-
-## `API_TOKEN_ALLOW_NEVER_EXPIRE`
-
-*Allow never-expiring API tokens*
-
-Whether users may create API tokens that never expire. When false, every token must carry an expiry: the 'Never' option is hidden in the UI and rejected by the server.
-
-| Property | Value |
-|---|---|
-| Type | bool |
-| Required | No |
-| Default | `true` |
-| Environment variable | `API_TOKEN_ALLOW_NEVER_EXPIRE` |
-
----
-
 ## `SQL_DATABASE_URL`
 
 *Database URL*
@@ -386,101 +232,106 @@ ADMIN_USER_EMAIL: admin@example.com
 
 ---
 
-## `ADMIN_ROLE_NAME`
+## `SERVER_SESSION_SECRET`
 
-*Admin role name*
+*Session secret*
 
-Name of the role that grants full administrative access. Rarely needs changing.
+Secret used to sign the browser session cookie. Provide a long random string and keep it stable: changing it logs everyone out. Required, minimum 64 characters. Generate one with `openssl rand -hex 32`.
 
 | Property | Value |
 |---|---|
-| Type | str |
-| Required | No |
-| Default | `"admin"` |
-| Environment variable | `ADMIN_ROLE_NAME` |
+| Type | Object |
+| Required | **Yes** |
+| Constraints | MinLen(min_length=64) |
+| Environment variable | `SERVER_SESSION_SECRET` |
 
 ---
 
-## `USERMANAGER_ROLE_NAME`
+## `AUTH_JWT_SECRET`
 
-*User-manager role name*
+*JWT signing secret*
 
-Name of the role that may manage other users without full admin rights. Rarely needs changing.
+Secret used to sign API access tokens (JWT). Provide a long random string, keep it stable, and keep it different from SERVER_SESSION_SECRET. Required, minimum 64 characters. Generate one with `openssl rand -hex 32`.
 
 | Property | Value |
 |---|---|
-| Type | str |
-| Required | No |
-| Default | `"usermanager"` |
-| Environment variable | `USERMANAGER_ROLE_NAME` |
+| Type | Object |
+| Required | **Yes** |
+| Constraints | MinLen(min_length=64) |
+| Environment variable | `AUTH_JWT_SECRET` |
 
 ---
 
-## `NEW_USER_DEFAULT_LABELS`
+## `AUTH_BASIC_SESSION_LIFETIME_MINUTES`
 
-*Default labels for new users*
+*Local session lifetime (minutes)*
 
-Labels created automatically for every new account. Set to an empty list to start users with no labels.
+How long a browser session stays valid before the user must log in again. Default is two weeks.
 
 | Property | Value |
 |---|---|
-| Type | List of str |
+| Type | int |
 | Required | No |
-| Default | `["Work", "Private", "Inspiration"]` |
-| Environment variable | `NEW_USER_DEFAULT_LABELS` |
+| Default | `20160` |
+| Environment variable | `AUTH_BASIC_SESSION_LIFETIME_MINUTES` |
 
 **Examples:**
 
 *Example 1:*
 
 ```yaml
-NEW_USER_DEFAULT_LABELS:
-- Work
-- Private
-- Inspiration
+AUTH_BASIC_SESSION_LIFETIME_MINUTES: 20160
 ```
 
 *Example 2:*
 
 ```yaml
-NEW_USER_DEFAULT_LABELS: []
+AUTH_BASIC_SESSION_LIFETIME_MINUTES: 1440
 ```
 
 ---
 
-## `APP_PROVISIONING_DATA_YAML_FILES`
+## `API_TOKEN_DEFAULT_EXPIRY_TIME_MINUTES`
 
-*Extra provisioning data files*
+*Default API token lifetime (minutes)*
 
-Optional list of YAML files whose contents are loaded into the database on start. Use this to seed an instance with predefined data. Most deployments leave it empty.
+How long a newly created API token stays valid. Applies to the token minted on login and to tokens created in the token manager. Set to null for no default expiry.
 
 | Property | Value |
 |---|---|
-| Type | List of str |
+| Type | int |
 | Required | No |
-| Environment variable | `APP_PROVISIONING_DATA_YAML_FILES` |
+| Default | `10080` |
+| Environment variable | `API_TOKEN_DEFAULT_EXPIRY_TIME_MINUTES` |
 
 **Examples:**
 
+*Example 1:*
+
 ```yaml
-APP_PROVISIONING_DATA_YAML_FILES:
-- /config/seed_data.yaml
+API_TOKEN_DEFAULT_EXPIRY_TIME_MINUTES: 10080
+```
+
+*Example 2:*
+
+```yaml
+API_TOKEN_DEFAULT_EXPIRY_TIME_MINUTES: 43200
 ```
 
 ---
 
-## `APP_PROVISIONING_DEFAULT_DATA_YAML_FILE`
+## `API_TOKEN_ALLOW_NEVER_EXPIRE`
 
-*Default provisioning data file*
+*Allow never-expiring API tokens*
 
-Baseline data (roles and similar) always loaded on start. This ships with the app and normally should not be changed. To seed your own data use APP_PROVISIONING_DATA_YAML_FILES instead.
+Whether users may create API tokens that never expire. When false, every token must carry an expiry: the 'Never' option is hidden in the UI and rejected by the server.
 
 | Property | Value |
 |---|---|
-| Type | str |
+| Type | bool |
 | Required | No |
-| Default | `"./CheckCheck/backend/checkcheckserver/default_data.yaml"` |
-| Environment variable | `APP_PROVISIONING_DEFAULT_DATA_YAML_FILE` |
+| Default | `true` |
+| Environment variable | `API_TOKEN_ALLOW_NEVER_EXPIRE` |
 
 ---
 
@@ -571,81 +422,6 @@ Allow anyone to create a local account through the public registration endpoint.
 | Required | No |
 | Default | `false` |
 | Environment variable | `AUTH_BASIC_USER_DB_REGISTER_ENABLED` |
-
----
-
-## `AUTH_BASIC_SESSION_LIFETIME_MINUTES`
-
-*Local session lifetime (minutes)*
-
-How long a browser session stays valid before the user must log in again. Default is two weeks.
-
-| Property | Value |
-|---|---|
-| Type | int |
-| Required | No |
-| Default | `20160` |
-| Environment variable | `AUTH_BASIC_SESSION_LIFETIME_MINUTES` |
-
-**Examples:**
-
-*Example 1:*
-
-```yaml
-AUTH_BASIC_SESSION_LIFETIME_MINUTES: 20160
-```
-
-*Example 2:*
-
-```yaml
-AUTH_BASIC_SESSION_LIFETIME_MINUTES: 1440
-```
-
----
-
-## `AUTH_JWT_SECRET`
-
-*JWT signing secret*
-
-Secret used to sign API access tokens (JWT). Provide a long random string, keep it stable, and keep it different from SERVER_SESSION_SECRET. Required, minimum 64 characters. Generate one with `openssl rand -hex 32`.
-
-| Property | Value |
-|---|---|
-| Type | Object |
-| Required | **Yes** |
-| Constraints | MinLen(min_length=64) |
-| Environment variable | `AUTH_JWT_SECRET` |
-
----
-
-## `AUTH_JWT_ALGORITHM`
-
-*JWT algorithm*
-
-Algorithm used to sign JWT tokens. Only HS256 is supported at the moment.
-
-| Property | Value |
-|---|---|
-| Type | Enum |
-| Required | No |
-| Default | `"HS256"` |
-| Allowed values | `HS256` |
-| Environment variable | `AUTH_JWT_ALGORITHM` |
-
----
-
-## `AUTH_ACCESS_TOKEN_EXPIRES_MINUTES`
-
-*Access token lifetime (minutes, deprecated)*
-
-Deprecated. Use API_TOKEN_DEFAULT_EXPIRY_TIME_MINUTES instead.
-
-| Property | Value |
-|---|---|
-| Type | int |
-| Required | No |
-| Default | `20160` |
-| Environment variable | `AUTH_ACCESS_TOKEN_EXPIRES_MINUTES` |
 
 ---
 
@@ -953,6 +729,59 @@ Secret used to encrypt OIDC access and refresh tokens before storing them in the
 
 ---
 
+## `NEW_USER_DEFAULT_LABELS`
+
+*Default labels for new users*
+
+Labels created automatically for every new account. Set to an empty list to start users with no labels.
+
+| Property | Value |
+|---|---|
+| Type | List of str |
+| Required | No |
+| Default | `["Work", "Private", "Inspiration"]` |
+| Environment variable | `NEW_USER_DEFAULT_LABELS` |
+
+**Examples:**
+
+*Example 1:*
+
+```yaml
+NEW_USER_DEFAULT_LABELS:
+- Work
+- Private
+- Inspiration
+```
+
+*Example 2:*
+
+```yaml
+NEW_USER_DEFAULT_LABELS: []
+```
+
+---
+
+## `APP_PROVISIONING_DATA_YAML_FILES`
+
+*Extra provisioning data files*
+
+Optional list of YAML files whose contents are loaded into the database on start. Use this to seed an instance with predefined data. Most deployments leave it empty.
+
+| Property | Value |
+|---|---|
+| Type | List of str |
+| Required | No |
+| Environment variable | `APP_PROVISIONING_DATA_YAML_FILES` |
+
+**Examples:**
+
+```yaml
+APP_PROVISIONING_DATA_YAML_FILES:
+- /config/seed_data.yaml
+```
+
+---
+
 ## `EXPORT_CACHE_DIR`
 
 *Export cache directory*
@@ -965,6 +794,177 @@ Directory where the results of export jobs (CSV, JSON) are written. Must be writ
 | Required | No |
 | Default | `"./export_cache"` |
 | Environment variable | `EXPORT_CACHE_DIR` |
+
+---
+
+## `SET_SESSION_COOKIE_SECURE`
+
+*Secure session cookie*
+
+When true the session cookie is only sent over HTTPS. Set to false for local development over plain HTTP, otherwise the browser drops the cookie and login appears to do nothing. Keep it true in production.
+
+| Property | Value |
+|---|---|
+| Type | bool |
+| Required | No |
+| Default | `true` |
+| Environment variable | `SET_SESSION_COOKIE_SECURE` |
+
+---
+
+## `CLIENT_URL`
+
+*Extra allowed origin*
+
+An additional browser origin allowed to call the API (CORS), on top of the server's own URL. Only needed when the frontend is served from a different origin than the backend, for example during frontend development.
+
+| Property | Value |
+|---|---|
+| Type | str |
+| Required | No |
+| Default | `null` |
+| Environment variable | `CLIENT_URL` |
+
+**Examples:**
+
+```yaml
+CLIENT_URL: http://localhost:3000
+```
+
+---
+
+## `DEBUG_SQL`
+
+*Log SQL statements*
+
+When true, the database engine prints every SQL query to the log. Very verbose; leave off unless debugging queries.
+
+| Property | Value |
+|---|---|
+| Type | bool |
+| Required | No |
+| Default | `false` |
+| Environment variable | `DEBUG_SQL` |
+
+---
+
+## `SERVER_UVICORN_LOG_LEVEL`
+
+*Uvicorn log level*
+
+Log level for the uvicorn web server. Falls back to LOG_LEVEL when unset.
+
+| Property | Value |
+|---|---|
+| Type | str |
+| Required | No |
+| Default | `null` |
+| Environment variable | `SERVER_UVICORN_LOG_LEVEL` |
+
+**Examples:**
+
+*Example 1:*
+
+```yaml
+SERVER_UVICORN_LOG_LEVEL: info
+```
+
+*Example 2:*
+
+```yaml
+SERVER_UVICORN_LOG_LEVEL: warning
+```
+
+---
+
+## `AUTH_JWT_ALGORITHM`
+
+*JWT algorithm*
+
+Algorithm used to sign JWT tokens. Only HS256 is supported at the moment.
+
+| Property | Value |
+|---|---|
+| Type | Enum |
+| Required | No |
+| Default | `"HS256"` |
+| Allowed values | `HS256` |
+| Environment variable | `AUTH_JWT_ALGORITHM` |
+
+---
+
+## `AUTH_ACCESS_TOKEN_EXPIRES_MINUTES`
+
+*Access token lifetime (minutes, deprecated)*
+
+Deprecated. Use API_TOKEN_DEFAULT_EXPIRY_TIME_MINUTES instead.
+
+| Property | Value |
+|---|---|
+| Type | int |
+| Required | No |
+| Default | `20160` |
+| Environment variable | `AUTH_ACCESS_TOKEN_EXPIRES_MINUTES` |
+
+---
+
+## `ADMIN_ROLE_NAME`
+
+*Admin role name*
+
+Name of the role that grants full administrative access. Rarely needs changing.
+
+| Property | Value |
+|---|---|
+| Type | str |
+| Required | No |
+| Default | `"admin"` |
+| Environment variable | `ADMIN_ROLE_NAME` |
+
+---
+
+## `USERMANAGER_ROLE_NAME`
+
+*User-manager role name*
+
+Name of the role that may manage other users without full admin rights. Rarely needs changing.
+
+| Property | Value |
+|---|---|
+| Type | str |
+| Required | No |
+| Default | `"usermanager"` |
+| Environment variable | `USERMANAGER_ROLE_NAME` |
+
+---
+
+## `APP_PROVISIONING_DEFAULT_DATA_YAML_FILE`
+
+*Default provisioning data file*
+
+Baseline data (roles and similar) always loaded on start. This ships with the app and normally should not be changed. To seed your own data use APP_PROVISIONING_DATA_YAML_FILES instead.
+
+| Property | Value |
+|---|---|
+| Type | str |
+| Required | No |
+| Default | `"./CheckCheck/backend/checkcheckserver/default_data.yaml"` |
+| Environment variable | `APP_PROVISIONING_DEFAULT_DATA_YAML_FILE` |
+
+---
+
+## `DOCKER_MODE`
+
+*Running inside the official Docker image*
+
+Set automatically by the Docker image. Only affects a few path defaults; do not set it by hand outside a container.
+
+| Property | Value |
+|---|---|
+| Type | bool |
+| Required | No |
+| Default | `false` |
+| Environment variable | `DOCKER_MODE` |
 
 ---
 

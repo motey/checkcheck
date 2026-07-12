@@ -73,16 +73,6 @@ class Config(BaseSettings):
             "something misbehaves; `INFO` is the sensible default for production."
         ),
     )
-    DEBUG_SQL: bool = Field(
-        default=False,
-        title="Log SQL statements",
-        description="When true, the database engine prints every SQL query to the log. Very verbose; leave off unless debugging queries.",
-    )
-    DOCKER_MODE: bool = Field(
-        default=False,
-        title="Running inside the official Docker image",
-        description="Set automatically by the Docker image. Only affects a few path defaults; do not set it by hand outside a container.",
-    )
 
     # ── Web server ────────────────────────────────────────────────────────────
     SERVER_LISTENING_HOST: str = Field(
@@ -121,61 +111,6 @@ class Config(BaseSettings):
             "cannot see the original scheme in every proxy setup."
         ),
     )
-    CLIENT_URL: Optional[str] = Field(
-        default=None,
-        title="Extra allowed origin",
-        description=(
-            "An additional browser origin allowed to call the API (CORS), on top of the "
-            "server's own URL. Only needed when the frontend is served from a different "
-            "origin than the backend, for example during frontend development."
-        ),
-        examples=["http://localhost:3000"],
-    )
-    SERVER_UVICORN_LOG_LEVEL: Optional[str] = Field(
-        default=None,
-        title="Uvicorn log level",
-        description="Log level for the uvicorn web server. Falls back to LOG_LEVEL when unset.",
-        examples=["info", "warning"],
-    )
-
-    # ── Sessions & tokens ─────────────────────────────────────────────────────
-    SERVER_SESSION_SECRET: SecretStr = Field(
-        title="Session secret",
-        description=(
-            "Secret used to sign the browser session cookie. Provide a long random string "
-            "and keep it stable: changing it logs everyone out. Required, minimum 64 "
-            "characters. Generate one with `openssl rand -hex 32`."
-        ),
-        min_length=64,
-    )
-    SET_SESSION_COOKIE_SECURE: bool = Field(
-        default=True,
-        title="Secure session cookie",
-        description=(
-            "When true the session cookie is only sent over HTTPS. Set to false for local "
-            "development over plain HTTP, otherwise the browser drops the cookie and login "
-            "appears to do nothing. Keep it true in production."
-        ),
-    )
-    API_TOKEN_DEFAULT_EXPIRY_TIME_MINUTES: Optional[int] = Field(
-        default=60 * 24 * 7,  # one week
-        title="Default API token lifetime (minutes)",
-        description=(
-            "How long a newly created API token stays valid. Applies to the token minted on "
-            "login and to tokens created in the token manager. Set to null for no default "
-            "expiry."
-        ),
-        examples=[60 * 24 * 7, 60 * 24 * 30],
-    )
-    API_TOKEN_ALLOW_NEVER_EXPIRE: bool = Field(
-        default=True,
-        title="Allow never-expiring API tokens",
-        description=(
-            "Whether users may create API tokens that never expire. When false, every token "
-            "must carry an expiry: the 'Never' option is hidden in the UI and rejected by the "
-            "server."
-        ),
-    )
 
     # ── Database ──────────────────────────────────────────────────────────────
     SQL_DATABASE_URL: str = Field(
@@ -212,41 +147,51 @@ class Config(BaseSettings):
         description="Optional email address for the built-in administrator account.",
         examples=["admin@example.com"],
     )
-    ADMIN_ROLE_NAME: str = Field(
-        default="admin",
-        title="Admin role name",
-        description="Name of the role that grants full administrative access. Rarely needs changing.",
+
+    # ── Secrets (required) ────────────────────────────────────────────────────
+    SERVER_SESSION_SECRET: SecretStr = Field(
+        title="Session secret",
+        description=(
+            "Secret used to sign the browser session cookie. Provide a long random string "
+            "and keep it stable: changing it logs everyone out. Required, minimum 64 "
+            "characters. Generate one with `openssl rand -hex 32`."
+        ),
+        min_length=64,
     )
-    USERMANAGER_ROLE_NAME: str = Field(
-        default="usermanager",
-        title="User-manager role name",
-        description="Name of the role that may manage other users without full admin rights. Rarely needs changing.",
+    AUTH_JWT_SECRET: SecretStr = Field(
+        title="JWT signing secret",
+        description=(
+            "Secret used to sign API access tokens (JWT). Provide a long random string, keep "
+            "it stable, and keep it different from SERVER_SESSION_SECRET. Required, minimum 64 "
+            "characters. Generate one with `openssl rand -hex 32`."
+        ),
+        min_length=64,
     )
 
-    # ── Provisioning & defaults ───────────────────────────────────────────────
-    NEW_USER_DEFAULT_LABELS: Optional[List[str]] = Field(
-        default=["Work", "Private", "Inspiration"],
-        title="Default labels for new users",
-        description="Labels created automatically for every new account. Set to an empty list to start users with no labels.",
-        examples=[["Work", "Private", "Inspiration"], []],
+    # ── Sessions & API tokens ─────────────────────────────────────────────────
+    AUTH_BASIC_SESSION_LIFETIME_MINUTES: Optional[int] = Field(
+        default=60 * 24 * 14,  # two weeks
+        title="Local session lifetime (minutes)",
+        description="How long a browser session stays valid before the user must log in again. Default is two weeks.",
+        examples=[60 * 24 * 14, 60 * 24],
     )
-    APP_PROVISIONING_DATA_YAML_FILES: Optional[List[str]] = Field(
-        default_factory=list,
-        title="Extra provisioning data files",
+    API_TOKEN_DEFAULT_EXPIRY_TIME_MINUTES: Optional[int] = Field(
+        default=60 * 24 * 7,  # one week
+        title="Default API token lifetime (minutes)",
         description=(
-            "Optional list of YAML files whose contents are loaded into the database on "
-            "start. Use this to seed an instance with predefined data. Most deployments leave "
-            "it empty."
+            "How long a newly created API token stays valid. Applies to the token minted on "
+            "login and to tokens created in the token manager. Set to null for no default "
+            "expiry."
         ),
-        examples=[["/config/seed_data.yaml"]],
+        examples=[60 * 24 * 7, 60 * 24 * 30],
     )
-    APP_PROVISIONING_DEFAULT_DATA_YAML_FILE: str = Field(
-        default=str(Path(checkcheckserver_folder, "default_data.yaml")),
-        title="Default provisioning data file",
+    API_TOKEN_ALLOW_NEVER_EXPIRE: bool = Field(
+        default=True,
+        title="Allow never-expiring API tokens",
         description=(
-            "Baseline data (roles and similar) always loaded on start. This ships with the "
-            "app and normally should not be changed. To seed your own data use "
-            "APP_PROVISIONING_DATA_YAML_FILES instead."
+            "Whether users may create API tokens that never expire. When false, every token "
+            "must carry an expiry: the 'Never' option is hidden in the UI and rejected by the "
+            "server."
         ),
     )
 
@@ -294,34 +239,6 @@ class Config(BaseSettings):
             "Off by default. Enable only when you have anti-abuse controls in place, since "
             "there is no email verification step yet."
         ),
-    )
-    AUTH_BASIC_SESSION_LIFETIME_MINUTES: Optional[int] = Field(
-        default=60 * 24 * 14,  # two weeks
-        title="Local session lifetime (minutes)",
-        description="How long a browser session stays valid before the user must log in again. Default is two weeks.",
-        examples=[60 * 24 * 14, 60 * 24],
-    )
-
-    # ── JWT signing ───────────────────────────────────────────────────────────
-    AUTH_JWT_SECRET: SecretStr = Field(
-        title="JWT signing secret",
-        description=(
-            "Secret used to sign API access tokens (JWT). Provide a long random string, keep "
-            "it stable, and keep it different from SERVER_SESSION_SECRET. Required, minimum 64 "
-            "characters. Generate one with `openssl rand -hex 32`."
-        ),
-        min_length=64,
-    )
-    AUTH_JWT_ALGORITHM: Literal["HS256"] = Field(
-        default="HS256",
-        title="JWT algorithm",
-        description="Algorithm used to sign JWT tokens. Only HS256 is supported at the moment.",
-    )
-    AUTH_ACCESS_TOKEN_EXPIRES_MINUTES: Optional[int] = Field(
-        default=60 * 24 * 14,
-        title="Access token lifetime (minutes, deprecated)",
-        description="Deprecated. Use API_TOKEN_DEFAULT_EXPIRY_TIME_MINUTES instead.",
-        deprecated=True,
     )
 
     # ── OpenID Connect (external login) ───────────────────────────────────────
@@ -460,6 +377,24 @@ class Config(BaseSettings):
         ),
     )
 
+    # ── Provisioning & defaults ───────────────────────────────────────────────
+    NEW_USER_DEFAULT_LABELS: Optional[List[str]] = Field(
+        default=["Work", "Private", "Inspiration"],
+        title="Default labels for new users",
+        description="Labels created automatically for every new account. Set to an empty list to start users with no labels.",
+        examples=[["Work", "Private", "Inspiration"], []],
+    )
+    APP_PROVISIONING_DATA_YAML_FILES: Optional[List[str]] = Field(
+        default_factory=list,
+        title="Extra provisioning data files",
+        description=(
+            "Optional list of YAML files whose contents are loaded into the database on "
+            "start. Use this to seed an instance with predefined data. Most deployments leave "
+            "it empty."
+        ),
+        examples=[["/config/seed_data.yaml"]],
+    )
+
     # ── Export ────────────────────────────────────────────────────────────────
     EXPORT_CACHE_DIR: str = Field(
         default="./export_cache",
@@ -467,7 +402,75 @@ class Config(BaseSettings):
         description="Directory where the results of export jobs (CSV, JSON) are written. Must be writable by the server process.",
     )
 
-    # ── Internal paths (rarely changed) ───────────────────────────────────────
+    # ── Development & advanced switches ────────────────────────────────────────
+    # Everything below has a sensible default that most deployments never touch.
+    # These are debugging aids, local-development conveniences, deprecated
+    # settings, and internal paths the Docker image manages for you.
+    SET_SESSION_COOKIE_SECURE: bool = Field(
+        default=True,
+        title="Secure session cookie",
+        description=(
+            "When true the session cookie is only sent over HTTPS. Set to false for local "
+            "development over plain HTTP, otherwise the browser drops the cookie and login "
+            "appears to do nothing. Keep it true in production."
+        ),
+    )
+    CLIENT_URL: Optional[str] = Field(
+        default=None,
+        title="Extra allowed origin",
+        description=(
+            "An additional browser origin allowed to call the API (CORS), on top of the "
+            "server's own URL. Only needed when the frontend is served from a different "
+            "origin than the backend, for example during frontend development."
+        ),
+        examples=["http://localhost:3000"],
+    )
+    DEBUG_SQL: bool = Field(
+        default=False,
+        title="Log SQL statements",
+        description="When true, the database engine prints every SQL query to the log. Very verbose; leave off unless debugging queries.",
+    )
+    SERVER_UVICORN_LOG_LEVEL: Optional[str] = Field(
+        default=None,
+        title="Uvicorn log level",
+        description="Log level for the uvicorn web server. Falls back to LOG_LEVEL when unset.",
+        examples=["info", "warning"],
+    )
+    AUTH_JWT_ALGORITHM: Literal["HS256"] = Field(
+        default="HS256",
+        title="JWT algorithm",
+        description="Algorithm used to sign JWT tokens. Only HS256 is supported at the moment.",
+    )
+    AUTH_ACCESS_TOKEN_EXPIRES_MINUTES: Optional[int] = Field(
+        default=60 * 24 * 14,
+        title="Access token lifetime (minutes, deprecated)",
+        description="Deprecated. Use API_TOKEN_DEFAULT_EXPIRY_TIME_MINUTES instead.",
+        deprecated=True,
+    )
+    ADMIN_ROLE_NAME: str = Field(
+        default="admin",
+        title="Admin role name",
+        description="Name of the role that grants full administrative access. Rarely needs changing.",
+    )
+    USERMANAGER_ROLE_NAME: str = Field(
+        default="usermanager",
+        title="User-manager role name",
+        description="Name of the role that may manage other users without full admin rights. Rarely needs changing.",
+    )
+    APP_PROVISIONING_DEFAULT_DATA_YAML_FILE: str = Field(
+        default=str(Path(checkcheckserver_folder, "default_data.yaml")),
+        title="Default provisioning data file",
+        description=(
+            "Baseline data (roles and similar) always loaded on start. This ships with the "
+            "app and normally should not be changed. To seed your own data use "
+            "APP_PROVISIONING_DATA_YAML_FILES instead."
+        ),
+    )
+    DOCKER_MODE: bool = Field(
+        default=False,
+        title="Running inside the official Docker image",
+        description="Set automatically by the Docker image. Only affects a few path defaults; do not set it by hand outside a container.",
+    )
     FRONTEND_FILES_DIR: str = Field(
         default="CheckCheck/frontend/.output/public",
         title="Frontend files directory",
