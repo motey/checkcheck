@@ -1,0 +1,87 @@
+name: docker
+
+# Builds and pushes the Docker image on a GitHub Release.
+#   - every release  -> :<version>  (e.g. :0.1.0, from the bare git tag)
+#   - normal release -> :latest  + LOG_LEVEL=INFO
+#   - pre-release    -> :beta    + LOG_LEVEL=DEBUG
+#
+# Release git tags are expected to be bare (e.g. 0.1.0). A stray leading "v" is
+# tolerated and stripped from the image tag.
+#
+# Required repository secrets:
+#   DOCKERHUB_USERNAME  Docker Hub login (needs push access to motey/checkcheck)
+#   DOCKERHUB_TOKEN     Docker Hub access token. For the "Update Docker Hub
+#                       description" step to work it must be a Read/Write/Delete
+#                       scoped PAT (image push works with any read/write token).
+on:
+  release:
+    types: [published]
+
+env:
+  IMAGE: motey/checkcheck
+
+jobs:
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Compute version, tags and log level
+        id: meta
+        env:
+          TAG_NAME: ${{ github.event.release.tag_name }}
+          PRERELEASE: ${{ github.event.release.prerelease }}
+        run: |
+          VERSION="${TAG_NAME#v}"
+          TAGS="${IMAGE}:${VERSION}"
+          if [ "${PRERELEASE}" = "true" ]; then
+            TAGS="${TAGS},${IMAGE}:beta"
+            # Pre-release/beta keeps verbose logging for diagnosing.
+            LOG_LEVEL="DEBUG"
+          else
+            TAGS="${TAGS},${IMAGE}:latest"
+            # Production releases ship without debug logging.
+            LOG_LEVEL="INFO"
+          fi
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "tags=${TAGS}" >> "$GITHUB_OUTPUT"
+          echo "log_level=${LOG_LEVEL}" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-qemu-action@v4
+      - uses: docker/setup-buildx-action@v4
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v4
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          push: true
+          platforms: linux/amd64,linux/arm64
+          build-args: |
+            APP_VERSION=${{ steps.meta.outputs.version }}
+            LOG_LEVEL=${{ steps.meta.outputs.log_level }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: |
+            org.opencontainers.image.version=${{ steps.meta.outputs.version }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # Cosmetic — the image is already pushed above, so never fail a release on it.
+      - name: Update Docker Hub description
+        continue-on-error: true
+        uses: peter-evans/dockerhub-description@v5
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          repository: ${{ env.IMAGE }}
+          short-description: "CheckCheck — collaborative, offline-capable checklists (web UI + REST API)."
+          readme-filepath: ./README.md

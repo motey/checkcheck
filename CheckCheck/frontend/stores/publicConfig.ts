@@ -30,6 +30,9 @@ export const usePublicConfigStore = defineStore("publicConfig", {
     // Whether the token manager may offer a never-expiring key.
     apiTokenAllowNeverExpire: (state): boolean =>
       state.config?.api_token_allow_never_expire ?? false,
+    // The running server's version string, surfaced in the UI. Null until the
+    // config resolves.
+    serverVersion: (state): string | null => state.config?.server_version ?? null,
   },
   actions: {
     async fetch(): Promise<PublicConfigType | null> {

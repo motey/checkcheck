@@ -1,57 +1,69 @@
-#FRONTEND BUILD STAGE
+# syntax=docker/dockerfile:1
 
-
-FROM oven/bun AS medlog-frontend-build
-RUN mkdir /frontend_build
+# ---------------------------------------------------------------------------
+# FRONTEND BUILD STAGE
+# Nuxt static generate — the resulting files are served by the backend.
+# ---------------------------------------------------------------------------
+FROM oven/bun AS frontend-build
 WORKDIR /frontend_build
 COPY CheckCheck/frontend /frontend_build
 RUN bun install && bun run build && bunx nuxi generate
 
-# BACKEND BUILD AND RUN STAGE
-FROM python:3.11 AS medlog-backend
-RUN python3 -m pip install --upgrade pip
-COPY --from=medlog-frontend-build /frontend_build/.output/public /app 
-ENV DOCKER_MODE=1
-ENV FRONTEND_FILES_DIR=/app
-#RUN apt-get update && apt-get install git -y
-#
+# ---------------------------------------------------------------------------
+# BACKEND BUILD + RUNTIME STAGE
+# ---------------------------------------------------------------------------
+FROM python:3.13 AS backend
+
 ARG APPNAME=DZDCheckCheck
 ARG MODULENAME=checkcheckserver
-#
-# prep stuff
+
+# Injected by CI (see .github/workflows). APP_VERSION defaults to 0.0.1 so a
+# plain `docker build` still produces a valid version; CI overrides it with the
+# git-derived (dev) or release-tag version. LOG_LEVEL becomes the image default
+# and is read at runtime via the LOG_LEVEL env var.
+ARG APP_VERSION=0.0.1
+ARG LOG_LEVEL=INFO
+
+RUN python3 -m pip install --upgrade pip pip-tools
+
+# Static frontend produced by the stage above.
+COPY --from=frontend-build /frontend_build/.output/public /app
+ENV DOCKER_MODE=1
+ENV FRONTEND_FILES_DIR=/app
+
 RUN mkdir -p /opt/$APPNAME/$MODULENAME
 WORKDIR /opt/$APPNAME
-RUN pip install -U pip-tools
 
-# Generate requirements.txt based on depenencies defined in pyproject.toml
-COPY CheckCheck/backend/pyproject.toml /opt/$APPNAME/$MODULENAME
+# Resolve + install backend dependencies from pyproject.toml.
+COPY CheckCheck/backend/pyproject.toml /opt/$APPNAME/$MODULENAME/
 RUN pip-compile -o /opt/$APPNAME/requirements.txt /opt/$APPNAME/$MODULENAME/pyproject.toml
-
-# Install requirements
 RUN pip install -U -r /opt/$APPNAME/requirements.txt
 
-# install app
+# Install the application.
 COPY CheckCheck/backend/checkcheckserver /opt/$APPNAME/$MODULENAME
 
-# copy .git folder to be able to generate version file
-COPY .git /opt/$APPNAME/.git
-RUN echo "__version__ = '$(python -m setuptools_scm 2>/dev/null | tail -n 1)'" > /opt/$APPNAME/$MODULENAME/__version__.py
-# Remove git folder to reduce image size
-RUN rm -r /opt/$APPNAME/.git
+# Stamp the version instead of shipping the .git folder. BOTH names are
+# required: checkcheckserver/__init__.py also imports __version_git_branch__ and
+# only guards ModuleNotFoundError, so a partial file would crash on boot.
+RUN printf "__version__ = '%s'\n__version_git_branch__ = None\n" "$APP_VERSION" \
+    > /opt/$APPNAME/$MODULENAME/__version__.py
 
-#Copy default app data provisioning files
-RUN mkdir /prov
+# Default provisioning data (nothing is loaded unless
+# APP_PROVISIONING_DATA_YAML_FILES points at a file here).
 COPY CheckCheck/backend/provisioning_data /provisioning
 
-
-# Install data
 RUN mkdir -p /data/db
-# set base config
+
 WORKDIR /opt/$APPNAME/$MODULENAME
-# set base config
+
+# Runtime configuration.
 ENV SERVER_LISTENING_HOST=0.0.0.0
+ENV LOG_LEVEL=${LOG_LEVEL}
 ENV APP_PROVISIONING_DATA_YAML_FILES='[]'
-ENV DRUG_TABLE_PROVISIONING_SOURCE_DIR=/data/provisioning/arzneimittelindex
 ENV SQL_DATABASE_URL=sqlite+aiosqlite:////data/db/local.sqlite
+
+LABEL org.opencontainers.image.title="CheckCheck" \
+      org.opencontainers.image.version="${APP_VERSION}" \
+      org.opencontainers.image.source="https://github.com/motey/checkcheck"
+
 ENTRYPOINT ["python", "./main.py"]
-#CMD [ "python", "./main.py" ]

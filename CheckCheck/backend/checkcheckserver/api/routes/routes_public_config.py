@@ -12,6 +12,7 @@ from typing import Optional
 from fastapi import APIRouter
 from pydantic import BaseModel, Field
 
+from checkcheckserver import __version__ as server_version
 from checkcheckserver.config import Config
 from checkcheckserver.log import get_logger
 
@@ -44,6 +45,9 @@ class PublicConfig(BaseModel):
     api_token_allow_never_expire: bool = Field(
         description="Whether users may create never-expiring API keys. When false, the token manager hides the 'Never' option.",
     )
+    server_version: str = Field(
+        description="The running server's version string (from checkcheckserver.__version__), surfaced so the web client can display it.",
+    )
 
 
 def _default_api_token_expiry_days() -> Optional[int]:
@@ -69,4 +73,5 @@ async def get_public_config() -> PublicConfig:
         sharing_require_invite_accept=config.SHARING_REQUIRE_INVITE_ACCEPT,
         api_token_default_expiry_days=_default_api_token_expiry_days(),
         api_token_allow_never_expire=config.API_TOKEN_ALLOW_NEVER_EXPIRE,
+        server_version=server_version,
     )

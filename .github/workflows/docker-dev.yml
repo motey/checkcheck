@@ -1,0 +1,72 @@
+name: docker-dev
+
+# Bleeding-edge channel: rebuilds the :dev image on every push to main.
+# x86-only (linux/amd64) — no QEMU, so it stays fast; the released images
+# (docker.yml) are the multi-arch ones. Not for production.
+#
+# Tags pushed:  :dev  and  :<version>  (version derived from the latest git tag
+# by setuptools_scm, e.g. 0.1.1.dev3+g8f44816 → 0.1.1.dev3_g8f44816; 0.0.1 when
+# no tag exists yet). Logging defaults to DEBUG.
+#
+# Required repository secrets:
+#   DOCKERHUB_USERNAME  Docker Hub login (needs push access to motey/checkcheck)
+#   DOCKERHUB_TOKEN     Docker Hub access token
+on:
+  push:
+    branches: [main]
+
+concurrency:
+  group: docker-dev-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  IMAGE: motey/checkcheck
+
+jobs:
+  docker-dev:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0 # full history + tags so setuptools_scm can resolve a version
+      - run: git fetch --tags --force origin
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Compute version from git
+        id: version
+        run: |
+          python -m pip install --quiet setuptools_scm
+          RAW=$(python -c "from setuptools_scm import get_version; print(get_version(root='.', fallback_version='0.0.1'))")
+          # Docker tags may not contain '+'; sanitize the local-version segment.
+          echo "raw=${RAW}" >> "$GITHUB_OUTPUT"
+          echo "docker=${RAW//+/_}" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-buildx-action@v4
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v4
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          push: true
+          platforms: linux/amd64
+          build-args: |
+            APP_VERSION=${{ steps.version.outputs.raw }}
+            LOG_LEVEL=DEBUG
+          tags: |
+            ${{ env.IMAGE }}:dev
+            ${{ env.IMAGE }}:${{ steps.version.outputs.docker }}
+          labels: |
+            org.opencontainers.image.version=${{ steps.version.outputs.raw }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

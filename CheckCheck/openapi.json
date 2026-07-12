@@ -7278,6 +7278,11 @@
             "type": "boolean",
             "title": "Api Token Allow Never Expire",
             "description": "Whether users may create never-expiring API keys. When false, the token manager hides the 'Never' option."
+          },
+          "server_version": {
+            "type": "string",
+            "title": "Server Version",
+            "description": "The running server's version string (from checkcheckserver.__version__), surfaced so the web client can display it."
           }
         },
         "type": "object",
@@ -7286,7 +7291,8 @@
           "sharing_public_links_enabled",
           "sharing_user_search_enabled",
           "sharing_require_invite_accept",
-          "api_token_allow_never_expire"
+          "api_token_allow_never_expire",
+          "server_version"
         ],
         "title": "PublicConfig",
         "description": "The subset of server feature flags the web client needs to decide which\nsharing UI to render. Mirrors the like-named ``Config`` switches."

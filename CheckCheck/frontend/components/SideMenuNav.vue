@@ -117,6 +117,17 @@
           <span v-if="!collapsed" class="truncate">Edit Labels</span>
         </NuxtLink>
       </UTooltip>
+
+      <!-- Running server version (from GET /api/public-config). Hidden until the
+           config resolves and when the rail is collapsed. -->
+      <p
+        v-if="!collapsed && serverVersion"
+        data-testid="sidebar-server-version"
+        class="px-2 pt-2 text-xs text-muted/70 tabular-nums truncate"
+        :title="`CheckCheck server ${serverVersion}`"
+      >
+        v{{ serverVersion }}
+      </p>
     </div>
   </nav>
 </template>
@@ -127,6 +138,7 @@ import { useRoute } from "vue-router";
 import { useCheckListsLabelStore } from "@/stores/label";
 import { useCheckListsColorSchemeStore } from "@/stores/color";
 import { useCheckListsStore } from "@/stores/checklist";
+import { usePublicConfigStore } from "@/stores/publicConfig";
 
 const props = defineProps<{ collapsed?: boolean }>();
 
@@ -135,6 +147,10 @@ const colorMode = useColorMode();
 const labelStore = useCheckListsLabelStore();
 const colorStore = useCheckListsColorSchemeStore();
 const checkListStore = useCheckListsStore();
+const publicConfig = usePublicConfigStore();
+
+// Running server version, shown in the sidebar footer (null until config loads).
+const serverVersion = computed(() => publicConfig.serverVersion);
 
 // Sidebar count badges (fetched once on mount, kept fresh via useSync). null
 // until the first fetch resolves — badges just stay hidden until then.
