@@ -140,4 +140,49 @@ test.describe("label reorder", () => {
       })
       .toBe(true);
   });
+
+  // Chunk E: label CRUD is online-only (WI-12). Offline, the editor must degrade
+  // gracefully — a visible "you're offline" notice + disabled controls — rather
+  // than a silent no-op click (the store's assertOnline guard is the backstop).
+  test("label editor shows an offline notice and disables its controls offline", async ({
+    page,
+    context,
+  }) => {
+    const tag = Date.now();
+    const name = `LblOff-${tag}`;
+    const label = await apiPost(page, "/api/label", { display_name: name });
+    cleanupLabels.push(label.id);
+
+    await page.goto("/?editlabels=true");
+    const dialog = page.locator('[role="dialog"]');
+    await expect(dialog).toBeVisible({ timeout: 5_000 });
+
+    // Wait for our label row to render before flipping offline.
+    await expect
+      .poll(async () => (await labelOrder(page)).includes(name))
+      .toBe(true);
+
+    // Online first: the create input is usable and no notice is shown. (The Add
+    // button stays disabled until a name is typed, so assert the input, not it.)
+    await expect(dialog.locator("[data-testid=label-offline-notice]")).toHaveCount(0);
+    await expect(dialog.locator("form input")).toBeEnabled();
+
+    // Go offline — the window `offline` event drives the connectivity signal.
+    await context.setOffline(true);
+
+    // The notice appears and every mutating control disables.
+    await expect(dialog.locator("[data-testid=label-offline-notice]")).toBeVisible({
+      timeout: 5_000,
+    });
+    await expect(dialog.locator('form button[type="submit"]')).toBeDisabled();
+    await expect(dialog.locator("form input")).toBeDisabled();
+    await expect(dialog.locator("ul li input").first()).toBeDisabled();
+
+    // Back online: the notice clears and the create control re-enables.
+    await context.setOffline(false);
+    await expect(dialog.locator("[data-testid=label-offline-notice]")).toHaveCount(0, {
+      timeout: 5_000,
+    });
+    await expect(dialog.locator("form input")).toBeEnabled();
+  });
 });

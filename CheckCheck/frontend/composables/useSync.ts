@@ -6,7 +6,7 @@ import { useShareStore } from "@/stores/share";
 import { useNotificationStore } from "@/stores/notification";
 import { useInviteStore } from "@/stores/invite";
 import { isLocalFirstEnabled } from "@/utils/localFirst";
-import { setConnectivity } from "@/utils/connectivity";
+import { setConnectivity, probe } from "@/utils/connectivity";
 import { applyDelta } from "@/utils/localSnapshot";
 
 export const useSync = createSharedComposable(() => {
@@ -50,9 +50,32 @@ export const useSync = createSharedComposable(() => {
   // disconnected are lost → reconcile the store).
   let hasOpened = false;
 
+  // When a backgrounded tab returns to the foreground, catch up. A mobile PWA
+  // (iOS standalone especially) gets its page — and its SSE stream — frozen by
+  // the OS while backgrounded; on resume the browser's EventSource auto-reconnect
+  // *usually* fires `onopen` → a delta pull, but that is not guaranteed and can
+  // lag. A `visibilitychange → pull` is a cheap belt-and-suspenders that
+  // converges the board the moment the tab is visible again. Only fires on
+  // becoming visible (never on hide) so it costs nothing in the background.
+  async function onVisible() {
+    if (typeof document === "undefined" || document.visibilityState !== "visible") return;
+    if (isLocalFirstEnabled()) {
+      // The frozen tab may still believe it's online; confirm reachability first
+      // (this also flips the connectivity signal back so the outbox resumes
+      // draining and online-only surfaces re-enable), then pull the delta.
+      if (await probe()) void applyDelta(pinia);
+      return;
+    }
+    checkListStore.resync();
+    checkListStore.fetchCounts();
+  }
+
   function connect() {
     if (es) return;
     hasOpened = false;
+    if (typeof document !== "undefined") {
+      document.addEventListener("visibilitychange", onVisible);
+    }
     es = new EventSource("/api/sync");
     es.onopen = () => {
       // A live sync socket proves real server reachability — feed the outbox's
@@ -100,6 +123,9 @@ export const useSync = createSharedComposable(() => {
     es?.close();
     es = null;
     hasOpened = false;
+    if (typeof document !== "undefined") {
+      document.removeEventListener("visibilitychange", onVisible);
+    }
   }
 
   // Events that can change a sidebar count badge: create/delete (home), an

@@ -2,6 +2,7 @@ import { defineStore } from "pinia";
 import { isLocalFirstEnabled } from "@/utils/localFirst";
 import { useOutbox } from "@/composables/useOutbox";
 import { checklistLabelAddOp, checklistLabelRemoveOp } from "@/utils/outboxOps";
+import { assertOnline } from "@/utils/connectivity";
 
 export type CheckListLabelState = {
   labels: LabelType[];
@@ -81,6 +82,11 @@ export const useCheckListsLabelStore = defineStore("checkListLabelStore", {
       }
     },
     async createLabel(label: LabelCreateType) {
+      // Label CRUD stays online-only (WI-12): a create/rename/delete/reorder is
+      // never queued in the outbox, so offline we refuse up-front rather than
+      // silently no-op. The label editor UI disables its affordances and shows
+      // an offline hint; this is the belt-and-suspenders backstop.
+      assertOnline("Creating a label isn't available offline.");
       const { $checkapi } = useNuxtApp();
       try {
         const fresh_label = await $checkapi("/api/label", { method: "post", body: label });
@@ -93,6 +99,7 @@ export const useCheckListsLabelStore = defineStore("checkListLabelStore", {
       }
     },
     async updateLabel(labelId: string, label: LabelUpdateType) {
+      assertOnline("Editing a label isn't available offline.");
       const { $checkapi } = useNuxtApp();
       try {
         const fresh_label = await $checkapi("/api/label/{label_id}", {
@@ -109,6 +116,7 @@ export const useCheckListsLabelStore = defineStore("checkListLabelStore", {
       }
     },
     async deleteLabel(labelId: string) {
+      assertOnline("Deleting a label isn't available offline.");
       const { $checkapi } = useNuxtApp();
       try {
         await $checkapi("/api/label/{label_id}", { method: "delete", path: { label_id: labelId } });
@@ -125,6 +133,7 @@ export const useCheckListsLabelStore = defineStore("checkListLabelStore", {
       // assigns ascending sort_order (10, 20, …) to the ids in the order it is
       // given. Reverse so the top-most label ends up with the highest
       // sort_order and the persisted order matches the visual order.
+      assertOnline("Reordering labels isn't available offline.");
       const { $checkapi } = useNuxtApp();
       try {
         const fresh_labels = await $checkapi("/api/label/sort", {
