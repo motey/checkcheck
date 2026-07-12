@@ -8,6 +8,8 @@
     "generate": "nuxt generate",
     "preview": "nuxt preview",
     "postinstall": "nuxt prepare",
+    "test:unit": "vitest run",
+    "test:unit:watch": "vitest",
     "test:e2e": "playwright test",
     "test:e2e:ui": "playwright test --ui",
     "test:e2e:headed": "playwright test --headed",
@@ -30,6 +32,7 @@
     "@vueuse/core": "^13.9.0",
     "colord": "^2.9.3",
     "decimal.js": "^10.6.0",
+    "idb": "^8.0.3",
     "nuxt": "^4.2.1",
     "pinia": "^3.0.4",
     "tailwindcss": "^4.1.17",
@@ -40,6 +43,12 @@
   "devDependencies": {
     "@playwright/test": "^1.60.0",
     "@types/node": "^25.9.1",
-    "nuxt-open-fetch": "^0.13.6"
+    "@vite-pwa/nuxt": "^1.1.1",
+    "fake-indexeddb": "^6",
+    "nuxt-open-fetch": "^0.13.6",
+    "vitest": "^2"
+  },
+  "overrides": {
+    "pathe": "2.0.3"
   }
 }

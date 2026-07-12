@@ -1,4 +1,5 @@
 import { defineStore } from "pinia";
+import { assertOnline } from "@/utils/connectivity";
 
 // In-app notification feed (backend Phase 9). Surfaces "card shared / invited /
 // public link opened" events to the recipient via a navbar bell (see
@@ -63,6 +64,7 @@ export const useNotificationStore = defineStore("notification", {
     // Mark one notification read. Reconcile locally (stamp read_at + decrement the
     // badge) rather than refetching — the SSE/refreshUnread will reconcile anyway.
     async markRead(id: string): Promise<void> {
+      assertOnline("Notifications can't be updated offline.");
       const { $checkapi } = useNuxtApp();
       try {
         await $checkapi("/api/user/me/notifications/{notification_id}/read", {
@@ -83,6 +85,7 @@ export const useNotificationStore = defineStore("notification", {
     },
 
     async markAllRead(): Promise<void> {
+      assertOnline("Notifications can't be updated offline.");
       const { $checkapi } = useNuxtApp();
       try {
         await $checkapi("/api/user/me/notifications/read-all", { method: "post" });

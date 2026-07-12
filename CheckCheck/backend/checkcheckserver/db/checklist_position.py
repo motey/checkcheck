@@ -32,8 +32,10 @@ from checkcheckserver.model.checklist_position import (
     CheckListPositionUpdate,
 )
 from checkcheckserver.db._base_crud import create_crud_base
+from checkcheckserver.model._base_model import naive_utc_now
 from checkcheckserver.api.paginator import QueryParamsInterface
 from checkcheckserver.model.checklist_collaborator import CheckListCollaborator
+from checkcheckserver.model.checklist import CheckList
 
 log = get_logger()
 config = Config()
@@ -48,6 +50,26 @@ class CheckListPositionCRUD(
     )
 ):
 
+    @staticmethod
+    def _exclude_tombstoned_checklists(query):
+        """Drop position rows whose checklist was tombstoned (WI-2).
+
+        A soft-deleted checklist leaves its per-user position rows in place
+        (cascade rule — children are masked, not deleted), so every board-wide
+        position scan must exclude them or the card would still count/order as if
+        present. A correlated EXISTS is used rather than a join so CheckList's
+        eager-joined relationships (labels) don't multiply the position rows.
+        """
+        alive = (
+            select(CheckList.id)
+            .where(
+                CheckList.id == CheckListPosition.checklist_id,
+                col(CheckList.deleted_at).is_(None),
+            )
+            .exists()
+        )
+        return query.where(alive)
+
     async def list(
         self,
         filter_checklist_id: Optional[uuid.UUID] = None,
@@ -56,6 +78,7 @@ class CheckListPositionCRUD(
         pagination: QueryParamsInterface = None,
     ) -> List[CheckListPosition]:
         query = select(CheckListPosition)
+        query = self._exclude_tombstoned_checklists(query)
         if filter_checklist_id is not None:
             query = query.where(CheckListPosition.checklist_id == filter_checklist_id)
         if filter_user_id is not None:
@@ -74,6 +97,7 @@ class CheckListPositionCRUD(
         archived: Optional[bool] = None,
     ) -> List[CheckListPosition]:
         query = select(func.count()).select_from(CheckListPosition)
+        query = self._exclude_tombstoned_checklists(query)
         if filter_checklist_id is not None:
             query = query.where(CheckListPosition.checklist_id == filter_checklist_id)
         if filter_user_id is not None:
@@ -101,6 +125,56 @@ class CheckListPositionCRUD(
         if result_item is None and raise_exception_if_none:
             raise raise_exception_if_none
         return result_item
+
+    async def touch(
+        self,
+        checklist_id: uuid.UUID,
+        user_id: uuid.UUID,
+    ) -> bool:
+        """Re-stamp the caller's position row so the delta feed re-emits the card
+        for THIS user (WI-4 grouping: card-level = row / caller's position /
+        caller's labels).
+
+        Needed for per-user card-level changes that leave no ``server_seq`` trace
+        of their own — currently label *detach*, which HARD-deletes the link row
+        (WI-2 kept ``checklist_label`` untombstoned). Dirtying ``updated_at``
+        makes the flush emit an UPDATE, so the ``before_update`` mapper event
+        allocates a fresh ``server_seq``; the position's fields are unchanged, so
+        LWW-wise this is a no-op for other devices. Returns False when the caller
+        has no position row (should not happen for owner/accepted collaborator).
+        """
+        existing = await self.get(checklist_id=checklist_id, user_id=user_id)
+        if existing is None:
+            return False
+        existing.updated_at = naive_utc_now()
+        self.session.add(existing)
+        await self.session.commit()
+        return True
+
+    async def list_gained_access_checklist_ids(
+        self,
+        user_id: uuid.UUID,
+        since: int,
+    ) -> List[uuid.UUID]:
+        """Checklist ids where THIS user's position row was *created* after
+        ``since`` — i.e. access was granted since the client's cursor (WI-4 /
+        Phase 1+2 review finding 1).
+
+        A position row exists for exactly the users who can see the card, and every
+        grant path inserts it at grant time (create, instant share, invite accept,
+        public-link join, ownership transfer), so keying gain off ``granted_seq``
+        covers all of them uniformly — including ownership transfer to a
+        non-collaborator, which leaves no fresh accepted-collaborator seq. The
+        whole card tree predates the grant, so the delta feed ships it in full for
+        these cards. ``granted_seq`` is stamped once on insert and never bumped, so
+        a later reorder/pin/touch of the same position is not mistaken for a grant.
+        """
+        query = select(CheckListPosition.checklist_id).where(
+            CheckListPosition.user_id == user_id,
+            col(CheckListPosition.granted_seq) > since,
+        )
+        results = await self.session.exec(statement=query)
+        return list(results.all())
 
     async def get_next(
         self, checklist_id: uuid.UUID, user_id: uuid.UUID
@@ -130,6 +204,7 @@ class CheckListPositionCRUD(
             .order_by(asc(CheckListPosition.index))
             .limit(1)
         )
+        query = self._exclude_tombstoned_checklists(query)
         result = await self.session.exec(query)
         return result.unique().one_or_none()
 
@@ -161,6 +236,7 @@ class CheckListPositionCRUD(
             .order_by(desc(CheckListPosition.index))
             .limit(1)
         )
+        query = self._exclude_tombstoned_checklists(query)
         result = await self.session.exec(query)
         return result.unique().one_or_none()
 
@@ -215,6 +291,9 @@ class CheckListPositionCRUD(
             .order_by(asc(CheckListPosition.index))
             .limit(1)
         )
+        current_lowest_index_query = self._exclude_tombstoned_checklists(
+            current_lowest_index_query
+        )
         current_highest_pos_result = await self.session.exec(current_lowest_index_query)
         return current_highest_pos_result.one_or_none()
 
@@ -224,6 +303,9 @@ class CheckListPositionCRUD(
             .where(CheckListPosition.user_id == user_id)
             .order_by(desc(CheckListPosition.index))
             .limit(1)
+        )
+        current_highest_index_query = self._exclude_tombstoned_checklists(
+            current_highest_index_query
         )
         current_highest_pos_result = await self.session.exec(
             current_highest_index_query

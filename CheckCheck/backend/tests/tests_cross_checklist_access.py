@@ -42,7 +42,7 @@ def _setup_attacker_a_and_victim_b():
     item_b = req(f"api/checklist/{checklist_b}/item", "post", b={"text": "secret"})["id"]
 
     # sanity: attacker genuinely has no access to B
-    req(f"api/checklist/{checklist_b}", access_token=attacker_token, expected_http_code=401)
+    req(f"api/checklist/{checklist_b}", access_token=attacker_token, expected_http_code=403)
     return attacker_token, checklist_a, checklist_b, item_b
 
 

@@ -23,7 +23,12 @@ from uuid import UUID
 
 from checkcheckserver.db._session import get_async_session
 
-from checkcheckserver.model._base_model import BaseTable, TimestampedModel
+from checkcheckserver.model._base_model import (
+    BaseTable,
+    TimestampedModel,
+    SoftDeleteMixin,
+    naive_utc_now,
+)
 
 from checkcheckserver.config import Config
 from checkcheckserver.log import get_logger
@@ -153,6 +158,13 @@ class CRUDBase(
     def get_default_order_by(cls):
         pass
 
+    @classmethod
+    def _is_soft_deletable(cls) -> bool:
+        """Whether this CRUD's table carries a ``deleted_at`` tombstone column
+        (WI-2). Drives the automatic ``deleted_at IS NULL`` masking in the generic
+        read paths so no route can accidentally surface a tombstoned row."""
+        return issubclass(cls.get_table_cls(), SoftDeleteMixin)
+
     ################
     # CRUD METHODS #
     ################
@@ -163,9 +175,14 @@ class CRUDBase(
         return results.first()
 
     async def list(
-        self, pagination: QueryParamsInterface = None
+        self,
+        pagination: QueryParamsInterface = None,
+        include_deleted: bool = False,
     ) -> Sequence[GenericCRUDReadType]:
-        query = select(self.get_table_cls())
+        tbl = self.get_table_cls()
+        query = select(tbl)
+        if self._is_soft_deletable() and not include_deleted:
+            query = query.where(col(tbl.deleted_at).is_(None))
         if pagination:
             query = pagination.append_to_query(query)
         results = await self.session.exec(statement=query)
@@ -175,41 +192,53 @@ class CRUDBase(
         self,
         id_: str | UUID,
         raise_exception_if_none: Exception = None,
+        include_deleted: bool = False,
     ) -> Optional[GenericCRUDReadType]:
         # get() could be overwritten in  a child class that why we create an internal _get() function that can be used by other funcs like update()
         if isinstance(id_, str):
             id_ = UUID(id_)
         result = await self.session.get(self.get_table_cls(), id_)
+        # Mask tombstoned rows (WI-2): a soft-deleted row reads as "not found"
+        # everywhere except explicit tombstone-aware paths (delta feed, the 410
+        # guards). Callers that must distinguish "gone" from "never existed" pass
+        # include_deleted=True and inspect deleted_at themselves.
+        if (
+            result is not None
+            and not include_deleted
+            and self._is_soft_deletable()
+            and result.deleted_at is not None
+        ):
+            result = None
         if result is None and raise_exception_if_none:
             raise raise_exception_if_none
         return result
-
-        query = select(self.get_table_cls()).where(self.get_table_cls().id == id_)
-        results = await self.session.exec(statement=query)
-        res = results.one_or_none()
-        if res is None and raise_exception_if_none:
-            raise raise_exception_if_none
-        return res
 
     async def get(
         self,
         id_: str | UUID,
         raise_exception_if_none: Exception = None,
+        include_deleted: bool = False,
     ) -> Optional[GenericCRUDReadType]:
 
-        return await self._get(id_, raise_exception_if_none)
+        return await self._get(
+            id_, raise_exception_if_none, include_deleted=include_deleted
+        )
 
     async def get_multiple(
         self,
         ids: List[UUID],
         raise_exception_if_objects_missing: Exception = None,
+        include_deleted: bool = False,
     ) -> List[GenericCRUDReadType]:
         log.debug(f"get multiple ids: {ids}")
         log.debug(f"self.get_table_cls().id: {self.get_table_cls().id}")
         if ids:
-            query = select(self.get_table_cls()).where(
-                col(self.get_table_cls().id).in_(ids)
-            )
+            tbl = self.get_table_cls()
+            query = select(tbl).where(col(tbl.id).in_(ids))
+            # Mask tombstoned rows like every other generic read path (WI-2), so a
+            # future caller on a soft-deletable table doesn't leak deleted rows.
+            if self._is_soft_deletable() and not include_deleted:
+                query = query.where(col(tbl.deleted_at).is_(None))
             results = await self.session.exec(statement=query)
             res = results.all()
             if len(res) != len(ids) and raise_exception_if_objects_missing:
@@ -264,6 +293,26 @@ class CRUDBase(
         )
         return new_obj
 
+    def stage_create(self, obj: GenericCRUDCreateType) -> GenericCRUDTableType:
+        """Validate ``obj`` into a table row and add it to the session WITHOUT
+        committing, returning the (id-populated) row.
+
+        For multi-row creates that must land in a single transaction so a crash
+        can't leave a half-built entity — e.g. an item row with no position/state,
+        which every read path inner-joins away and so becomes invisible forever
+        (Phase 1+2 review finding 6). The caller stages each row then commits once;
+        the ``before_insert`` mapper events still stamp each row's ``server_seq`` at
+        flush. Client/default UUID primary keys are assigned by ``model_validate``,
+        so the returned row's ``id`` is usable to build dependent rows before the
+        commit. Unlike ``create`` this does not catch ``IntegrityError`` — use it
+        only for rows already known to be new (guarded by an idempotency pre-check).
+        """
+        new_obj: GenericCRUDTableType = self.get_table_cls().model_validate(
+            obj.model_dump()
+        )
+        self.session.add(new_obj)
+        return new_obj
+
     async def find(
         self,
         obj: GenericCRUDReadType | GenericCRUDUpdateType | GenericCRUDCreateType,
@@ -278,6 +327,11 @@ class CRUDBase(
         """
         tbl = self.get_table_cls()
         query = select(tbl)
+        if self._is_soft_deletable():
+            # find() backs the exists_ok create path; a tombstoned row must not be
+            # returned as an "existing" match (WI-2). Re-creating over a tombstone
+            # is WI-3 territory.
+            query = query.where(col(tbl.deleted_at).is_(None))
 
         for attr, val in obj.model_dump().items():
             query = query.where(getattr(tbl, attr) == val)
@@ -305,8 +359,19 @@ class CRUDBase(
             id_=id_, raise_exception_if_none=raise_exception_if_not_exists
         )
         for k, v in update_obj.model_dump(exclude_unset=True).items():
+            # Never repoint the primary key through an update body (WI-3): some
+            # update schemas inherit an optional client-supplied `id` from their
+            # create schema, and a replayed/hostile PATCH must not move the row.
+            if k == "id":
+                continue
             if k in self.get_update_cls().model_fields.keys():
                 setattr(obj_from_db, k, v)
+        # Explicitly stamp the sync version signal. The `before_update` mapper
+        # event only fires when the flush emits an UPDATE, so an update that
+        # dirties no other column would otherwise leave `updated_at` stale;
+        # setting it here also marks the row dirty so the bump always persists.
+        if isinstance(obj_from_db, TimestampedModel):
+            obj_from_db.updated_at = naive_utc_now()
         self.session.add(obj_from_db)
         await self.session.commit()
         await self.session.refresh(obj_from_db)
@@ -327,6 +392,38 @@ class CRUDBase(
             await self.session.exec(del_statement)
             await self.session.commit()
         return
+
+    async def soft_delete(
+        self,
+        id_: str | UUID,
+        raise_exception_if_not_exists: Exception = None,
+    ) -> Optional[GenericCRUDReadType]:
+        """Tombstone a syncable parent row instead of DELETE-ing it (WI-2).
+
+        Sets ``deleted_at`` so the removal reaches offline clients via the delta
+        feed and a stale edit cannot resurrect the row. Only the parent row is
+        touched — child rows (item state/position, links) stay and are masked by
+        this tombstone. Idempotent: re-deleting keeps the original timestamp and
+        does not error, so an outbox replay of a delete is safe.
+        """
+        if not self._is_soft_deletable():
+            raise TypeError(
+                f"{self.get_table_cls().__name__} has no deleted_at column; "
+                "soft_delete is only valid for tombstoned tables."
+            )
+        obj = await self._get(
+            id_,
+            raise_exception_if_none=raise_exception_if_not_exists,
+            include_deleted=True,
+        )
+        if obj is None:
+            return None
+        if obj.deleted_at is None:
+            obj.deleted_at = naive_utc_now()
+            self.session.add(obj)
+            await self.session.commit()
+            await self.session.refresh(obj)
+        return obj
 
     async def create_bulk(
         self,

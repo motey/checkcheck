@@ -1,5 +1,15 @@
 import { defineStore } from "pinia";
 import { findNewPlacementForItem, sortBySubset } from "~/utils/helpers";
+import { isLocalFirstEnabled } from "@/utils/localFirst";
+import { useOutbox } from "@/composables/useOutbox";
+import { useUserStore } from "@/stores/user";
+import {
+  checklistCreateOp,
+  checklistDeleteOp,
+  checklistPositionOp,
+  checklistUpdateOp,
+  fractionalIndexBetween,
+} from "@/utils/outboxOps";
 
 // Active filters for the server-side "filtered view" (text search and/or the
 // shared=with_me|by_me filter, optionally narrowed by a label; or the Archive
@@ -108,6 +118,7 @@ export const useCheckListsStore = defineStore("checkList", {
     },
     async create(checklist: CheckListCreateType): Promise<CheckListType> {
       if (!checklist) throw new Error("Checklistid empty");
+      if (isLocalFirstEnabled()) return this._localCreate(checklist);
       const { $checkapi } = useNuxtApp();
       const checkListItemStore = useCheckListsItemStore();
       let resChecklist: CheckListType;
@@ -127,6 +138,7 @@ export const useCheckListsStore = defineStore("checkList", {
     },
     async update(checkListId: string, checklist: CheckListUpdateType): Promise<CheckListType | undefined> {
       if (!checklist) return;
+      if (isLocalFirstEnabled()) return this._localUpdate(checkListId, checklist);
       const { $checkapi } = useNuxtApp();
       let resChecklist: CheckListType;
       try {
@@ -178,8 +190,39 @@ export const useCheckListsStore = defineStore("checkList", {
     async archive(checkListId: string, state: boolean = true) {
       if (!checkListId) throw new Error("Checklistid empty");
       const checkList = await this.fetch(checkListId);
+      const wasArchived = checkList.position.archived;
       checkList.position.archived = state;
+      // Local-first: adjust the sidebar count badges immediately. The delta pull
+      // that later confirms this archive is BLIND to it — our optimistic update
+      // already set `position.archived`, so mergeDelta sees no change and never
+      // triggers a counts refresh. So the actor's own archive must move the counts
+      // here (this also keeps the badges right while offline). Any later absolute
+      // `fetchCounts` (another user's edit, a reload) reconciles precisely. Flag-off
+      // keeps refreshing counts off the SSE `checklist_position` event instead.
+      if (isLocalFirstEnabled() && wasArchived !== state) {
+        this._adjustCountsForArchive(checkList, state);
+      }
       checkList.position = await this.updatePosition(checkListId, checkList.position);
+    },
+    /** Move the sidebar count badges when a card is archived/unarchived locally.
+     *  `home`/`archived`/`labels` are exact from the card; `shared_with_me` keys
+     *  off ownership. `shared_by_me` needs collaborator info the card DTO doesn't
+     *  carry, so it is left for the next absolute `fetchCounts` to reconcile (see
+     *  docs/ISSUES.md). */
+    _adjustCountsForArchive(checkList: CheckListType, archived: boolean) {
+      const counts = this.counts;
+      if (!counts) return; // not loaded yet — the first fetch will be correct
+      const d = archived ? -1 : 1; // leaving/returning to the non-archived buckets
+      counts.home = Math.max(0, counts.home + d);
+      counts.archived = Math.max(0, counts.archived - d);
+      const myId = useUserStore().myId;
+      if (myId && checkList.owner_id !== myId) {
+        counts.shared_with_me = Math.max(0, counts.shared_with_me + d);
+      }
+      for (const label of checkList.labels ?? []) {
+        const cur = counts.labels[label.id];
+        if (cur != null) counts.labels[label.id] = Math.max(0, cur + d);
+      }
     },
     // Permanently delete a checklist (used from the Archive view only; the
     // normal trash action soft-archives via archive()). The backend broadcasts
@@ -187,6 +230,7 @@ export const useCheckListsStore = defineStore("checkList", {
     // double-removal by using findIndex before splicing.
     async delete(checkListId: string) {
       if (!checkListId) throw new Error("Checklistid empty");
+      if (isLocalFirstEnabled()) return this._localDelete(checkListId);
       const { $checkapi } = useNuxtApp();
       try {
         await $checkapi("/api/checklist/{checklist_id}", {
@@ -290,6 +334,7 @@ export const useCheckListsStore = defineStore("checkList", {
       itemToMove: CheckListType,
       otherItem: CheckListType
     ): Promise<CheckListPositionType> {
+      if (isLocalFirstEnabled()) return this._localMoveChecklist(itemToMove, otherItem, "under");
       const { $checkapi } = useNuxtApp();
       try {
         const resPos = await $checkapi("/api/checklist/{checklist_id}/move/under/{other_checklist_id}", {
@@ -308,6 +353,7 @@ export const useCheckListsStore = defineStore("checkList", {
       itemToMove: CheckListType,
       otherItem: CheckListType
     ): Promise<CheckListPositionType> {
+      if (isLocalFirstEnabled()) return this._localMoveChecklist(itemToMove, otherItem, "above");
       const { $checkapi } = useNuxtApp();
       try {
         const resPos = await $checkapi("/api/checklist/{checklist_id}/move/above/{other_checklist_id}", {
@@ -327,6 +373,7 @@ export const useCheckListsStore = defineStore("checkList", {
       checklistPosition: CheckListPositionUpdateType
     ): Promise<CheckListPositionType> {
       if (!checkListId) throw new Error("checkListId empty");
+      if (isLocalFirstEnabled()) return this._localUpdatePosition(checkListId, checklistPosition);
       const { $checkapi } = useNuxtApp();
       let resChecklistPosition: CheckListPositionType;
       try {
@@ -415,6 +462,193 @@ export const useCheckListsStore = defineStore("checkList", {
       this.searchTotalCount = 0;
       this.searchOffset = 0;
       this.searchParams = null;
+    },
+    // ── Local-first optimistic paths (WI-9) ───────────────────────────────
+    //
+    // Flag-on, the checklist store mirrors the WI-8 item pattern: create /
+    // update / delete / position mutate the store immediately and enqueue the
+    // REST call to the WI-7 outbox. `create` carries a client-generated id so a
+    // replay is idempotent (protocol §8) and WI-10's delta pull upserts by the
+    // same id. Reconciliation with server truth is still the legacy SSE refetch
+    // until WI-10.
+
+    /**
+     * The index for a newly-created card: one end-gap past the highest existing
+     * index (0 on an empty board). Mirrors the server's create placement (highest
+     * + 0.4), and since `_sort` orders by descending index the new card lands at
+     * the top — matching the online behaviour.
+     */
+    _nextCheckListIndex(): number {
+      let max: number | null = null;
+      for (const c of this.checkLists) {
+        const idx = c.position?.index;
+        if (typeof idx === "number" && (max === null || idx > max)) max = idx;
+      }
+      return fractionalIndexBetween(max, null);
+    },
+    _localCreate(checklist: CheckListCreateType): CheckListType {
+      const id = checklist.id ?? crypto.randomUUID();
+      const now = new Date().toISOString();
+      const index = checklist.position?.index ?? this._nextCheckListIndex();
+      const colorStore = useCheckListsColorSchemeStore();
+      const row = {
+        id,
+        name: checklist.name ?? "",
+        text: checklist.text ?? "",
+        color_id: checklist.color_id ?? null,
+        color: checklist.color_id ? colorStore.getColor(checklist.color_id) ?? null : null,
+        checked_items_seperated: checklist.checked_items_seperated ?? true,
+        checked_items_collapsed: checklist.checked_items_collapsed ?? true,
+        owner_id: useUserStore().myId ?? "",
+        my_permission: "owner",
+        updated_at: now,
+        position: {
+          index,
+          pinned: checklist.position?.pinned ?? false,
+          archived: checklist.position?.archived ?? false,
+          checked_items_collapsed: checklist.checked_items_collapsed ?? true,
+          updated_at: now,
+        },
+        labels: [],
+      } as CheckListType;
+      // A brand-new card starts with an empty, fully-loaded item list so the
+      // board renders it without the (offline-failing) refetch the online path
+      // does via refreshAllCheckListItems.
+      const checkListItemStore = useCheckListsItemStore();
+      checkListItemStore.checkListsItems[id] = [];
+      checkListItemStore.checklistWasFullLoadedOnce[id] = true;
+      if (!this.checkLists.some((c) => c.id === id)) this.checkLists.push(row);
+      this._sort();
+      useOutbox().enqueue(
+        checklistCreateOp(id, {
+          name: row.name,
+          text: row.text,
+          color_id: row.color_id,
+          // Send the explicit index so the server stores the same slot we show
+          // (otherwise it recomputes highest+0.4 at replay time — a divergence).
+          position: { index },
+        })
+      );
+      return row;
+    },
+    _localUpdate(checkListId: string, checklist: CheckListUpdateType): CheckListType | undefined {
+      const now = new Date().toISOString();
+      const index = this.checkLists.findIndex((c) => c.id == checkListId);
+      let row: CheckListType | undefined;
+      if (index !== -1) {
+        row = { ...this.checkLists[index]!, ...checklist, updated_at: now };
+        // The board renders the nested `color` object, not `color_id` — resolve it
+        // from the colour store so a colour change shows immediately.
+        if ("color_id" in checklist) {
+          const colorStore = useCheckListsColorSchemeStore();
+          row.color = checklist.color_id ? colorStore.getColor(checklist.color_id) ?? null : null;
+        }
+        this.checkLists.splice(index, 1, row);
+      }
+      useOutbox().enqueue(
+        checklistUpdateOp(checkListId, {
+          ...("name" in checklist ? { name: checklist.name } : {}),
+          ...("text" in checklist ? { text: checklist.text } : {}),
+          ...("color_id" in checklist ? { color_id: checklist.color_id } : {}),
+          // The two view flags are edited via `update` (MoreOptionsMenu toggle and
+          // the Seperated collapse chevron). Without forwarding them the server
+          // never persists the change and the next delta pull snaps it back.
+          ...("checked_items_seperated" in checklist
+            ? { checked_items_seperated: checklist.checked_items_seperated }
+            : {}),
+          ...("checked_items_collapsed" in checklist
+            ? { checked_items_collapsed: checklist.checked_items_collapsed }
+            : {}),
+        })
+      );
+      return row;
+    },
+    _localDelete(checkListId: string) {
+      const index = this.checkLists.findIndex((c) => c.id === checkListId);
+      if (index !== -1) {
+        this.checkLists.splice(index, 1);
+        this.total_backend_count = Math.max(0, this.total_backend_count - 1);
+      }
+      if (this.searchResults !== null) {
+        const sIdx = this.searchResults.findIndex((c) => c.id === checkListId);
+        if (sIdx !== -1) {
+          this.searchResults.splice(sIdx, 1);
+          this.searchTotalCount = Math.max(0, this.searchTotalCount - 1);
+          this.searchOffset = Math.max(0, this.searchOffset - 1);
+        }
+      }
+      useCheckListsItemStore().dropChecklistItems(checkListId);
+      // A delete cancels a still-queued create in the outbox (WI-7 coalesce rule
+      // 2), so a card created-then-deleted offline never reaches the server.
+      useOutbox().enqueue(checklistDeleteOp(checkListId));
+    },
+    _localUpdatePosition(
+      checkListId: string,
+      position: CheckListPositionUpdateType
+    ): CheckListPositionType {
+      const now = new Date().toISOString();
+      const index = this.checkLists.findIndex((c) => c.id == checkListId);
+      const checkList = index !== -1 ? this.checkLists[index]! : undefined;
+      let resultPos: CheckListPositionType;
+      if (checkList) {
+        resultPos = {
+          ...checkList.position,
+          ...(position.index != null ? { index: position.index } : {}),
+          ...(position.pinned != null ? { pinned: position.pinned } : {}),
+          ...(position.archived != null ? { archived: position.archived } : {}),
+          updated_at: now,
+        };
+        checkList.position = resultPos;
+        this._sort();
+      } else {
+        resultPos = {
+          index: position.index ?? 0,
+          pinned: position.pinned ?? false,
+          archived: position.archived ?? false,
+          updated_at: now,
+        } as CheckListPositionType;
+      }
+      const body: { index?: number; pinned?: boolean; archived?: boolean } = {};
+      if (position.index != null) body.index = position.index;
+      if (position.pinned != null) body.pinned = position.pinned;
+      if (position.archived != null) body.archived = position.archived;
+      useOutbox().enqueue(checklistPositionOp(checkListId, body));
+      return resultPos;
+    },
+    /**
+     * Offline card reorder: compute the moved card's new fractional index
+     * client-side and route it through `_localUpdatePosition`. Cards sort by
+     * DESCENDING index (see `_sort`), so "above" means a higher index and "under"
+     * a lower one — the inverse of items. Neighbours are read from the current
+     * cached order (ascending by index, id tiebreak), mirroring the server's
+     * get_next / get_prev over current DB rows.
+     */
+    _localMoveChecklist(
+      itemToMove: CheckListType,
+      otherItem: CheckListType,
+      direction: "above" | "under"
+    ): CheckListPositionType {
+      const sorted = this.checkLists
+        .slice()
+        .sort(
+          (a, b) =>
+            a.position.index - b.position.index || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)
+        );
+      const otherIdx = sorted.findIndex((c) => c.id === otherItem.id);
+      const otherIndex = otherItem.position.index;
+      let newIndex: number;
+      if (direction === "above") {
+        // Higher index, between the other card and its next-higher neighbour.
+        const higher = otherIdx !== -1 ? sorted[otherIdx + 1] : undefined;
+        newIndex = fractionalIndexBetween(otherIndex, higher?.position.index ?? null);
+      } else {
+        // Lower index, between the other card's next-lower neighbour and it.
+        const lower = otherIdx !== -1 ? sorted[otherIdx - 1] : undefined;
+        newIndex = fractionalIndexBetween(lower?.position.index ?? null, otherIndex);
+      }
+      return this._localUpdatePosition(itemToMove.id, {
+        index: newIndex,
+      } as CheckListPositionUpdateType);
     },
     async _sort() {
       // Pinned first, then by descending index within each group.

@@ -100,7 +100,7 @@ test.describe("F2 share-management dialog", () => {
     await expect(dialog).toBeVisible({ timeout: 5_000 });
 
     // Search for testuser01 and add at the default (edit) level.
-    await dialog.getByPlaceholder("Search by name or username").fill(TEST_USER.username);
+    await dialog.getByPlaceholder("Search people by name").fill(TEST_USER.username);
     const addBtn = dialog.getByRole("button", { name: "Add" }).first();
     await expect(addBtn, "search result should appear").toBeVisible({ timeout: 5_000 });
     await addBtn.click();
@@ -213,7 +213,7 @@ test.describe("F2 share-management dialog", () => {
     const dialog = userPage.locator('[role="dialog"]').filter({ hasText: "List collaborators" });
     await expect(dialog).toBeVisible({ timeout: 5_000 });
     // No "Add people" search for a non-owner.
-    await expect(dialog.getByPlaceholder("Search by name or username")).toHaveCount(0);
+    await expect(dialog.getByPlaceholder("Search people by name")).toHaveCount(0);
 
     // Leave the list → backend pins checklist_deleted, the card leaves the grid.
     await dialog.getByRole("button", { name: "Leave list" }).click();

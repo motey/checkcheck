@@ -1,4 +1,8 @@
 import { defineStore } from "pinia";
+import { isLocalFirstEnabled } from "@/utils/localFirst";
+import { useOutbox } from "@/composables/useOutbox";
+import { checklistLabelAddOp, checklistLabelRemoveOp } from "@/utils/outboxOps";
+import { assertOnline } from "@/utils/connectivity";
 
 export type CheckListLabelState = {
   labels: LabelType[];
@@ -39,6 +43,7 @@ export const useCheckListsLabelStore = defineStore("checkListLabelStore", {
       return checklist.labels;
     },
     async addCheckListLabel(checkListId: string, labelId: string) {
+      if (isLocalFirstEnabled()) return this._localAddCheckListLabel(checkListId, labelId);
       const { $checkapi } = useNuxtApp();
       const checkListStore = useCheckListsStore();
       const checklist = await checkListStore.fetch(checkListId);
@@ -60,6 +65,7 @@ export const useCheckListsLabelStore = defineStore("checkListLabelStore", {
       this._sort();
     },
     async removeCheckListLabel(checkListId: string, labelId: string) {
+      if (isLocalFirstEnabled()) return this._localRemoveCheckListLabel(checkListId, labelId);
       const { $checkapi } = useNuxtApp();
       const checkListStore = useCheckListsStore();
       const checklist = await checkListStore.fetch(checkListId);
@@ -76,6 +82,11 @@ export const useCheckListsLabelStore = defineStore("checkListLabelStore", {
       }
     },
     async createLabel(label: LabelCreateType) {
+      // Label CRUD stays online-only (WI-12): a create/rename/delete/reorder is
+      // never queued in the outbox, so offline we refuse up-front rather than
+      // silently no-op. The label editor UI disables its affordances and shows
+      // an offline hint; this is the belt-and-suspenders backstop.
+      assertOnline("Creating a label isn't available offline.");
       const { $checkapi } = useNuxtApp();
       try {
         const fresh_label = await $checkapi("/api/label", { method: "post", body: label });
@@ -88,6 +99,7 @@ export const useCheckListsLabelStore = defineStore("checkListLabelStore", {
       }
     },
     async updateLabel(labelId: string, label: LabelUpdateType) {
+      assertOnline("Editing a label isn't available offline.");
       const { $checkapi } = useNuxtApp();
       try {
         const fresh_label = await $checkapi("/api/label/{label_id}", {
@@ -104,6 +116,7 @@ export const useCheckListsLabelStore = defineStore("checkListLabelStore", {
       }
     },
     async deleteLabel(labelId: string) {
+      assertOnline("Deleting a label isn't available offline.");
       const { $checkapi } = useNuxtApp();
       try {
         await $checkapi("/api/label/{label_id}", { method: "delete", path: { label_id: labelId } });
@@ -120,6 +133,7 @@ export const useCheckListsLabelStore = defineStore("checkListLabelStore", {
       // assigns ascending sort_order (10, 20, …) to the ids in the order it is
       // given. Reverse so the top-most label ends up with the highest
       // sort_order and the persisted order matches the visual order.
+      assertOnline("Reordering labels isn't available offline.");
       const { $checkapi } = useNuxtApp();
       try {
         const fresh_labels = await $checkapi("/api/label/sort", {
@@ -132,6 +146,31 @@ export const useCheckListsLabelStore = defineStore("checkListLabelStore", {
         console.error("Could not sort labels 'PUT /api/label/sort'", error);
         throw error;
       }
+    },
+    // ── Local-first optimistic paths (WI-9) ───────────────────────────────
+    //
+    // Attaching/detaching a label to a card is a membership toggle on the card's
+    // labels array, enqueued as a checklist⇄label association op (PUT/DELETE).
+    // The op's entity is the (checklist, label) pair, so an attach-then-detach of
+    // the same pair cancels in the outbox (WI-7 coalesce rule 2). Label CRUD
+    // (create/update/delete/sort) stays online — WI-12.
+    _localAddCheckListLabel(checkListId: string, labelId: string) {
+      const checklist = useCheckListsStore().get(checkListId);
+      const label = this.getLabel(labelId);
+      if (checklist && label) {
+        const index = checklist.labels.findIndex((l) => l.id == labelId);
+        if (index !== -1) checklist.labels.splice(index, 1, label);
+        else checklist.labels.push(label);
+      }
+      useOutbox().enqueue(checklistLabelAddOp(checkListId, labelId));
+    },
+    _localRemoveCheckListLabel(checkListId: string, labelId: string) {
+      const checklist = useCheckListsStore().get(checkListId);
+      if (checklist) {
+        const index = checklist.labels.findIndex((l) => l.id == labelId);
+        if (index !== -1) checklist.labels.splice(index, 1);
+      }
+      useOutbox().enqueue(checklistLabelRemoveOp(checkListId, labelId));
     },
     async _sort() {
       this.labels.sort((a, b) => b.sort_order! - a.sort_order!);

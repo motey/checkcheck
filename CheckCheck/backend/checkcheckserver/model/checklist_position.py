@@ -20,7 +20,11 @@ from sqlmodel import Field, UniqueConstraint, Relationship
 
 import uuid
 
-from checkcheckserver.model._base_model import TimestampedModel, BaseTable
+from checkcheckserver.model._base_model import (
+    TimestampedModel,
+    BaseTable,
+    GrantSeqMixin,
+)
 
 from checkcheckserver.config import Config
 from checkcheckserver.log import get_logger
@@ -71,7 +75,9 @@ class CheckListPositionCreate(CheckListPositionUpdate, table=False):
     )
 
 
-class CheckListPosition(CheckListPositionCreate, table=True):
+class CheckListPosition(
+    CheckListPositionCreate, TimestampedModel, GrantSeqMixin, table=True
+):
     __tablename__ = "checklist_position"
     checklist_id: uuid.UUID = Field(
         foreign_key="checklist.id", primary_key=True, ondelete="CASCADE"
@@ -83,6 +89,7 @@ class CheckListPosition(CheckListPositionCreate, table=True):
 
 
 class CheckListPositionPublicWithoutChecklistID(CheckListPositionCreate, table=False):
+    updated_at: datetime.datetime
     checklist_id: uuid.UUID = Field(
         foreign_key="checklist.id", primary_key=True, exclude=True
     )

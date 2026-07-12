@@ -234,8 +234,31 @@ async def create_checklist_item(
     sync_crud: SyncNotifiationCRUD = Depends(SyncNotifiationCRUD.get_crud),
     current_user: User = Depends(get_current_user),
 ) -> CheckListItemRead:
-    new_checklist_item_id = uuid.uuid4()
     checklist_id = checklist_access.checklist.id
+    # Idempotent create (WI-3): the client may supply the item's UUID so an outbox
+    # replay doesn't duplicate it. If an item with that id already exists, don't
+    # create a second one.
+    if checklist_item_create.id is not None:
+        existing = await checklist_item_crud.get(
+            id_=checklist_item_create.id, include_deleted=True
+        )
+        if existing is not None:
+            if existing.checklist_id != checklist_id:
+                # The id is taken by an item in another card — a UUID collision,
+                # not a replay. Terminal for the outbox.
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail=f"Item id '{checklist_item_create.id}' already exists.",
+                )
+            if existing.deleted_at is not None:
+                # Re-creating a since-tombstoned item must not resurrect it.
+                raise HTTPException(
+                    status_code=status.HTTP_410_GONE,
+                    detail=f"Item '{checklist_item_create.id}' has been deleted.",
+                )
+            # Same card, still live → replay. Return the existing item unchanged.
+            return await checklist_item_crud.get(checklist_item_create.id)
+    new_checklist_item_id = checklist_item_create.id or uuid.uuid4()
     if checklist_item_create.position is None:
         checklist_item_create.position = CheckListItemPositionApiCreate()
     if checklist_item_create.position.index is None:
@@ -269,12 +292,18 @@ async def create_checklist_item(
     checklist_item = CheckListItemCreate(
         id=new_checklist_item_id,
         checklist_id=checklist_id,
-        **checklist_item_create.model_dump(exclude=["position", "state"]),
+        **checklist_item_create.model_dump(exclude=["position", "state", "id"]),
     )
 
-    await checklist_item_crud.create(checklist_item)
-    await checklist_item_pos_crud.create(checklist_item_position)
-    await checklist_item_state_crud.create(checklist_item_state)
+    # Stage the item + its position + its state and commit them in ONE transaction
+    # (review finding 6). Committing each separately left a crash window where an
+    # item existed with no position/state — invisible forever (every read path
+    # inner-joins both) and un-replayable (the response model rejects a null
+    # state/position). They share the same request-scoped session.
+    checklist_item_crud.stage_create(checklist_item)
+    checklist_item_pos_crud.stage_create(checklist_item_position)
+    checklist_item_state_crud.stage_create(checklist_item_state)
+    await checklist_item_crud.session.commit()
     await sync_crud.create(SyncNotification(
         cl_id=checklist_id, cli_id=new_checklist_item_id, upd_prop="item_created"
     ))
@@ -304,11 +333,19 @@ async def update_checklist_item(
     db_item: CheckListItem = await checklist_item_crud.get(
         id_=checklist_item_id,
         raise_exception_if_none=checklist_item_not_exists_error,
+        include_deleted=True,
     )
     if db_item.checklist_id != checklist_id:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Item with id {checklist_item_id} not existing in checklist with id {checklist_id}",
+        )
+    if db_item.deleted_at is not None:
+        # A stale edit must not resurrect a tombstoned item (WI-2). 410 Gone is
+        # terminal for the outbox.
+        raise HTTPException(
+            status_code=status.HTTP_410_GONE,
+            detail=f"Item '{checklist_item_id}' has been deleted.",
         )
     db_item: CheckListItem = await checklist_item_crud.update(
         checklist_item_update,
@@ -340,15 +377,25 @@ async def delete_checklist_item(
         status_code=status.HTTP_404_NOT_FOUND,
         detail="Item with id {checklist_item_id} does not exist.",
     )
+    # Fetch tombstone-aware: a re-delete (outbox replay) of an already-deleted
+    # item is idempotent success, not an error.
     db_item: CheckListItem = await checklist_item_crud.get(
-        id_=checklist_item_id, raise_exception_if_none=checklist_item_not_exists_error
+        id_=checklist_item_id,
+        raise_exception_if_none=checklist_item_not_exists_error,
+        include_deleted=True,
     )
     if db_item.checklist_id != checklist_id:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Item with id {checklist_item_id} not existing in checklist with id {checklist_id}",
         )
-    await checklist_item_crud.delete(id_=checklist_item_id)
+    if db_item.deleted_at is not None:
+        # Already tombstoned — nothing to do, no duplicate sync poke.
+        return True
+    # Soft delete (WI-2): tombstone the item so the removal reaches offline
+    # clients and cannot be resurrected by a stale edit. State/position children
+    # are left in place, masked by this tombstone.
+    await checklist_item_crud.soft_delete(id_=checklist_item_id)
     await sync_crud.create(SyncNotification(
         cl_id=checklist_id, cli_id=checklist_item_id, upd_prop="item_deleted"
     ))

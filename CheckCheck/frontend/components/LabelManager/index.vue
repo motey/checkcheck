@@ -14,6 +14,20 @@
       />
     </div>
 
+    <!-- Offline notice: label CRUD stays online-only (WI-12), so the controls
+         below are inert until reconnected. The banner says why rather than
+         leaving a dead click. -->
+    <UAlert
+      v-if="!online"
+      color="neutral"
+      variant="subtle"
+      icon="i-lucide-wifi-off"
+      title="You're offline"
+      description="Labels need a connection to create, rename, delete, or reorder. Reconnect to manage them."
+      class="mx-4 sm:mx-5 my-3"
+      data-testid="label-offline-notice"
+    />
+
     <!-- Create new label -->
     <form class="flex items-center gap-2 px-4 sm:px-5 py-3 border-b border-default" @submit.prevent="createLabel">
       <UInput
@@ -22,12 +36,13 @@
         class="flex-1 min-w-0"
         placeholder="New label name…"
         icon="i-lucide-plus"
+        :disabled="!online"
       />
       <UButton
         type="submit"
         color="primary"
         size="md"
-        :disabled="!newLabelName.trim()"
+        :disabled="!online || !newLabelName.trim()"
         :loading="creating"
         label="Add"
       />
@@ -54,17 +69,19 @@ import { useDragAndDrop } from "@formkit/drag-and-drop/vue";
 import { animations } from "@formkit/drag-and-drop";
 import { watch } from "vue";
 import { useCheckListsLabelStore } from "@/stores/label";
+import { useConnectivity } from "@/composables/useConnectivity";
 
 const emit = defineEmits<{ close: [] }>();
 
 const checkListsLabelStore = useCheckListsLabelStore();
+const { online } = useConnectivity();
 
 const newLabelName = ref("");
 const creating = ref(false);
 
 async function createLabel() {
   const name = newLabelName.value.trim();
-  if (!name || creating.value) return;
+  if (!name || creating.value || !online.value) return;
   creating.value = true;
   try {
     await checkListsLabelStore.createLabel({ display_name: name } as LabelCreateType);
@@ -85,6 +102,12 @@ const [ItemsView, draggableItems] = useDragAndDrop([...checkListsLabelStore.labe
 // Persist it so the reordering survives a reload (otherwise it is purely
 // client-side and has no effect on the actual label list).
 async function persistOrder() {
+  // Reordering is online-only (WI-12). Offline, undo the client-side drag by
+  // restoring the store's order rather than firing a call that would throw.
+  if (!online.value) {
+    draggableItems.value = [...checkListsLabelStore.labels];
+    return;
+  }
   await checkListsLabelStore.sortLabels(draggableItems.value.map((label) => label.id));
 }
 

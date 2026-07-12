@@ -37,3 +37,20 @@ def test_checklist_item_crud():
 
     # Clean up
     req(f"api/checklist/{checklist_id}", "delete")
+
+
+def test_list_items_checked_filter():
+    """`GET /checklist/{id}/item?checked=` must actually filter by state. The
+    filter join was previously built but discarded (the query was never
+    reassigned), silently returning every item."""
+    checklist_id = req("api/checklist", "post", b={"name": "Checked filter"})["id"]
+    a = req(f"api/checklist/{checklist_id}/item", "post", b={"text": "done"})["id"]
+    b = req(f"api/checklist/{checklist_id}/item", "post", b={"text": "todo"})["id"]
+    req(f"api/checklist/{checklist_id}/item/{a}/state", "patch", b={"checked": True})
+
+    checked = req(f"api/checklist/{checklist_id}/item", q={"checked": True})["items"]
+    assert [i["id"] for i in checked] == [a]
+    unchecked = req(f"api/checklist/{checklist_id}/item", q={"checked": False})["items"]
+    assert [i["id"] for i in unchecked] == [b]
+
+    req(f"api/checklist/{checklist_id}", "delete")

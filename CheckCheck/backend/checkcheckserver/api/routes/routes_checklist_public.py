@@ -33,6 +33,7 @@ from checkcheckserver.api.access import (
     verify_item_belongs_to_public_checklist,
     link_is_resolvable,
     attach_my_permission,
+    scope_position_to_caller,
     ChecklistAccessLevel,
     UserChecklistAccess,
 )
@@ -133,11 +134,14 @@ async def get_public_checklist(
     )
     # An anonymous visitor has no per-user rows, so render with the owner's:
     # their card position/collapse settings and their private label set.
+    # scope_position_to_caller uses set_committed_value (not plain assignment): the
+    # position relationship has delete-orphan cascade, so re-pointing it at the
+    # owner's row would orphan the arbitrarily joined-loaded row and delete another
+    # collaborator's position on the labels query's autoflush below.
     owner_position = await checklist_position_crud.get(
         checklist_id=checklist_id, user_id=owner_id
     )
-    if owner_position is not None:
-        checklist.position = owner_position
+    scope_position_to_caller(checklist, owner_position)
     checklist.labels = await checklist_label_crud.list_labels_for_user(
         checklist_id=checklist_id, user_id=owner_id
     )
@@ -269,11 +273,13 @@ async def join_public_checklist(
         )
 
     # Return the card scoped to the joining user (their own position + labels).
+    # set_committed_value (via scope_position_to_caller), not plain assignment: the
+    # delete-orphan position relationship would otherwise orphan the joined-loaded
+    # row and delete another user's position on the labels query's autoflush below.
     user_position = await checklist_position_crud.get(
         checklist_id=checklist_id, user_id=current_user.id
     )
-    if user_position is not None:
-        checklist.position = user_position
+    scope_position_to_caller(checklist, user_position)
     checklist.labels = await checklist_label_crud.list_labels_for_user(
         checklist_id=checklist_id, user_id=current_user.id
     )
@@ -364,8 +370,26 @@ async def create_public_checklist_item(
     ),
     sync_crud: SyncNotifiationCRUD = Depends(SyncNotifiationCRUD.get_crud),
 ) -> CheckListItemRead:
-    new_checklist_item_id = uuid.uuid4()
     checklist_id = checklist_access.checklist.id
+    # Idempotent create (WI-3): honor an optional client-supplied item UUID so a
+    # retried create doesn't duplicate the item, mirroring the authed surface.
+    if checklist_item_create.id is not None:
+        existing = await checklist_item_crud.get(
+            id_=checklist_item_create.id, include_deleted=True
+        )
+        if existing is not None:
+            if existing.checklist_id != checklist_id:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail=f"Item id '{checklist_item_create.id}' already exists.",
+                )
+            if existing.deleted_at is not None:
+                raise HTTPException(
+                    status_code=status.HTTP_410_GONE,
+                    detail=f"Item '{checklist_item_create.id}' has been deleted.",
+                )
+            return await checklist_item_crud.get(checklist_item_create.id)
+    new_checklist_item_id = checklist_item_create.id or uuid.uuid4()
     if checklist_item_create.position is None:
         checklist_item_create.position = CheckListItemPositionApiCreate()
     if checklist_item_create.position.index is None:
@@ -396,7 +420,7 @@ async def create_public_checklist_item(
     checklist_item = CheckListItemCreate(
         id=new_checklist_item_id,
         checklist_id=checklist_id,
-        **checklist_item_create.model_dump(exclude=["position", "state"]),
+        **checklist_item_create.model_dump(exclude=["position", "state", "id"]),
     )
 
     await checklist_item_crud.create(checklist_item)
@@ -457,7 +481,10 @@ async def delete_public_checklist_item(
     sync_crud: SyncNotifiationCRUD = Depends(SyncNotifiationCRUD.get_crud),
 ) -> bool:
     checklist_id = checklist_access.checklist.id
-    await checklist_item_crud.delete(id_=checklist_item_id)
+    # Soft delete (WI-2) — the public edit surface tombstones like the authed one.
+    # verify_item_belongs_to_public_checklist has already 410'd an already-deleted
+    # item, so here the item is guaranteed live.
+    await checklist_item_crud.soft_delete(id_=checklist_item_id)
     await sync_crud.create(
         SyncNotification(
             cl_id=checklist_id, cli_id=checklist_item_id, upd_prop="item_deleted"

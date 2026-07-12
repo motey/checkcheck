@@ -63,13 +63,17 @@ const props = defineProps({
 });
 
 const checkList = computed(() => checkListStore.get(props.parentCheckList.id) ?? props.parentCheckList);
-const checkedItemCount = checkListItemStore.getItemCount(checkList.value.id, true);
-const unCheckedItemCount = checkListItemStore.getItemCount(checkList.value.id, false);
+// Reactive: `getItemCount` returns a plain number, so these must be computed —
+// captured as plain consts they freeze at mount time and never reflect items
+// checked/added afterwards (both the editor label and the board-card separator
+// then stick at their mount-time value, e.g. 0 on a freshly-created card).
+const checkedItemCount = computed(() => checkListItemStore.getItemCount(checkList.value.id, true));
+const unCheckedItemCount = computed(() => checkListItemStore.getItemCount(checkList.value.id, false));
 
 const showCheckedItemCount: ComputedRef<number | undefined> = computed(() => {
   if (props.showMaxItems) {
-    if (props.showMaxItems - unCheckedItemCount > 0 && !checkList.value.checked_items_collapsed) {
-      return props.showMaxItems - unCheckedItemCount;
+    if (props.showMaxItems - unCheckedItemCount.value > 0 && !checkList.value.checked_items_collapsed) {
+      return props.showMaxItems - unCheckedItemCount.value;
     } else {
       return 0;
     }

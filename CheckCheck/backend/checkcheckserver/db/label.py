@@ -50,7 +50,9 @@ class LabelCRUD(
         self,
         user_id: uuid.UUID,
     ) -> List[Label]:
-        query = select(Label).where(Label.owner_id == user_id)
+        query = select(Label).where(
+            Label.owner_id == user_id, col(Label.deleted_at).is_(None)
+        )
 
         query = query.order_by(desc(Label.sort_order))
 
@@ -60,13 +62,45 @@ class LabelCRUD(
         objs = results.all()
         return objs
 
+    async def list_changed(
+        self,
+        user_id: uuid.UUID,
+        since: int,
+    ) -> List[Label]:
+        """Live labels owned by the caller that changed after ``since`` (WI-4)."""
+        query = (
+            select(Label)
+            .where(
+                Label.owner_id == user_id,
+                col(Label.deleted_at).is_(None),
+                col(Label.server_seq) > since,
+            )
+            .options(selectinload(Label.color))
+        )
+        results = await self.session.exec(statement=query)
+        return list(results.all())
+
+    async def list_tombstoned_ids(
+        self,
+        user_id: uuid.UUID,
+        since: int,
+    ) -> List[uuid.UUID]:
+        """Ids of the caller's labels tombstoned after ``since`` (WI-4)."""
+        query = select(Label.id).where(
+            Label.owner_id == user_id,
+            col(Label.deleted_at).is_not(None),
+            col(Label.server_seq) > since,
+        )
+        results = await self.session.exec(statement=query)
+        return list(results.all())
+
     async def get_max_sort_order(
         self,
         user_id: uuid.UUID,
     ) -> int:
         query = (
             select(Label.sort_order)
-            .where(Label.owner_id == user_id)
+            .where(Label.owner_id == user_id, col(Label.deleted_at).is_(None))
             .order_by(desc(Label.sort_order))
         ).limit(1)
 
@@ -79,7 +113,11 @@ class LabelCRUD(
         user_id: uuid.UUID,
         label_order: List[uuid.UUID],
     ) -> List[Label]:
-        query = select(Label).where(Label.owner_id == user_id).order_by(desc(Label.id))
+        query = (
+            select(Label)
+            .where(Label.owner_id == user_id, col(Label.deleted_at).is_(None))
+            .order_by(desc(Label.id))
+        )
         query = query.options(selectinload(Label.color))
         all_labels_results = await self.session.exec(statement=query)
         all_labels = all_labels_results.all()

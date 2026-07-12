@@ -1,11 +1,16 @@
+import type { Pinia } from "pinia";
 import { createSharedComposable, useDebounceFn } from "@vueuse/core";
 import { useCheckListsStore } from "@/stores/checklist";
 import { useCheckListsItemStore } from "@/stores/checklist_item";
 import { useShareStore } from "@/stores/share";
 import { useNotificationStore } from "@/stores/notification";
 import { useInviteStore } from "@/stores/invite";
+import { isLocalFirstEnabled } from "@/utils/localFirst";
+import { setConnectivity, probe } from "@/utils/connectivity";
+import { applyDelta } from "@/utils/localSnapshot";
 
 export const useSync = createSharedComposable(() => {
+  const pinia = useNuxtApp().$pinia as Pinia;
   const checkListStore = useCheckListsStore();
   const checkListItemStore = useCheckListsItemStore();
   const shareStore = useShareStore();
@@ -45,13 +50,49 @@ export const useSync = createSharedComposable(() => {
   // disconnected are lost → reconcile the store).
   let hasOpened = false;
 
+  // When a backgrounded tab returns to the foreground, catch up. A mobile PWA
+  // (iOS standalone especially) gets its page — and its SSE stream — frozen by
+  // the OS while backgrounded; on resume the browser's EventSource auto-reconnect
+  // *usually* fires `onopen` → a delta pull, but that is not guaranteed and can
+  // lag. A `visibilitychange → pull` is a cheap belt-and-suspenders that
+  // converges the board the moment the tab is visible again. Only fires on
+  // becoming visible (never on hide) so it costs nothing in the background.
+  async function onVisible() {
+    if (typeof document === "undefined" || document.visibilityState !== "visible") return;
+    if (isLocalFirstEnabled()) {
+      // The frozen tab may still believe it's online; confirm reachability first
+      // (this also flips the connectivity signal back so the outbox resumes
+      // draining and online-only surfaces re-enable), then pull the delta.
+      if (await probe()) void applyDelta(pinia);
+      return;
+    }
+    checkListStore.resync();
+    checkListStore.fetchCounts();
+  }
+
   function connect() {
     if (es) return;
     hasOpened = false;
+    if (typeof document !== "undefined") {
+      document.addEventListener("visibilitychange", onVisible);
+    }
     es = new EventSource("/api/sync");
     es.onopen = () => {
+      // A live sync socket proves real server reachability — feed the outbox's
+      // connectivity signal (WI-7) so a reconnect resumes draining queued writes.
+      // Harmless flag-off (no outbox listens); gated to avoid confusing the
+      // legacy path.
+      if (isLocalFirstEnabled()) setConnectivity(true);
       if (!hasOpened) {
         hasOpened = true;
+        return;
+      }
+      // Events fired while we were disconnected are gone; reconcile. Flag-on
+      // (WI-10): a single delta pull catches up everything the poke would have
+      // triggered — no full board refetch. Flag-off keeps the legacy resync.
+      if (isLocalFirstEnabled()) {
+        console.info("[sync] SSE reconnected — pulling delta");
+        void applyDelta(pinia);
         return;
       }
       console.info("[sync] SSE reconnected — resyncing store");
@@ -68,6 +109,13 @@ export const useSync = createSharedComposable(() => {
     es.onerror = () => {
       // The browser retries automatically; log for visibility only.
       console.warn("[sync] SSE connection error — browser will retry");
+      // A dropped sync socket is our earliest proof of lost reachability (the
+      // `offline` window event may lag, or the interface may be up but the
+      // server unreachable). Feed the connectivity signal (finding #8) so the
+      // outbox stops draining and online-only surfaces (WI-12) disable; `onopen`
+      // flips it back true on reconnect. Gated flag-on like onopen so the legacy
+      // path's behaviour is untouched.
+      if (isLocalFirstEnabled()) setConnectivity(false);
     };
   }
 
@@ -75,6 +123,9 @@ export const useSync = createSharedComposable(() => {
     es?.close();
     es = null;
     hasOpened = false;
+    if (typeof document !== "undefined") {
+      document.removeEventListener("visibilitychange", onVisible);
+    }
   }
 
   // Events that can change a sidebar count badge: create/delete (home), an
@@ -90,8 +141,43 @@ export const useSync = createSharedComposable(() => {
     "share_removed",
   ]);
 
+  // Store touches that are NOT part of the /api/changes delta feed (shares,
+  // invites, notifications stay online-only — WI-12). Driven by their SSE events
+  // on both paths; the flag-on path calls this instead of the legacy board
+  // refetch, since board state comes from the delta pull.
+  function handleSideChannel(noti: SyncNotificationType) {
+    switch (noti.upd_prop) {
+      case "share_added":
+      case "share_removed":
+        // Permission / card changes arrive via the delta; here we only refresh
+        // the open ShareModal's collaborator list (not in the delta feed).
+        shareStore.refreshIfOpen(noti.cl_id);
+        break;
+      case "share_invited":
+        inviteStore.refresh();
+        break;
+      case "notification":
+        notificationStore.refreshUnread();
+        if (notificationStore.open) notificationStore.list({ limit: 30 });
+        break;
+    }
+  }
+
   function handle(noti: SyncNotificationType) {
     const { cl_id: clId, cli_id: cliId, upd_prop } = noti;
+
+    // ── Local-first (WI-10): the poke is the single read trigger ─────────────
+    // Flag-on, the board reconciles ONLY via `changes_available` → delta pull
+    // (§9b). The frozen per-entity events are ignored for board state; the
+    // side-channel stores (shares/invites/notifications) still react to theirs.
+    if (isLocalFirstEnabled()) {
+      if (upd_prop === "changes_available") {
+        void applyDelta(pinia, { sinceSeq: noti.server_seq });
+      } else {
+        handleSideChannel(noti);
+      }
+      return;
+    }
 
     if (COUNT_AFFECTING.has(upd_prop)) scheduleCountsRefresh();
 

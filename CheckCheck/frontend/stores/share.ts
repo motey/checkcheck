@@ -1,4 +1,5 @@
 import { defineStore } from "pinia";
+import { assertOnline } from "@/utils/connectivity";
 
 // Collaborator (per-user) share management, keyed by checklist id.
 //
@@ -81,6 +82,7 @@ export const useShareStore = defineStore("share", {
       userId: string,
       permission: SharePermission
     ): Promise<ShareReadType> {
+      assertOnline("Sharing isn't available offline.");
       const { $checkapi } = useNuxtApp();
       let res: ShareReadType;
       try {
@@ -103,6 +105,7 @@ export const useShareStore = defineStore("share", {
 
     // Revoke a collaborator. Passing the current user's id is "leave list".
     async revokeShare(checkListId: string, userId: string): Promise<void> {
+      assertOnline("Removing access isn't available offline.");
       const { $checkapi } = useNuxtApp();
       try {
         await $checkapi("/api/checklist/{checklist_id}/shares/{user_id}", {
@@ -125,6 +128,7 @@ export const useShareStore = defineStore("share", {
       checkListId: string,
       newOwnerId: string
     ): Promise<TransferOwnershipResultType> {
+      assertOnline("Transferring ownership isn't available offline.");
       const { $checkapi } = useNuxtApp();
       try {
         return await $checkapi("/api/checklist/{checklist_id}/transfer-ownership", {
@@ -176,6 +180,7 @@ export const useShareStore = defineStore("share", {
       group: string,
       permission: SharePermission
     ): Promise<GroupShareResult> {
+      assertOnline("Sharing isn't available offline.");
       const { $checkapi } = useNuxtApp();
       let res: GroupShareResult;
       try {
@@ -224,6 +229,7 @@ export const useShareStore = defineStore("share", {
       checkListId: string,
       body: PublicLinkCreateReq
     ): Promise<PublicLinkCreateRes> {
+      assertOnline("Creating a public link isn't available offline.");
       const { $checkapi } = useNuxtApp();
       let res: PublicLinkCreateRes;
       try {
@@ -251,6 +257,7 @@ export const useShareStore = defineStore("share", {
       linkId: string,
       patch: PublicLinkUpdateReq
     ): Promise<PublicLinkReadType> {
+      assertOnline("Updating a public link isn't available offline.");
       const { $checkapi } = useNuxtApp();
       let res: PublicLinkReadType;
       try {
@@ -272,6 +279,7 @@ export const useShareStore = defineStore("share", {
     },
 
     async deleteLink(checkListId: string, linkId: string): Promise<void> {
+      assertOnline("Deleting a public link isn't available offline.");
       const { $checkapi } = useNuxtApp();
       try {
         await $checkapi("/api/checklist/{checklist_id}/public-links/{link_id}", {

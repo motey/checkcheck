@@ -29,6 +29,7 @@ from checkcheckserver.api.access import (
     require_checklist_permission,
     permission_at_least,
     attach_my_permission,
+    scope_position_to_caller,
     ChecklistAccessLevel,
     UserChecklistAccess,
 )
@@ -372,6 +373,18 @@ async def delete_share(
         checklist_id=checklist_id, user_id=user_id
     )
     await checklist_position_crud.delete(checklist_id=checklist_id, user_id=user_id)
+    # Revocation is a HARD delete of the collaborator + position rows, so it leaves
+    # no `server_seq` trace of its own. A local-first client removes the card only
+    # by pulling `/api/changes` (where it lands in `removed_checklist_ids`), and it
+    # only pulls when the `changes_available` poke below carries a server_seq AHEAD
+    # of its cursor (the §9b poke-skip). Advance the global seq by re-stamping the
+    # owner's position row (a no-op for other devices, LWW-wise) so the poke is
+    # ahead and the removed user actually pulls — otherwise their board keeps the
+    # card until a manual reload. Same class of gap as label-detach (see
+    # CheckListPositionCRUD.touch).
+    await checklist_position_crud.touch(
+        checklist_id=checklist_id, user_id=checklist_access.checklist.owner_id
+    )
     # The removed user must drop the card from their view. Their collaborator row
     # is already gone, so pin them explicitly — dynamic resolution would skip the
     # one person who most needs to hear about it.
@@ -707,11 +720,14 @@ async def accept_invite(
     )
 
     checklist = await checklist_crud.get(id_=checklist_id)
+    # set_committed_value (via scope_position_to_caller), not plain assignment: the
+    # delete-orphan position relationship would otherwise orphan the arbitrarily
+    # joined-loaded row and delete the owner's position on the labels query's
+    # autoflush below — silently un-pinning the card the caller just accepted.
     user_position = await checklist_position_crud.get(
         checklist_id=checklist_id, user_id=current_user.id
     )
-    if user_position is not None:
-        checklist.position = user_position
+    scope_position_to_caller(checklist, user_position)
     checklist.labels = await checklist_label_crud.list_labels_for_user(
         checklist_id=checklist_id, user_id=current_user.id
     )

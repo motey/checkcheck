@@ -21,6 +21,7 @@
       </div>
 
       <div class="flex items-center gap-1 shrink-0">
+        <SyncStatusIndicator />
         <NotificationBell />
 
         <UDropdownMenu
@@ -61,6 +62,7 @@
           </template>
           <template #logout-label>
             <span data-testid="logout-button">Logout</span>
+            <span v-if="!online" class="ml-1 text-xs text-muted">(offline)</span>
           </template>
         </UDropdownMenu>
       </div>
@@ -75,8 +77,17 @@
 <script setup lang="ts">
 import type { DropdownMenuItem } from "@nuxt/ui";
 import { useUserStore } from "@/stores/user";
+import { useConnectivity } from "@/composables/useConnectivity";
+import { isLocalFirstEnabled } from "@/utils/localFirst";
+import { clearLocalState } from "@/utils/localSnapshot";
 
 const emit = defineEmits<{ toggleSidebar: [] }>();
+
+// Logout stays online-only (WI-12/WI-13): it must reach the server to invalidate
+// the session, and it hard-navigates to /login — doing that offline would strand
+// the user on a dead login page and drop their still-usable cached board. The
+// offline-auth grace keeps them working; disabling logout keeps them there.
+const { online } = useConnectivity();
 
 const userStore = useUserStore();
 const me = computed(() => userStore.me);
@@ -108,6 +119,7 @@ const userMenuItems = computed(
         label: "Logout",
         slot: "logout" as const,
         color: "error" as const,
+        disabled: !online.value,
         onSelect: logout,
       },
     ] satisfies DropdownMenuItem[]
@@ -119,6 +131,12 @@ async function logout() {
     await $checkapi("/api/auth/logout", { method: "POST" });
   } catch {
     // Session may already be invalid; navigate to login regardless.
+  }
+  // Wipe this user's local-first cache (snapshot + cursor + outbox) so the next
+  // user to log in on this browser doesn't inherit it (Chunk A1). Best-effort —
+  // the boot-time reconcile is the backstop if this fails.
+  if (isLocalFirstEnabled()) {
+    await clearLocalState().catch(() => {});
   }
   window.location.href = "/login";
 }

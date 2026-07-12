@@ -44,6 +44,6 @@ class CheckListLabelCreate(BaseTable, table=False):
     user_id: uuid.UUID = Field(foreign_key="user.id", primary_key=True)
 
 
-class CheckListLabel(CheckListLabelCreate, table=True):
+class CheckListLabel(CheckListLabelCreate, TimestampedModel, table=True):
     __tablename__ = "checklist_label"
     label: "Label" = Relationship(sa_relationship_kwargs={"lazy": "joined"})

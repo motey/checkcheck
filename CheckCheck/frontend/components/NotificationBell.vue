@@ -20,8 +20,16 @@
         <!-- Header: title + mark-all-read -->
         <div class="flex items-center justify-between gap-2 px-3 py-2 border-b border-default">
           <span class="text-sm font-semibold">Notifications</span>
+          <span
+            v-if="!online"
+            class="flex items-center gap-1 text-xs text-muted"
+            data-testid="notification-offline-hint"
+          >
+            <UIcon name="i-lucide-wifi-off" class="size-3.5" />
+            Offline
+          </span>
           <UButton
-            v-if="store.unreadCount > 0"
+            v-else-if="store.unreadCount > 0"
             variant="link"
             color="primary"
             size="xs"
@@ -86,6 +94,7 @@ const store = useNotificationStore();
 const inviteStore = useInviteStore();
 const publicConfig = usePublicConfigStore();
 const { openCard } = useAppRoute();
+const { online } = useConnectivity();
 
 const isOpen = ref(false);
 
@@ -161,7 +170,9 @@ function relativeTime(iso: string): string {
 }
 
 async function onRowClick(n: NotificationReadType) {
-  await store.markRead(n.id).catch(() => {});
+  // Marking read is online-only (WI-12); offline we still let the row navigate
+  // to the (locally cached) card — the badge just stays until reconnected.
+  if (online.value) await store.markRead(n.id).catch(() => {});
   // Card-related rows navigate to the card overlay; rows without a cl_id just
   // mark read.
   if (n.cl_id) {

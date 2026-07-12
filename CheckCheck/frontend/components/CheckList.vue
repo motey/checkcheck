@@ -13,6 +13,8 @@
     <!-- In the editor the modal renders its own close button at top-right, so
          shift the pin left of it; on board previews there is no close button. -->
     <CheckListFooterButtonPin :checkListId="checkListId" :scrollIntoViewOnPin="previewModeActive" :class="['absolute top-2 z-10', editModeActive ? 'right-10' : 'right-2']" />
+    <!-- Offline-write indicator (WI-11): lights up while this card has queued ops. -->
+    <CheckListSyncIndicator :checkListId="checkListId" />
 
     <div v-if="!editModeActive" data-testid="card-title" class="flex-none pr-8 text-base font-semibold leading-snug break-words line-clamp-2" v-html="highlightText(checkList!.name, searchQuery)" />
     <UTextarea
@@ -25,8 +27,8 @@
       placeholder="Enter a checklist title..."
       v-model="localName"
       class="flex-none w-full pr-16 text-xl sm:text-2xl font-semibold"
-      @focus="nameFocused = true"
-      @blur="nameFocused = false"
+      @focus="onFieldFocus('name')"
+      @blur="onFieldBlur('name')"
     />
     <!-- In edit mode this region scrolls on its own so the title above and the
          footer below stay pinned within the modal viewport. In preview/board
@@ -45,8 +47,8 @@
         placeholder="Enter some notes..."
         v-model="localText"
         class="w-full flex-none text-sm opacity-90"
-        @focus="textFocused = true"
-        @blur="textFocused = false"
+        @focus="onFieldFocus('text')"
+        @blur="onFieldBlur('text')"
       />
       <div class="checklist-items-collection mt-1">
         <CheckListItemCollectionSeperated
@@ -104,6 +106,8 @@ import { useDebounceFn, useMediaQuery } from "@vueuse/core";
 import { useCheckListsStore } from "@/stores/checklist";
 import { useCheckListsItemStore } from "@/stores/checklist_item";
 import { highlightText } from "@/utils/highlight";
+import { isLocalFirstEnabled } from "@/utils/localFirst";
+import { markEditing, clearEditing } from "@/utils/editGuard";
 const colorMode = useColorMode();
 
 const checkListsStore = useCheckListsStore();
@@ -170,11 +174,40 @@ const notesTextField = ref();
 const nameFocused = ref(false);
 const textFocused = ref(false);
 
+// Focus/blur handlers keep the local textarea guard AND the WI-10 store-apply
+// guard in sync, so a remote delta never clobbers the field mid-edit (SYNC §4).
+function onFieldFocus(field: "name" | "text") {
+  if (field === "name") nameFocused.value = true;
+  else textFocused.value = true;
+  markEditing("checklist", props.checkListId, field);
+}
+function onFieldBlur(field: "name" | "text") {
+  if (field === "name") nameFocused.value = false;
+  else textFocused.value = false;
+  clearEditing("checklist", props.checkListId, field);
+}
+onBeforeUnmount(() => {
+  // A card closed mid-edit must not leave a stale editing mark pinned.
+  clearEditing("checklist", props.checkListId, "name");
+  clearEditing("checklist", props.checkListId, "text");
+});
+
 if (!props.previewModeActive && props.checkListId) {
   // Ensure the card itself is loaded (supports deep-linking a card that isn't
   // on the current board page yet) before refreshing its items.
   await checkListsStore.fetch(props.checkListId).catch(() => {});
-  await checkListsItemStore.refreshAllCheckListItems(props.checkListId);
+  // Reconcile the card's items. Flag-off always refetches (legacy). Flag-on
+  // (WI-10) reconciles via the delta pull instead — and only does a full item
+  // GET the FIRST time a card is opened (never fully loaded locally), to backfill
+  // a card we'd only seen as a board preview. Once loaded, deltas keep it fresh,
+  // so we don't refetch — which also avoids clobbering undrained optimistic edits.
+  if (isLocalFirstEnabled()) {
+    if (!checkListsItemStore.checklistWasFullLoadedOnce[props.checkListId]) {
+      await checkListsItemStore.refreshAllCheckListItems(props.checkListId).catch(() => {});
+    }
+  } else {
+    await checkListsItemStore.refreshAllCheckListItems(props.checkListId).catch(() => {});
+  }
 }
 
 // Local copies decoupled from the store so SSE/update patches don't wipe

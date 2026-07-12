@@ -16,7 +16,11 @@ from sqlmodel import Field, UniqueConstraint, Relationship, ForeignKeyConstraint
 import uuid
 from uuid import UUID
 
-from checkcheckserver.model._base_model import BaseTable, TimestampedModel
+from checkcheckserver.model._base_model import (
+    BaseTable,
+    TimestampedModel,
+    SoftDeleteMixin,
+)
 from checkcheckserver.model.checklist_color_scheme import ChecklistColorScheme
 from checkcheckserver.model.checklist_item_state import (
     CheckListItemState,
@@ -57,7 +61,7 @@ class CheckListItemUpdate(CheckListItemBase, table=False):
     )
 
 
-class CheckListItem(CheckListItemCreate, table=True):
+class CheckListItem(CheckListItemCreate, TimestampedModel, SoftDeleteMixin, table=True):
     __tablename__ = "checklist_item"
     id: uuid.UUID = Field(
         default_factory=uuid.uuid4,
@@ -85,11 +89,16 @@ class CheckListItem(CheckListItemCreate, table=True):
 
 class CheckListItemRead(CheckListItemCreate):
     id: uuid.UUID
+    updated_at: datetime.datetime
     position: CheckListItemPositionPublicWithoutChecklistID
     state: CheckListItemStateWithoutChecklistID
 
 
 class CheckListItemCreateAPI(CheckListItemBase, table=False):
+    # Optional client-generated UUID (WI-3). When supplied the create is
+    # idempotent: replaying it returns the existing item instead of duplicating
+    # it. Omit and the server assigns one.
+    id: Optional[uuid.UUID] = Field(default=None)
     text: Optional[str] = Field(
         description="The display name of the list", default_factory=str
     )

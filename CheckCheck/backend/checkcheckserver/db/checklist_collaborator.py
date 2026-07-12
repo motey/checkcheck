@@ -147,6 +147,11 @@ class CheckListCollaboratorCRUD(
             .where(
                 CheckListCollaborator.user_id == user_id,
                 CheckListCollaborator.status == ShareStatus.pending.value,
+                # A pending invite to a tombstoned card (WI-2) — its owner deleted
+                # it before the invitee acted — must drop out of the inbox. The
+                # collaborator row is left in place by the parent tombstone, so
+                # filter on the card here.
+                col(CheckList.deleted_at).is_(None),
             )
             .order_by(col(CheckListCollaborator.created_at).desc())
         )

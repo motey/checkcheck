@@ -52,7 +52,7 @@ class CheckListItemStateCreate(CheckListItemStateUpdate, table=False):
     )
 
 
-class CheckListItemState(CheckListItemStateCreate, table=True):
+class CheckListItemState(CheckListItemStateCreate, TimestampedModel, table=True):
     __tablename__ = "checklist_item_state"
     checked: bool = Field()
     checklist_item: "CheckListItem" = Relationship(
@@ -63,6 +63,7 @@ class CheckListItemState(CheckListItemStateCreate, table=True):
 
 class CheckListItemStateWithoutChecklistID(CheckListItemStateCreate, table=False):
     checked: bool = Field()
+    updated_at: datetime.datetime
     checklist_item_id: uuid.UUID = Field(
         foreign_key="checklist_item.id", primary_key=True, exclude=True
     )

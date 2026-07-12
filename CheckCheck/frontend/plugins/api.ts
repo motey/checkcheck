@@ -1,3 +1,6 @@
+import { initConnectivity, isOnline, decideApiErrorAction } from '@/utils/connectivity'
+import { isLocalFirstEnabled } from '@/utils/localFirst'
+
 export default defineNuxtPlugin({
   enforce: 'pre', // Load early so API clients are available to other plugins/stores
   setup() {
@@ -5,6 +8,11 @@ export default defineNuxtPlugin({
     const clients = useRuntimeConfig().public.openFetch
     const router = useRouter()
     const toast = useToast()
+
+    // Wire the browser online/offline signal early so the offline-auth grace
+    // below can consult it regardless of whether the outbox/connectivity
+    // composables have booted yet. Idempotent.
+    initConnectivity()
 
     if (!clients) return { provide: {} }
 
@@ -31,8 +39,23 @@ export default defineNuxtPlugin({
     // session expiry should always bounce to login regardless of this flag.
     const skipsErrorToast = (ctx: any): boolean => Boolean(ctx?.options?.skipErrorToast)
 
-    // Handle 401 responses: redirect to login (server handles session cleanup)
+    // Offline auth grace (WI-13): the redirect/toast/suppress decision lives in
+    // the pure `decideApiErrorAction` (utils/connectivity.ts, unit-tested); the
+    // plugin just injects the live flag + connectivity signals. While the
+    // local-first layer is on AND the device is offline, a 401 is suppressed
+    // (keep the cached board; the session refreshes on reconnect) and an expected
+    // network-class failure is suppressed instead of toasting. Flag off / online
+    // ⇒ exactly the legacy path.
+    const errorAction = (status: number | undefined) =>
+      decideApiErrorAction(status, {
+        localFirstEnabled: isLocalFirstEnabled(),
+        online: isOnline(),
+      })
+
+    // Handle 401 responses: redirect to login (server handles session cleanup).
+    // Self-guards on the grace so the onResponse 401 path is covered too.
     const handleUnauthorized = () => {
+      if (errorAction(401) !== 'redirect') return
       const current = router.currentRoute.value // Must access .value for reactivity
       if (current.fullPath !== '/login' && !current.query.redirect) {
         router.push({ path: '/login', query: { redirect: current.fullPath } })
@@ -41,10 +64,12 @@ export default defineNuxtPlugin({
 
     const handleError = (ctx: any) => {
       const status = ctx.response?.status
-      if (status === 401) {
+      const action = errorAction(status)
+      if (action === 'redirect') {
         handleUnauthorized()
         return
       }
+      if (action === 'suppress') return
       const method = ctx.request ? String(ctx.request).split('?')[0] : 'request'
       toast.add({
         title: `Error ${status ?? ''}`.trim(),

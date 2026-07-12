@@ -57,7 +57,7 @@ class UserRegisterAPI(UserBase, table=False):
         StringConstraints(
             strip_whitespace=True,
             to_lower=True,
-            pattern=r"^[a-zA-Z0-9.-]+$",
+            pattern=r"^[a-zA-Z0-9._-]+$",
             max_length=128,
             min_length=3,
         ),
@@ -103,7 +103,7 @@ class _UserWithName(UserBase, table=False):
         StringConstraints(
             strip_whitespace=True,
             to_lower=True,
-            pattern=r"^[a-zA-Z0-9.-]+$",
+            pattern=r"^[a-zA-Z0-9._-]+$",
             max_length=128,
             min_length=3,
         ),

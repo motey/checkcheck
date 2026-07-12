@@ -1,6 +1,7 @@
 import { defineStore } from "pinia";
 import { useCheckListsStore } from "@/stores/checklist";
 import { useCheckListsItemStore } from "@/stores/checklist_item";
+import { assertOnline } from "@/utils/connectivity";
 
 // Invite inbox (backend Phase 8). When the server runs in invite mode
 // (SHARING_REQUIRE_INVITE_ACCEPT), a card shared with a user lands as a *pending*
@@ -41,6 +42,7 @@ export const useInviteStore = defineStore("invite", {
     // The card's own `share_added` SSE that fires alongside accept just re-reads
     // the now-present card (harmless), so there's no double count.
     async accept(checkListId: string): Promise<void> {
+      assertOnline("Accepting an invite isn't available offline.");
       const { $checkapi } = useNuxtApp();
       let card: CheckListType;
       try {
@@ -74,6 +76,7 @@ export const useInviteStore = defineStore("invite", {
     // Decline an invite (204). No access is granted; the backend keeps the row as
     // 'declined' (the owner sees it in their share list and can re-invite).
     async decline(checkListId: string): Promise<void> {
+      assertOnline("Declining an invite isn't available offline.");
       const { $checkapi } = useNuxtApp();
       try {
         await $checkapi("/api/checklist/{checklist_id}/invites/decline", {

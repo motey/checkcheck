@@ -3,6 +3,7 @@ import uuid
 import enum
 from typing import List, Literal, Annotated, Optional
 from fastapi import HTTPException, status, Security, Depends, Path, Query, Header
+from sqlalchemy.orm.attributes import set_committed_value
 
 # internal imports
 from checkcheckserver.config import Config
@@ -75,6 +76,37 @@ def attach_my_permission(checklist: CheckList, level) -> CheckList:
     non-field attribute. The response serialiser reads it back via ``getattr``
     (``from_attributes``), and SQLAlchemy's unit of work ignores the unmapped key."""
     checklist.__dict__["my_permission"] = ChecklistAccessLevel(level).value
+    return checklist
+
+
+def scope_position_to_caller(checklist: CheckList, position) -> CheckList:
+    """Override a checklist's per-user ``position`` for serialization only.
+
+    ``CheckList.position`` is a scalar (``uselist=False``) joined relationship, but
+    ``CheckListPosition`` is **per-user**: a shared card has N position rows (one
+    per collaborator + the owner). The eager-load collapses them into the single
+    slot and picks one **arbitrarily**, so any route returning a checklist DTO must
+    re-scope the position to the caller (or, on the anonymous public surface, to
+    the owner) before responding — otherwise it serves another user's
+    pinned/archived/index.
+
+    Uses ``set_committed_value`` rather than plain ``checklist.position = position``
+    because the relationship has **delete-orphan cascade**: a plain reassignment
+    orphans the arbitrarily joined-loaded row and marks it for deletion. Any commit
+    later in the request (e.g. an ``update``/``create`` CRUD call, or a sync-
+    notification write) then DELETEs/NULLs it — *another user's* position — and even
+    an intervening SELECT's autoflush issues that DELETE inside the transaction.
+    ``update_checklist`` demonstrated the persistent corruption (it commits after
+    re-scoping); the read/join/accept routes only avoid it today by not committing
+    after the reassignment — a fragile accident. ``set_committed_value`` overrides
+    the loaded value for serialization without dirtying the session, so the sibling
+    row is never orphaned regardless of what runs afterwards.
+
+    A ``None`` position is left untouched (the caller has no per-user row yet).
+    Centralised here so no route re-invents the ``set_committed_value`` discipline.
+    """
+    if position is not None:
+        set_committed_value(checklist, "position", position)
     return checklist
 
 
@@ -181,19 +213,33 @@ async def user_has_checklist_access(
     checklist_crud: Annotated[CheckListCRUD, Depends(CheckListCRUD.get_crud)],
 ) -> UserChecklistAccess:
 
-    checklist = await checklist_crud.get(
-        id_=checklist_id,
-        raise_exception_if_none=HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-        ),
-    )
+    # Fetch tombstone-aware so a soft-deleted card (WI-2) returns 410 Gone rather
+    # than 404 — the outbox treats 410 as a terminal "stop retrying, it's gone"
+    # for any queued write, distinct from "never existed" (404). This is the
+    # single choke point for every id-addressed checklist / item / share / label
+    # route, so the 410 covers them all.
+    checklist = await checklist_crud.get(id_=checklist_id, include_deleted=True)
+    if checklist is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
+    if checklist.deleted_at is not None:
+        raise HTTPException(
+            status_code=status.HTTP_410_GONE,
+            detail=f"Checklist {checklist_id} has been deleted.",
+        )
     collaborators = await checklist_collaborator_crud.list(checklist_id=checklist_id)
     checklist_access = UserChecklistAccess(
         user=user, checklist=checklist, collaborators=collaborators
     )
     if not checklist_access.user_has_access():
+        # 403, not 401: the caller IS authenticated, they just have no access to
+        # this card (never shared / share revoked). The sync contract (§8) relies
+        # on the distinction — the offline outbox treats 403 as terminal
+        # ("access revoked", drop the queued op) but 401 as retryable session
+        # expiry, so a 401 here would spin a revoked user's queued writes
+        # forever. It also kept bouncing logged-in users to /login via the
+        # legacy client's global 401 handler.
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
+            status_code=status.HTTP_403_FORBIDDEN,
             detail=f"No access to checklist {checklist.id}.",
         )
     return checklist_access
@@ -204,7 +250,8 @@ def require_checklist_permission(min_level: ChecklistAccessLevel):
     user has at least ``min_level`` on the checklist, else raises 403.
 
     Builds on ``user_has_checklist_access`` (which already raises 404 for a
-    missing checklist and 401 when the user has no access at all).
+    missing checklist, 410 for a tombstoned one, and 403 when the user has no
+    access at all).
 
     Note: per-user data such as the user's own ``CheckListPosition`` (ordering,
     archived, collapse) and ``CheckListLabel`` are the *viewer's* layout, not the
@@ -360,7 +407,9 @@ async def verify_item_belongs_to_checklist(
     ``/checklist/{A}/item/{item_in_B}/...`` — a cross-checklist IDOR. Returns 404
     (rather than 400) so the existence of the foreign item is not revealed.
     """
-    item = await checklist_item_crud.get(id_=checklist_item_id)
+    # Tombstone-aware (WI-2): a soft-deleted item returns 410 Gone (terminal for
+    # the outbox), while a missing/foreign item stays 404 (no existence leak).
+    item = await checklist_item_crud.get(id_=checklist_item_id, include_deleted=True)
     if item is None or item.checklist_id != checklist_id:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -368,6 +417,11 @@ async def verify_item_belongs_to_checklist(
                 f"Item '{checklist_item_id}' does not exist in checklist "
                 f"'{checklist_id}'."
             ),
+        )
+    if item.deleted_at is not None:
+        raise HTTPException(
+            status_code=status.HTTP_410_GONE,
+            detail=f"Item '{checklist_item_id}' has been deleted.",
         )
     return item
 
@@ -386,11 +440,16 @@ async def verify_item_belongs_to_public_checklist(
     path ``checklist_id``, so the cross-card IDOR guard compares the item's
     ``checklist_id`` against the token's checklist. 404 to avoid revealing the
     foreign item."""
-    item = await checklist_item_crud.get(id_=checklist_item_id)
+    item = await checklist_item_crud.get(id_=checklist_item_id, include_deleted=True)
     if item is None or item.checklist_id != checklist_access.checklist.id:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Item '{checklist_item_id}' is not part of this shared card.",
+        )
+    if item.deleted_at is not None:
+        raise HTTPException(
+            status_code=status.HTTP_410_GONE,
+            detail=f"Item '{checklist_item_id}' has been deleted.",
         )
     return item
 

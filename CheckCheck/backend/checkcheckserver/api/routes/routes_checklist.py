@@ -61,6 +61,7 @@ from checkcheckserver.api.access import (
     user_has_checklist_access,
     require_checklist_permission,
     attach_my_permission,
+    scope_position_to_caller,
     ChecklistAccessLevel,
     UserChecklistAccess,
 )
@@ -184,11 +185,42 @@ async def create_checklist(
     checklist_crud: CheckListCRUD = Depends(CheckListCRUD.get_crud),
     sync_crud: SyncNotifiationCRUD = Depends(SyncNotifiationCRUD.get_crud),
 ) -> CheckListApiWithSubObj:
-    checklist_db: CheckList = await checklist_crud.create(
-        CheckListCreate(
-            **checklist.model_dump(exclude=["position"]), owner_id=current_user.id
-        ),
-    )
+    # Idempotent create (WI-3): a client may supply the card's UUID so an outbox
+    # replay (retry / reconnect double-send) doesn't duplicate it. If a card with
+    # that id already exists, don't create a second one.
+    if checklist.id is not None:
+        existing = await checklist_crud.get(id_=checklist.id, include_deleted=True)
+        if existing is not None:
+            if existing.owner_id != current_user.id:
+                # The id is taken by someone else's card — a genuine UUID
+                # collision, not a replay. Terminal for the outbox.
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail=f"Checklist id '{checklist.id}' already exists.",
+                )
+            if existing.deleted_at is not None:
+                # Re-creating a since-tombstoned card must not resurrect it.
+                raise HTTPException(
+                    status_code=status.HTTP_410_GONE,
+                    detail=f"Checklist '{checklist.id}' has been deleted.",
+                )
+            # Same owner, still live → this is a replay. Return the existing card
+            # (with the caller's position) unchanged; no duplicate, no sync poke.
+            # set_committed_value (via scope_position_to_caller), not plain
+            # assignment: the delete-orphan position relationship would otherwise
+            # orphan the arbitrarily joined-loaded row (a collaborator's, on a
+            # shared card the owner is replaying) and delete it on a later flush.
+            user_position = await checklist_position_crud.get(
+                checklist_id=existing.id, user_id=current_user.id
+            )
+            scope_position_to_caller(existing, user_position)
+            attach_my_permission(existing, ChecklistAccessLevel.owner)
+            return existing
+    # Compute the grid index BEFORE staging (this reads the caller's current last
+    # position). Done first so the checklist + position can then be staged and
+    # committed together (review finding 6): committing the card before its
+    # position left a crash window where the card had no position row, which the
+    # grid inner-joins away — the owner's own card would be invisible forever.
     if checklist.position is None:
         highest_existing_index_position = await checklist_position_crud.get_last(
             user_id=current_user.id
@@ -202,22 +234,31 @@ async def create_checklist(
             if highest_existing_index_position is not None
             else 0
         )
+    else:
+        new_order_position = checklist.position.index
 
-        index = CheckListPositionCreate(
+    # Drop a null `id` from the payload so the server-side default_factory
+    # assigns one; only forward a client-supplied id when it is actually set.
+    create_payload = checklist.model_dump(exclude=["position", "id"])
+    if checklist.id is not None:
+        create_payload["id"] = checklist.id
+    checklist_db: CheckList = checklist_crud.stage_create(
+        CheckListCreate(**create_payload, owner_id=current_user.id),
+    )
+    index: CheckListPosition = checklist_position_crud.stage_create(
+        CheckListPositionCreate(
             checklist_id=checklist_db.id,
             user_id=current_user.id,
             index=new_order_position,
         )
-    else:
-        index = CheckListPositionCreate(
-            checklist_id=checklist_db.id,
-            user_id=current_user.id,
-            index=checklist.position.index,
-        )
-    index: CheckListPosition = await checklist_position_crud.create(index)
-    checklist_db: CheckList = await checklist_crud.get(
-        checklist_db.id,
     )
+    await checklist_crud.session.commit()
+    # Refresh both just-inserted rows so their relationships load as (empty) rather
+    # than lazily on access during serialization — a lazy load on the async session
+    # raises MissingGreenlet. This mirrors the refresh the old per-row create() did;
+    # only the commit count changed (two → one, review finding 6).
+    await checklist_crud.session.refresh(checklist_db)
+    await checklist_position_crud.session.refresh(index)
     checklist_db.position = index
     # The creator is always the owner.
     attach_my_permission(checklist_db, ChecklistAccessLevel.owner)
@@ -274,18 +315,16 @@ async def get_checklist(
             detail=f"No checklist with id '{checklist_id}'",
         ),
     )
-    # CheckListPosition is per-user: a shared card has N position rows (one per
-    # collaborator + owner), but CheckList.position is a scalar (uselist=False)
-    # joined relationship — the eager-load collapses those rows into the single
-    # slot and picks one arbitrarily. So re-scope the position to the caller
-    # (mirroring accept_invite / the user-scoped eager-load in list()); otherwise
-    # a shared card could report another user's pinned/archived/index — e.g. the
-    # owner's card silently unpinning the moment it is shared.
+    # Re-scope the per-user position to the caller (see scope_position_to_caller):
+    # a shared card's joined-load collapses N per-user rows into one slot and picks
+    # arbitrarily, so an unscoped read could report another user's
+    # pinned/archived/index — e.g. the owner's card silently unpinning once shared.
+    # The helper uses set_committed_value so the labels query's autoflush below
+    # can't orphan-delete the sibling row it displaced.
     user_position = await checklist_position_crud.get(
         checklist_id=checklist_id, user_id=current_user.id
     )
-    if user_position is not None:
-        checklist.position = user_position
+    scope_position_to_caller(checklist, user_position)
     # Labels are per-user; the ORM relationship returns every collaborator's
     # labels, so scope them to the caller before returning. Done last so no
     # query runs after the in-memory reassignment (which is never committed).
@@ -308,7 +347,11 @@ async def update_checklist(
     checklist_access: UserChecklistAccess = Security(
         require_checklist_permission(ChecklistAccessLevel.edit)
     ),
+    checklist_position_crud: CheckListPositionCRUD = Depends(
+        CheckListPositionCRUD.get_crud
+    ),
     sync_crud: SyncNotifiationCRUD = Depends(SyncNotifiationCRUD.get_crud),
+    current_user: User = Depends(get_current_user),
 ) -> CheckListApiWithSubObj:
     result = await checklist_crud.update(
         id_=checklist_id,
@@ -318,6 +361,14 @@ async def update_checklist(
             detail=f"No checklist with id '{checklist_id}'",
         ),
     )
+    # Re-scope the per-user position to the caller (see scope_position_to_caller)
+    # so a collaborator's edit never round-trips the owner's pinned/archived/index
+    # — which silently un-pinned shared cards after a share. The helper's
+    # set_committed_value also prevents orphan-deleting the displaced sibling row.
+    user_position = await checklist_position_crud.get(
+        checklist_id=checklist_id, user_id=current_user.id
+    )
+    scope_position_to_caller(result, user_position)
     attach_my_permission(result, checklist_access.permission_level())
     await sync_crud.create(SyncNotification(cl_id=checklist_id, upd_prop="checklist"))
     return result
@@ -366,13 +417,19 @@ async def delete_checklist(
         return
 
     if checklist_access.user_is_owner():
-        # Capture who to notify *before* deleting the rows that identify them —
-        # afterwards the checklist and its collaborators are gone and the target
-        # set would resolve to nobody.
+        # Capture who to notify *before* tombstoning, while the collaborator rows
+        # still resolve the target set.
         target_user_ids = await sync_crud.resolve_target_user_ids(checklist_id)
-        await checklist_collaborator_crud.delete(checklist_id=checklist_id)
-        await checklist_position_crud.delete(checklist_id=checklist_id)
-        await checklist_crud.delete(
+        # Tombstone the checklist only (WI-2 cascade rule): every child row
+        # (collaborators, per-user positions, items/states/item-positions) is left
+        # untouched and masked by the parent tombstone. The access query filters
+        # `CheckList.deleted_at IS NULL`, so collaborators lose access on their
+        # next read; the delete propagates to offline clients via the delta feed
+        # (WI-4) and a stale edit cannot resurrect the card. We deliberately do
+        # NOT hard-delete the positions here: the card ORM object loaded by the
+        # access guard eager-joins its position, and deleting that row out from
+        # under it would break the tombstone flush's save-update cascade.
+        await checklist_crud.soft_delete(
             id_=checklist_id,
             raise_exception_if_not_exists=HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,

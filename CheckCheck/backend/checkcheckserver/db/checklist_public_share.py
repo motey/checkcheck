@@ -100,7 +100,10 @@ class CheckListPublicShareCRUD(
                     col(CheckListPublicShare.first_opened_at).is_(None),
                 )
             )
-            .values(first_opened_at=_utcnow())
+            # This is a Core UPDATE, which does not trigger the ORM
+            # `before_update` mapper event that stamps `updated_at`, so bump the
+            # sync version signal explicitly here.
+            .values(first_opened_at=_utcnow(), updated_at=_utcnow())
         )
         await self.session.commit()
         return result.rowcount > 0

@@ -14,7 +14,11 @@ from sqlmodel import Field, UniqueConstraint, Relationship
 import uuid
 from uuid import UUID
 
-from checkcheckserver.model._base_model import BaseTable, TimestampedModel
+from checkcheckserver.model._base_model import (
+    BaseTable,
+    TimestampedModel,
+    SoftDeleteMixin,
+)
 from checkcheckserver.model.checklist_color_scheme import ChecklistColorScheme
 from checkcheckserver.model.checklist_position import (
     CheckListPosition,
@@ -61,7 +65,7 @@ class CheckListBase(BaseTable):
     )
 
 
-class CheckList(CheckListBase, TimestampedModel, table=True):
+class CheckList(CheckListBase, TimestampedModel, SoftDeleteMixin, table=True):
     __tablename__ = "checklist"
     id: uuid.UUID = Field(
         default_factory=uuid.uuid4,
@@ -117,9 +121,14 @@ class CheckListCreate(CheckListBase):
 
 class CheckListApi(CheckListBase):
     id: uuid.UUID
+    updated_at: datetime.datetime
 
 
 class CheckListApiCreate(CheckListBase):
+    # Optional client-generated UUID (WI-3). When supplied the create is
+    # idempotent: replaying it (outbox retry / reconnect double-send) returns the
+    # existing card instead of duplicating it. Omit and the server assigns one.
+    id: Optional[uuid.UUID] = Field(default=None)
     position: CheckListPositionApiCreate | None = None
 
 

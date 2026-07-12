@@ -16,6 +16,7 @@ from checkcheckserver.model.checklist_collaborator import (
 )
 from checkcheckserver.model.checklist_public_share import CheckListPublicShare
 from checkcheckserver.model.sync_notifications import SyncNotification, SyncNotificationPackage
+from checkcheckserver.db.sync_seq import get_current_server_seq
 
 log = get_logger()
 config = Config()
@@ -128,6 +129,40 @@ class SyncNotifiationCRUD(
         connected logged-out viewers. When omitted it is resolved dynamically
         from the checklist's currently-active public links, so ordinary edits
         reach anonymous viewers live without any extra plumbing at the call site.
+
+        WI-5: alongside every *board-mutating* per-entity event, a lightweight
+        ``changes_available`` poke is emitted to the **same** recipients, carrying
+        the current global ``server_seq``. It is the single signal a local-first
+        client subscribes to (it pulls ``GET /api/changes`` and can skip the pull
+        when the poke's seq is <= its cursor). The legacy per-entity payload is
+        left byte-for-byte unchanged (the poke is an *additional* message).
+        ``notification`` (personal bell events, not board data returned by the
+        delta feed) and the poke itself get no poke — avoids useless pulls and
+        recursion.
+        """
+        await self._emit(noti, target_user_ids, target_tokens)
+
+        if noti.upd_prop not in ("changes_available", "notification"):
+            poke = SyncNotification(
+                cl_id=noti.cl_id,
+                upd_prop="changes_available",
+                server_seq=await get_current_server_seq(self.session),
+            )
+            # Route the poke to the SAME recipients as the event that triggered it
+            # (crucially reusing the explicit targets on delete/revoke, where the
+            # DB no longer identifies who lost access).
+            await self._emit(poke, target_user_ids, target_tokens)
+
+    async def _emit(
+        self,
+        noti: SyncNotification,
+        target_user_ids: Optional[List[uuid.UUID]] = None,
+        target_tokens: Optional[List[str]] = None,
+    ):
+        """Deliver a single notification over the active backend's transport.
+
+        Split out of ``create`` so the per-entity event and its ``changes_available``
+        poke share identical target-resolution + transport handling.
         """
         if config.db_backend == DbBackend.POSTGRES:
             target_ids = (
@@ -145,6 +180,7 @@ class SyncNotifiationCRUD(
                 "cl_id": str(noti.cl_id),
                 "cli_id": str(noti.cli_id) if noti.cli_id else None,
                 "upd_prop": noti.upd_prop,
+                "server_seq": noti.server_seq,
                 "target_user_ids": [str(uid) for uid in target_ids],
                 "target_tokens": list(target_tok),
             })

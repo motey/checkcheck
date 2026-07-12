@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "CheckCheck REST API",
-    "version": "0.1.dev74+ga64cc40.d20260706"
+    "version": "0.1.dev114+g532fc9e14.d20260712"
   },
   "paths": {
     "/api/health": {
@@ -163,7 +163,7 @@
               "type": "string",
               "minLength": 3,
               "maxLength": 128,
-              "pattern": "^[a-zA-Z0-9.-]+$",
+              "pattern": "^[a-zA-Z0-9._-]+$",
               "title": "User Name"
             }
           }
@@ -1168,6 +1168,8 @@
             "schema": {
               "enum": [
                 "created_at",
+                "updated_at",
+                "server_seq",
                 "email",
                 "display_name",
                 "id",
@@ -3323,6 +3325,10 @@
             "required": false,
             "schema": {
               "enum": [
+                "granted_seq",
+                "created_at",
+                "updated_at",
+                "server_seq",
                 "index",
                 "pinned",
                 "archived",
@@ -5047,6 +5053,75 @@
         }
       }
     },
+    "/api/changes": {
+      "get": {
+        "tags": [
+          "Client Sync"
+        ],
+        "summary": "Get Changes",
+        "description": "Delta feed (2.0 sync). Returns everything visible to the caller that changed since their cursor.\n\n**Cursor** \u2014 pass the previous response's `next_cursor` as `since` (start at `0` for a fresh device). The cursor is a global, server-set, strictly monotonic `server_seq` stamped on every syncable write; it is client-owned and per-device (the server keeps no per-client state). A `since` greater than the server's high-water mark (client ahead of a reset/restored DB) returns `full_resync=true` with the full accessible state.\n\n**Access changes** \u2014 cards the caller just gained access to are shipped in full (card + all items), since their rows predate the grant. Cards the caller lost access to are returned in `removed_checklist_ids`; to compute that, pass the ids the client currently caches as a comma-separated `known` query param.",
+        "operationId": "get_changes_api_changes_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "since",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "description": "The caller's sync cursor (a server_seq). 0 = full bootstrap.",
+              "default": 0,
+              "title": "Since"
+            },
+            "description": "The caller's sync cursor (a server_seq). 0 = full bootstrap."
+          },
+          {
+            "name": "known",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Comma-separated checklist ids the client currently has cached. Used to compute removed_checklist_ids (access revocations). Omit on the first pull.",
+              "title": "Known"
+            },
+            "description": "Comma-separated checklist ids the client currently has cached. Used to compute removed_checklist_ids (access revocations). Omit on the first pull."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChangesResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/": {
       "get": {
         "tags": [
@@ -5458,6 +5533,84 @@
         ],
         "title": "Body_set_user_password_api_user__user_id__password_put"
       },
+      "ChangesResponse": {
+        "properties": {
+          "next_cursor": {
+            "type": "integer",
+            "title": "Next Cursor"
+          },
+          "full_resync": {
+            "type": "boolean",
+            "title": "Full Resync"
+          },
+          "checklists": {
+            "items": {
+              "$ref": "#/components/schemas/CheckListApiWithSubObj"
+            },
+            "type": "array",
+            "title": "Checklists"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/CheckListItemRead"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "labels": {
+            "items": {
+              "$ref": "#/components/schemas/LabelReadAPI"
+            },
+            "type": "array",
+            "title": "Labels"
+          },
+          "checklist_tombstones": {
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "type": "array",
+            "title": "Checklist Tombstones"
+          },
+          "item_tombstones": {
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "type": "array",
+            "title": "Item Tombstones"
+          },
+          "label_tombstones": {
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "type": "array",
+            "title": "Label Tombstones"
+          },
+          "removed_checklist_ids": {
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "type": "array",
+            "title": "Removed Checklist Ids"
+          }
+        },
+        "type": "object",
+        "required": [
+          "next_cursor",
+          "full_resync",
+          "checklists",
+          "items",
+          "labels",
+          "checklist_tombstones",
+          "item_tombstones",
+          "label_tombstones",
+          "removed_checklist_ids"
+        ],
+        "title": "ChangesResponse"
+      },
       "CheckListApiCreate": {
         "properties": {
           "name": {
@@ -5519,6 +5672,18 @@
             "title": "Checked Items Collapsed",
             "description": "If checked_items_seperated is enabled and this is set to true the client should hide any checked items. ",
             "default": true
+          },
+          "id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Id"
           },
           "position": {
             "anyOf": [
@@ -5601,6 +5766,11 @@
             "format": "uuid",
             "title": "Id"
           },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          },
           "owner_id": {
             "type": "string",
             "format": "uuid",
@@ -5640,6 +5810,7 @@
         "type": "object",
         "required": [
           "id",
+          "updated_at",
           "owner_id",
           "my_permission",
           "color",
@@ -5702,6 +5873,18 @@
             "title": "Text",
             "description": "The display name of the list"
           },
+          "id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Id"
+          },
           "position": {
             "anyOf": [
               {
@@ -5728,6 +5911,29 @@
       },
       "CheckListItemPosition": {
         "properties": {
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At",
+            "nullable": false
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At",
+            "nullable": false
+          },
+          "server_seq": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Server Seq"
+          },
           "index": {
             "type": "number",
             "title": "Index",
@@ -5828,12 +6034,18 @@
             "minimum": 0.0,
             "title": "Indentation",
             "description": "To define 'sub'-items you can define an indentation level"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
           }
         },
         "type": "object",
         "required": [
           "index",
-          "indentation"
+          "indentation",
+          "updated_at"
         ],
         "title": "CheckListItemPositionPublicWithoutChecklistID"
       },
@@ -5861,6 +6073,11 @@
             "format": "uuid",
             "title": "Checklist Id"
           },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          },
           "position": {
             "$ref": "#/components/schemas/CheckListItemPositionPublicWithoutChecklistID"
           },
@@ -5872,6 +6089,7 @@
         "required": [
           "id",
           "checklist_id",
+          "updated_at",
           "position",
           "state"
         ],
@@ -5904,11 +6122,17 @@
           "checked": {
             "type": "boolean",
             "title": "Checked"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
           }
         },
         "type": "object",
         "required": [
-          "checked"
+          "checked",
+          "updated_at"
         ],
         "title": "CheckListItemStateWithoutChecklistID"
       },
@@ -5932,6 +6156,40 @@
       },
       "CheckListPosition": {
         "properties": {
+          "granted_seq": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Granted Seq"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At",
+            "nullable": false
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At",
+            "nullable": false
+          },
+          "server_seq": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Server Seq"
+          },
           "index": {
             "type": "number",
             "title": "Index",
@@ -6091,11 +6349,17 @@
             "title": "Checked Items Collapsed",
             "description": "If true the client should hide checked items in the list view.",
             "default": false
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
           }
         },
         "type": "object",
         "required": [
-          "index"
+          "index",
+          "updated_at"
         ],
         "title": "CheckListPositionPublicWithoutChecklistID"
       },
@@ -6387,6 +6651,23 @@
             "title": "Created At",
             "nullable": false
           },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At",
+            "nullable": false
+          },
+          "server_seq": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Server Seq"
+          },
           "healthy": {
             "type": "boolean",
             "title": "Healthy"
@@ -6405,6 +6686,23 @@
             "format": "date-time",
             "title": "Created At",
             "nullable": false
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At",
+            "nullable": false
+          },
+          "server_seq": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Server Seq"
           },
           "name": {
             "type": "string",
@@ -6493,6 +6791,18 @@
       },
       "LabelCreate": {
         "properties": {
+          "id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Id"
+          },
           "color_id": {
             "anyOf": [
               {
@@ -6531,6 +6841,11 @@
       },
       "LabelReadAPI": {
         "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
           "color_id": {
             "anyOf": [
               {
@@ -6567,15 +6882,15 @@
             "title": "Sort Order",
             "description": "Label order per user"
           },
-          "id": {
-            "type": "string",
-            "format": "uuid",
-            "title": "Id"
-          },
           "owner_id": {
             "type": "string",
             "format": "uuid",
             "title": "Owner Id"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
           },
           "color": {
             "anyOf": [
@@ -6592,12 +6907,25 @@
         "required": [
           "id",
           "owner_id",
+          "updated_at",
           "color"
         ],
         "title": "LabelReadAPI"
       },
       "LabelUpdate": {
         "properties": {
+          "id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Id"
+          },
           "color_id": {
             "anyOf": [
               {
@@ -7307,9 +7635,22 @@
               "share_added",
               "share_invited",
               "share_removed",
-              "notification"
+              "notification",
+              "changes_available"
             ],
             "title": "Upd Prop"
+          },
+          "server_seq": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Server Seq",
+            "description": "WI-5. Set only on the 'changes_available' poke: the server's global sync high-water mark at emit time. Lets a local-first client skip a GET /api/changes pull when this seq is <= its stored cursor. Null on the legacy per-entity events."
           },
           "target_user_ids": {
             "anyOf": [
@@ -7446,6 +7787,23 @@
             "title": "Created At",
             "nullable": false
           },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At",
+            "nullable": false
+          },
+          "server_seq": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Server Seq"
+          },
           "email": {
             "anyOf": [
               {
@@ -7515,7 +7873,7 @@
             "type": "string",
             "maxLength": 128,
             "minLength": 3,
-            "pattern": "^[a-zA-Z0-9.-]+$",
+            "pattern": "^[a-zA-Z0-9._-]+$",
             "title": "User Name",
             "examples": [
               "clara.immerwahr",
@@ -7694,7 +8052,7 @@
             "type": "string",
             "maxLength": 128,
             "minLength": 3,
-            "pattern": "^[a-zA-Z0-9.-]+$",
+            "pattern": "^[a-zA-Z0-9._-]+$",
             "title": "User Name",
             "examples": [
               "clara.immerwahr",
@@ -7752,6 +8110,23 @@
             "format": "date-time",
             "title": "Created At",
             "nullable": false
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At",
+            "nullable": false
+          },
+          "server_seq": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Server Seq"
           },
           "user_id": {
             "type": "string",

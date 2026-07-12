@@ -27,6 +27,7 @@ from checkcheckserver.model.user import User
 from checkcheckserver.model._base_model import (
     BaseTable,
     TimestampedModel,
+    SoftDeleteMixin,
 )
 from checkcheckserver.model.checklist_color_scheme import ChecklistColorScheme
 from checkcheckserver.model.checklist_label import CheckListLabel
@@ -41,6 +42,10 @@ config = Config()
 
 
 class LabelCreate(BaseTable, table=False):
+    # Optional client-generated UUID (WI-3). When supplied the create is
+    # idempotent: replaying it returns the existing label instead of duplicating
+    # it. Omit and the server assigns one.
+    id: Optional[uuid.UUID] = Field(default=None)
     color_id: Optional[str] = Field(
         foreign_key="checklist_color_scheme.id",
         default=None,
@@ -69,10 +74,11 @@ class LabelUpdate(LabelCreate, table=False):
 class LabelReadAPI(LabelUpdate, table=False):
     id: uuid.UUID
     owner_id: uuid.UUID
+    updated_at: datetime
     color: Optional[ChecklistColorScheme]
 
 
-class Label(LabelUpdate, table=True):
+class Label(LabelUpdate, TimestampedModel, SoftDeleteMixin, table=True):
     __tablename__ = "label"
     id: uuid.UUID = Field(
         primary_key=True,
