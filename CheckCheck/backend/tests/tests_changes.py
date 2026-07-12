@@ -383,3 +383,169 @@ def test_two_devices_converge_through_the_feed():
     assert item_id not in _item_ids(converged)
 
     req(f"api/checklist/{cl_id}", "delete")
+
+
+# ── Chunk C: cursor edges & revocation corner cases ───────────────────────────
+# These pin behaviours the surrounding tests assert only by construction (the
+# revocation, boundary, and `known`-parsing branches in routes_changes.py).
+
+
+def test_tombstoned_known_id_is_not_also_a_revocation():
+    """A card the client caches that gets HARD-removed from its access is a
+    revocation (`removed_checklist_ids`); a card that gets tombstoned is a
+    deletion (`checklist_tombstones`). The two are disjoint by design — the
+    client handles them on different local paths — so a tombstoned id passed in
+    `known` must report ONLY as a tombstone, never also as a revocation
+    (routes_changes.py `kid not in tombstone_set` branch)."""
+    cl_id = req("api/checklist", "post", b={"name": "tombstone-not-revoke"})["id"]
+
+    start = _cursor()
+    req(f"api/checklist/{cl_id}", "delete")
+
+    # The client still caches the (now deleted) card, so it reports it in `known`.
+    delta = _changes(since=start, known=[cl_id])
+    assert cl_id in delta["checklist_tombstones"], "deleted card must be tombstoned"
+    assert cl_id not in delta["removed_checklist_ids"], (
+        "a tombstoned id must not ALSO be reported as a revocation"
+    )
+
+
+def test_unparseable_known_entries_are_skipped_valid_still_revoked():
+    """Malformed `known` entries (garbage, empty) are skipped, not 400 — one bad
+    id must never lock a device out of syncing. The valid revoked id in the same
+    list is still reported (routes_changes.py `_parse_known_ids`)."""
+    other = _make_user_token("wi4-known-garbage")
+    other_id = _user_id(other)
+
+    cl_id = req("api/checklist", "post", b={"name": "garbage-known"})["id"]
+    req(f"api/checklist/{cl_id}/shares/{other_id}", "put", b={"permission": "edit"})
+
+    after_share = _cursor(token=other)
+    req(f"api/checklist/{cl_id}/shares/{other_id}", "delete")
+
+    # known = "not-a-uuid,,<valid-revoked-uuid>" — the empty and unparseable
+    # entries are dropped, the valid id still yields its revocation, HTTP 200.
+    delta = _changes(
+        since=after_share, known=["not-a-uuid", "", cl_id], token=other
+    )
+    assert cl_id in delta["removed_checklist_ids"], (
+        "a valid revoked id must survive alongside skipped garbage entries"
+    )
+
+    req(f"api/checklist/{cl_id}", "delete")
+
+
+def test_negative_cursor_triggers_full_resync():
+    """A `since < 0` is a nonsense cursor and must rebuild from scratch, exactly
+    like the 'client ahead of the server' branch (routes_changes.py:99). The
+    resync returns the caller's whole accessible state."""
+    cl_id = req("api/checklist", "post", b={"name": "neg-cursor"})["id"]
+
+    delta = _changes(since=-1)
+    assert delta["full_resync"] is True, "a negative cursor must full-resync"
+    assert cl_id in _cl_ids(delta), "a full resync returns the whole accessible state"
+
+    req(f"api/checklist/{cl_id}", "delete")
+
+
+def test_cursor_at_high_water_is_empty_and_not_a_resync():
+    """The exact boundary `since == current_seq`: the change scans are strictly
+    `> since`, so pulling at the high-water mark returns none of the rows written
+    at or below it and does NOT trigger a resync (guards the `>`-vs-`>=`
+    off-by-one that would re-ship every card each poll)."""
+    cl_id = req("api/checklist", "post", b={"name": "boundary card"})["id"]
+
+    # With nothing else writing, the card's create is the high-water write, so
+    # this cursor sits exactly at its seq.
+    boundary = _cursor()
+
+    delta = _changes(since=boundary)
+    assert delta["full_resync"] is False, "a cursor AT the high-water is not a resync"
+    assert cl_id not in _cl_ids(delta), (
+        "the boundary write itself must be excluded (scan is strictly > since)"
+    )
+
+    req(f"api/checklist/{cl_id}", "delete")
+
+
+def test_permission_downgrade_re_emits_card_then_write_403s():
+    """Downgrading an accepted collaborator edit→view re-emits the card so the
+    device learns its lowered `my_permission`, and a write legal at the old level
+    now 403s. Covers the server half of finding A3: an offline device that
+    queued an edit before the downgrade is told of the change AND its replay is
+    rejected, not silently applied (the revoke case is covered; downgrade was
+    not)."""
+    other = _make_user_token("wi4-downgrade")
+    other_id = _user_id(other)
+
+    cl_id = req("api/checklist", "post", b={"name": "downgrade card"})["id"]
+    item_id = req(f"api/checklist/{cl_id}/item", "post", b={"text": "editable"})["id"]
+    req(f"api/checklist/{cl_id}/shares/{other_id}", "put", b={"permission": "edit"})
+
+    # `other` can write at edit level.
+    req(
+        f"api/checklist/{cl_id}/item/{item_id}",
+        "patch",
+        b={"text": "edited by collaborator"},
+        access_token=other,
+    )
+    synced = _cursor(token=other)
+
+    # Owner downgrades edit → view.
+    req(f"api/checklist/{cl_id}/shares/{other_id}", "put", b={"permission": "view"})
+
+    # The downgrade re-emits the card with the lowered permission.
+    delta = _changes(since=synced, token=other)
+    card = find_first_dict_in_list(delta["checklists"], {"id": cl_id})
+    assert card is not None, "a permission downgrade must re-emit the card"
+    assert card["my_permission"] == "view", "the lowered level must be reported"
+
+    # A queued-style write replayed after the downgrade is now rejected.
+    req(
+        f"api/checklist/{cl_id}/item/{item_id}",
+        "patch",
+        b={"text": "stale offline edit"},
+        access_token=other,
+        expected_http_code=403,
+    )
+
+    req(f"api/checklist/{cl_id}", "delete")
+
+
+def test_self_leave_advances_seq_and_lands_in_removed_ids():
+    """A collaborator removing their OWN access ('leave list') shares the revoke
+    code path with an owner-revoke: it hard-deletes the collaborator + position
+    rows (no seq trace of their own) and re-stamps the owner's position to
+    advance the global seq, so the leaver's next poke sits AHEAD of its cursor
+    and it actually pulls the removal. `test_revocation_advances_the_global_seq…`
+    pins the owner-revoke case; the leave path shares the code but had no seq
+    assertion."""
+    other = _make_user_token("wi4-selfleave")
+    other_id = _user_id(other)
+
+    cl_id = req("api/checklist", "post", b={"name": "leave me"})["id"]
+    req(f"api/checklist/{cl_id}/shares/{other_id}", "put", b={"permission": "edit"})
+
+    after_share = _cursor(token=other)  # the leaver's cursor before leaving
+    before_leave_seq = _cursor()  # global high-water the poke must beat
+
+    # `other` leaves via the self-remove path.
+    req(
+        f"api/checklist/{cl_id}/shares/{other_id}",
+        "delete",
+        access_token=other,
+        expected_http_code=204,
+    )
+
+    assert _cursor() > before_leave_seq, (
+        "self-leave must advance the global server_seq like an owner-revoke, so "
+        "the poke is not skipped"
+    )
+
+    # The leaver reconnects and is told the card is gone.
+    delta = _changes(since=after_share, known=[cl_id], token=other)
+    assert cl_id in delta["removed_checklist_ids"], (
+        "self-leave must land the card in the leaver's removed_checklist_ids"
+    )
+
+    req(f"api/checklist/{cl_id}", "delete")
