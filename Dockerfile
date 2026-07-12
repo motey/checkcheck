@@ -7,6 +7,10 @@
 FROM oven/bun AS frontend-build
 WORKDIR /frontend_build
 COPY CheckCheck/frontend /frontend_build
+# open-fetch reads the API schema from ../openapi.json (see nuxt.config.ts). With
+# the frontend at /frontend_build that resolves to /openapi.json, so the schema
+# must land there or type generation fails with ENOENT '/openapi.json'.
+COPY CheckCheck/openapi.json /openapi.json
 RUN bun install && bun run build && bunx nuxi generate
 
 # ---------------------------------------------------------------------------
