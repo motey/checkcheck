@@ -4,6 +4,11 @@ name: tests
 # Runs against PostgreSQL (the primary target) — the pytest conftest starts a
 # throwaway `postgres:16-alpine` Docker container itself, which the GitHub
 # ubuntu runners can do out of the box, so no `services:` block is needed.
+#
+# Dependencies are installed from pdm.lock (the project's real lockfile) so CI
+# uses the exact versions the maintainer runs — in particular the OIDC test
+# stack (oidc-provider-mock / joserfc / authlib), which breaks on newer,
+# unpinned resolutions ("Invalid key_op 'sign' for public key").
 on:
   push:
     branches: ["**"]
@@ -21,14 +26,12 @@ jobs:
         with:
           python-version: "3.13"
 
-      - name: Install backend + test dependencies
+      - name: Install backend deps from pdm.lock
         working-directory: CheckCheck/backend
         run: |
-          python -m pip install --upgrade pip pip-tools setuptools_scm
-          pip-compile -o requirements.txt pyproject.toml
-          pip install -r requirements.txt
-          # dev + test groups (not part of the compiled runtime requirements)
-          pip install pytest requests oidc-provider-mock pyyaml
+          python -m pip install --upgrade pip pdm
+          pdm config venv.in_project true
+          pdm install -G dev -G test
 
       # The test harness reads CheckCheck/backend/tests/.env (gitignored, so it
       # never reaches CI) for the two required secrets and the server port. The
@@ -52,4 +55,5 @@ jobs:
           EOF
 
       - name: Run backend test suite (PostgreSQL)
-        run: ./run_backend_tests_with_postgres.sh
+        working-directory: CheckCheck/backend
+        run: pdm run bash ../../run_backend_tests_with_postgres.sh
