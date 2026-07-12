@@ -5,14 +5,19 @@ name: docker
 #   - normal release -> :latest  + LOG_LEVEL=INFO
 #   - pre-release    -> :beta    + LOG_LEVEL=DEBUG
 #
-# Release git tags are expected to be bare (e.g. 0.1.0). A stray leading "v" is
+# Multi-arch (amd64 + arm64) is built on NATIVE runners — amd64 on ubuntu-latest,
+# arm64 on ubuntu-24.04-arm — instead of emulating arm64 under QEMU (which made
+# release builds take 30-40+ min and look stuck). Each arch is pushed by digest,
+# then a final job merges them into the tagged multi-arch manifest.
+#
+# Release git tags are expected to be bare (e.g. 0.1.0); a stray leading "v" is
 # tolerated and stripped from the image tag.
 #
 # Required repository secrets:
 #   DOCKERHUB_USERNAME  Docker Hub login (needs push access to motey/checkcheck)
 #   DOCKERHUB_TOKEN     Docker Hub access token. For the "Update Docker Hub
-#                       description" step to work it must be a Read/Write/Delete
-#                       scoped PAT (image push works with any read/write token).
+#                       description" step it must be a Read/Write/Delete scoped
+#                       PAT (image push works with any read/write token).
 on:
   release:
     types: [published]
@@ -21,35 +26,36 @@ env:
   IMAGE: motey/checkcheck
 
 jobs:
-  docker:
-    runs-on: ubuntu-latest
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux/amd64
+            runner: ubuntu-latest
+            arch: amd64
+          - platform: linux/arm64
+            runner: ubuntu-24.04-arm
+            arch: arm64
+    runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
 
-      - name: Compute version, tags and log level
+      - name: Compute version and log level
         id: meta
         env:
           TAG_NAME: ${{ github.event.release.tag_name }}
           PRERELEASE: ${{ github.event.release.prerelease }}
         run: |
           VERSION="${TAG_NAME#v}"
-          TAGS="${IMAGE}:${VERSION}"
           if [ "${PRERELEASE}" = "true" ]; then
-            TAGS="${TAGS},${IMAGE}:beta"
-            # Pre-release/beta keeps verbose logging for diagnosing.
-            LOG_LEVEL="DEBUG"
+            LOG_LEVEL="DEBUG"   # pre-release/beta keeps verbose logging
           else
-            TAGS="${TAGS},${IMAGE}:latest"
-            # Production releases ship without debug logging.
-            LOG_LEVEL="INFO"
+            LOG_LEVEL="INFO"    # production releases ship without debug logging
           fi
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
-          echo "tags=${TAGS}" >> "$GITHUB_OUTPUT"
           echo "log_level=${LOG_LEVEL}" >> "$GITHUB_OUTPUT"
 
-      - uses: docker/setup-qemu-action@v4
       - uses: docker/setup-buildx-action@v4
 
       - name: Log in to Docker Hub
@@ -58,22 +64,82 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Build and push
+      - name: Build and push by digest
+        id: build
         uses: docker/build-push-action@v7
         with:
           context: .
-          push: true
-          platforms: linux/amd64,linux/arm64
+          platforms: ${{ matrix.platform }}
           build-args: |
             APP_VERSION=${{ steps.meta.outputs.version }}
             LOG_LEVEL=${{ steps.meta.outputs.log_level }}
-          tags: ${{ steps.meta.outputs.tags }}
           labels: |
             org.opencontainers.image.version=${{ steps.meta.outputs.version }}
             org.opencontainers.image.revision=${{ github.sha }}
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          outputs: type=image,name=${{ env.IMAGE }},push-by-digest=true,name-canonical=true,push=true
+          cache-from: type=gha,scope=${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.arch }}
+
+      - name: Export digest
+        run: |
+          mkdir -p /tmp/digests
+          digest="${{ steps.build.outputs.digest }}"
+          touch "/tmp/digests/${digest#sha256:}"
+
+      - name: Upload digest
+        uses: actions/upload-artifact@v4
+        with:
+          name: digests-${{ matrix.arch }}
+          path: /tmp/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  merge:
+    needs: [build]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Compute tags
+        id: meta
+        env:
+          TAG_NAME: ${{ github.event.release.tag_name }}
+          PRERELEASE: ${{ github.event.release.prerelease }}
+        run: |
+          VERSION="${TAG_NAME#v}"
+          TAGS="-t ${IMAGE}:${VERSION}"
+          if [ "${PRERELEASE}" = "true" ]; then
+            TAGS="${TAGS} -t ${IMAGE}:beta"
+          else
+            TAGS="${TAGS} -t ${IMAGE}:latest"
+          fi
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "tags=${TAGS}" >> "$GITHUB_OUTPUT"
+
+      - name: Download digests
+        uses: actions/download-artifact@v4
+        with:
+          path: /tmp/digests
+          pattern: digests-*
+          merge-multiple: true
+
+      - uses: docker/setup-buildx-action@v4
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v4
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Create and push multi-arch manifest
+        working-directory: /tmp/digests
+        run: |
+          docker buildx imagetools create ${{ steps.meta.outputs.tags }} \
+            $(printf '${{ env.IMAGE }}@sha256:%s ' *)
+
+      - name: Inspect
+        run: docker buildx imagetools inspect ${{ env.IMAGE }}:${{ steps.meta.outputs.version }}
 
       # Cosmetic — the image is already pushed above, so never fail a release on it.
       - name: Update Docker Hub description
