@@ -672,6 +672,43 @@ describe("outbox persistence across a restart", () => {
     expect(persisted.map((o) => o.entityId).sort()).toEqual(["iA", "iB"]);
   });
 
+  // Chunk D finding #4: the same guarantee under a concurrent DRAIN. One tab
+  // coming online and draining ITS op must remove only that op (per-op
+  // `remove(opId)`), never touch the other tab's still-queued write. The pre-A2
+  // whole-queue rewrite drained-then-persisted its own view and would have
+  // erased the offline tab's op.
+  it("one tab draining its op does not wipe another tab's still-queued op", async () => {
+    const store = createOutboxStore();
+    await store.clear();
+
+    const sent: string[] = [];
+    let tabBOnline = false;
+    // Tab A stays offline (keeps its op queued); tab B goes online and drains.
+    const tabA = new OutboxEngine({ store, isOnline: () => false, transport: async () => {} });
+    const tabB = new OutboxEngine({
+      store,
+      isOnline: () => tabBOnline,
+      transport: async (o) => {
+        sent.push(o.entityId);
+      },
+    });
+    await tabA.init();
+    await tabB.init();
+
+    await tabA.enqueue(itemCreate("iA", "clA")); // offline: stays queued on disk
+    await tabB.enqueue(itemCreate("iB", "clB")); // tab B's own op
+
+    tabBOnline = true;
+    tabB.setOnline(true);
+    await settle();
+
+    // Tab B delivered + removed only iB; tab A's iA is untouched on disk, ready
+    // for tab A to drain later.
+    expect(sent).toEqual(["iB"]);
+    const persisted = await store.load();
+    expect(persisted.map((o) => o.entityId)).toEqual(["iA"]);
+  });
+
   // Chunk A1: account switch / logout wipes the queue in memory and on disk so a
   // new user's session never drains the previous user's writes.
   it("reset() clears the queue in memory and on disk", async () => {

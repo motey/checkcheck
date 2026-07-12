@@ -319,4 +319,94 @@ test.describe("offline sync — conflict, no-revert, revocation", () => {
     await expect(cardPreview(collab, clName)).toHaveCount(0, { timeout: 20_000 });
     await expect.poll(() => outboxOpCount(collab), { timeout: 20_000 }).toBe(0);
   });
+
+  // ── 4. Offline create → cold reload → reconnect → card lands on the server ───
+  //
+  // Chunk D finding #3: the enqueue→IndexedDB→reboot→drain loop for a *create*.
+  // A card created entirely offline must (a) persist its queued create across a
+  // cold page reload (still offline), staying on the board from the snapshot, and
+  // (b) drain to the server once connectivity returns — the flow the
+  // `queuedCreateIds`/`known=` protection exists for.
+
+  // Does the persisted snapshot hold a card with this name yet?
+  async function snapshotHasCardNamed(page: Page, name: string): Promise<boolean> {
+    return page.evaluate(
+      (n) =>
+        new Promise<boolean>((resolve) => {
+          const req = indexedDB.open("checkcheck-localfirst", 1);
+          req.onsuccess = () => {
+            try {
+              const getReq = req.result
+                .transaction("kv", "readonly")
+                .objectStore("kv")
+                .get("checkList");
+              getReq.onsuccess = () => {
+                const data: any = getReq.result;
+                resolve(
+                  !!data && Array.isArray(data.checkLists) && data.checkLists.some((c: any) => c.name === n)
+                );
+              };
+              getReq.onerror = () => resolve(false);
+            } catch {
+              resolve(false);
+            }
+          };
+          req.onerror = () => resolve(false);
+        }),
+      name
+    );
+  }
+
+  test("a card created offline persists across a cold reload and drains on reconnect", async ({
+    page,
+    browser,
+  }) => {
+    const tag = Date.now();
+    const clName = `Offline-create-${tag}`;
+    const req = await side(browser);
+
+    await page.goto("/?localFirst=1");
+    await page.waitForSelector("[data-testid=checklist-board]");
+
+    // Go offline (writes blocked, GET/SSE live) and create a card from the UI —
+    // `_localCreate` is optimistic: it mints a client id, adds the card, and
+    // queues a `create` op without touching the (blocked) network.
+    await blockApiWrites(page);
+    await page.locator("[data-testid=new-card-button]").click();
+    const dialog = page.locator('[role="dialog"]');
+    await expect(dialog).toBeVisible({ timeout: 8_000 });
+    await dialog.locator("textarea").first().fill(clName);
+    await page.keyboard.press("Escape");
+    await expect(dialog).toBeHidden({ timeout: 5_000 });
+
+    // The optimistic card is on the board and its create is queued in IndexedDB.
+    await expect(cardPreview(page, clName)).toBeVisible({ timeout: 8_000 });
+    await expect.poll(() => outboxOpCount(page), { timeout: 8_000 }).toBeGreaterThan(0);
+    // Wait for the debounced snapshot so the cold reload can rehydrate the card.
+    await expect.poll(() => snapshotHasCardNamed(page, clName), { timeout: 8_000 }).toBe(true);
+
+    // Cold reload, STILL offline: the card can only come from the IndexedDB
+    // snapshot, and its create must still be queued (persisted across the reboot).
+    // The delta pull excludes it from `known=`, so it isn't reported as revoked.
+    await page.reload();
+    await page.waitForSelector("[data-testid=checklist-board]");
+    await expect(cardPreview(page, clName)).toBeVisible({ timeout: 8_000 });
+    await expect.poll(() => outboxOpCount(page), { timeout: 8_000 }).toBeGreaterThan(0);
+    // Not yet on the server (the create never reached it while offline).
+    const before = await req.get(`/api/checklist?search=${encodeURIComponent(clName)}&limit=5`).then((r) => r.json());
+    expect(before.items.some((c: any) => c.name === clName)).toBe(false);
+
+    // Reconnect + reload (the drain trigger — navigator.onLine never flipped, so
+    // the reload re-inits the outbox and drains it).
+    await page.unrouteAll();
+    await page.reload();
+    await page.waitForSelector("[data-testid=checklist-board]");
+    await expect.poll(() => outboxOpCount(page), { timeout: 20_000 }).toBe(0);
+
+    // The card now exists on the server with the name typed offline.
+    const after = await req.get(`/api/checklist?search=${encodeURIComponent(clName)}&limit=5`).then((r) => r.json());
+    const landed = after.items.find((c: any) => c.name === clName);
+    expect(landed, "offline-created card should exist on the server after drain").toBeTruthy();
+    cleanup.push(landed.id);
+  });
 });

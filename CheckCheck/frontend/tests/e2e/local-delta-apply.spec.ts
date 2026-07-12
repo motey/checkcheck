@@ -28,6 +28,11 @@ async function apiPost(req: APIRequestContext, path: string, body: object) {
   return res.json();
 }
 
+async function apiPut(req: APIRequestContext, path: string) {
+  const res = await req.put(path);
+  expect(res.ok(), `PUT ${path} failed: ${res.status()}`).toBeTruthy();
+}
+
 async function apiDelete(req: APIRequestContext, path: string) {
   await req.delete(path).catch(() => {});
 }
@@ -49,6 +54,7 @@ test.describe("local-first delta application", () => {
   test.setTimeout(40_000);
 
   const cleanup: string[] = [];
+  const labelCleanup: string[] = [];
   let secondCtx: BrowserContext | null = null;
   // A fresh online request context for making "elsewhere" edits that are NOT
   // subject to a page's offline emulation.
@@ -57,7 +63,9 @@ test.describe("local-first delta application", () => {
   test.afterEach(async ({ page, browser }) => {
     if (!sideReq) sideReq = await browser.newContext({ storageState: AUTH_STATE_FILE }).then((c) => c.request);
     for (const id of cleanup) await apiDelete(sideReq, `/api/checklist/${id}`);
+    for (const id of labelCleanup) await apiDelete(sideReq, `/api/label/${id}`);
     cleanup.length = 0;
+    labelCleanup.length = 0;
 
     if (secondCtx) {
       await Promise.all(secondCtx.pages().map((p) => p.goto("about:blank").catch(() => {})));
@@ -152,5 +160,50 @@ test.describe("local-first delta application", () => {
     await expect(page.getByText(newName, { exact: true })).toBeVisible({ timeout: 20_000 });
     expect(seen.some((u) => u.includes("/api/changes"))).toBe(true);
     expect(seen.some((u) => /\/api\/checklist(\?|$)/.test(u))).toBe(false);
+  });
+
+  // ── 3. Label tombstone strips the chip off a live client's card ────────────
+  //
+  // Chunk D finding #6: deleting a label elsewhere must, via the delta feed,
+  // remove its chip from every card that carried it in an already-loaded client
+  // (unit-covered in deltaApply.spec.ts; this drives the full poke→delta→store
+  // path). The chip is a <button> rendering the label's `display_name`, driven by
+  // the card's `labels` array + the label store — a `label_tombstone` clears both.
+
+  test("deleting a label elsewhere removes its chip from a live client's card via delta", async ({
+    page,
+    browser,
+  }) => {
+    const tag = Date.now();
+    const clName = `Labeled-${tag}`;
+    const labelName = `chip-${tag}`;
+
+    if (!sideReq) sideReq = await browser.newContext({ storageState: AUTH_STATE_FILE }).then((c) => c.request);
+
+    const cl = await apiPost(page.request, "/api/checklist", { name: clName });
+    cleanup.push(cl.id);
+    const label = await apiPost(page.request, "/api/label", { display_name: labelName });
+    labelCleanup.push(label.id);
+    await apiPut(page.request, `/api/checklist/${cl.id}/label/${label.id}`);
+
+    await page.goto("/?localFirst=1");
+    await page.waitForSelector("[data-testid=checklist-board]");
+    const card = cardPreview(page, clName);
+    await expect(card).toBeVisible({ timeout: 8_000 });
+    // The chip is present on the card.
+    await expect(card.getByText(labelName, { exact: true })).toBeVisible({ timeout: 8_000 });
+
+    const seen: string[] = [];
+    page.on("request", (r) => {
+      if (r.method() === "GET") seen.push(r.url());
+    });
+
+    // Delete the label from an independent online context → SSE poke → delta with
+    // a `label_tombstone`.
+    await apiDelete(sideReq, `/api/label/${label.id}`);
+
+    // The chip disappears from the card in the live client, via the delta feed.
+    await expect(card.getByText(labelName, { exact: true })).toHaveCount(0, { timeout: 15_000 });
+    expect(seen.some((u) => u.includes("/api/changes"))).toBe(true);
   });
 });
