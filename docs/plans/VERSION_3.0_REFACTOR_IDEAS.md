@@ -135,6 +135,42 @@ hurt at scale.
 - **Per-client server state** — the stateless cursor design is the best
   property the protocol has; every scaling change above preserves it.
 
+## 7. The 4.0 horizon — when to stop DIY
+
+Recorded 2026-07-11 (post-2.0 review). If the sync layer ever outgrows the DIY
+design, the replacement is a **half rewrite, not a full one** — the write path
+(idempotent, permission-checked REST + outbox) is the best-designed part of
+2.0 and survives every option below.
+
+- **Recommended: ElectricSQL** (Apache-2, self-hosted Elixir service on
+  Postgres logical replication). It replaces exactly the brittle half — the
+  read path: `server_seq` + counter lock, `granted_seq`, `/api/changes`
+  queries, the SSE poke, the revoke-`touch` hack all become replication-driven
+  "shape" streams with resumable offsets. Writes stay through our API (their
+  officially recommended pattern). Optionally pair with TanStack DB on the
+  client (optimistic mutations + local live queries) to replace
+  `mergeDelta`/field-guard. Caveats: one new service to operate; VC-backed
+  rather than foundation-carried; permissions = proxy shape requests through
+  FastAPI (`_add_user_has_access_query` becomes the shape authorizer); and
+  **revocation/partial access is still the hard design problem** — shape
+  invalidation on access loss is our `known=` problem in their vocabulary.
+  Migration is incremental: run Electric alongside `/api/changes`, move reads
+  over shape by shape, then delete the DIY read machinery.
+- **RxDB** — the opposite trade: backend stays nearly untouched (its
+  replication protocol ≈ our cursor/outbox/LWW 1:1), only the client engine is
+  swapped. Weakest on "community carried" (open-core, paid premium plugins,
+  effectively one maintainer). The pragmatic pick if extra infra is a
+  dealbreaker.
+- **CouchDB/PouchDB** — the only foundation-grade option, but per-database
+  auth vs our per-user state on *shared* cards forces a db-per-user
+  contortion: a full model + permission rewrite for older tech. No.
+- **Zero (Rocicorp)** — architecturally the closest successor to this design
+  (Replicache is basically our outbox/pull productized, now in maintenance);
+  too young to commit to. Re-evaluate at 4.0 time.
+- **CRDT frameworks (Yjs / Automerge / Jazz)** — the actual full-rewrite path
+  (data model, authority, and permissions all change shape). Only justified if
+  collaborative *text* editing becomes core. Consistent with §6: still no.
+
 ## Suggested sequencing
 
 1. Finish 2.0_REVIEW_FINDINGS Chunks A/B (they are 3.0 prerequisites anyway).
