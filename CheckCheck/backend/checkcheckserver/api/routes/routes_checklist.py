@@ -2,7 +2,6 @@ from typing import Annotated, Sequence, List, Type, Optional
 from datetime import datetime, timedelta, timezone
 import uuid
 import decimal
-from sqlalchemy.orm.attributes import set_committed_value
 from fastapi import (
     Depends,
     Security,
@@ -62,6 +61,7 @@ from checkcheckserver.api.access import (
     user_has_checklist_access,
     require_checklist_permission,
     attach_my_permission,
+    scope_position_to_caller,
     ChecklistAccessLevel,
     UserChecklistAccess,
 )
@@ -206,11 +206,14 @@ async def create_checklist(
                 )
             # Same owner, still live → this is a replay. Return the existing card
             # (with the caller's position) unchanged; no duplicate, no sync poke.
+            # set_committed_value (via scope_position_to_caller), not plain
+            # assignment: the delete-orphan position relationship would otherwise
+            # orphan the arbitrarily joined-loaded row (a collaborator's, on a
+            # shared card the owner is replaying) and delete it on a later flush.
             user_position = await checklist_position_crud.get(
                 checklist_id=existing.id, user_id=current_user.id
             )
-            if user_position is not None:
-                existing.position = user_position
+            scope_position_to_caller(existing, user_position)
             attach_my_permission(existing, ChecklistAccessLevel.owner)
             return existing
     # Compute the grid index BEFORE staging (this reads the caller's current last
@@ -312,23 +315,16 @@ async def get_checklist(
             detail=f"No checklist with id '{checklist_id}'",
         ),
     )
-    # CheckListPosition is per-user: a shared card has N position rows (one per
-    # collaborator + owner), but CheckList.position is a scalar (uselist=False)
-    # joined relationship — the eager-load collapses those rows into the single
-    # slot and picks one arbitrarily. So re-scope the position to the caller
-    # (mirroring accept_invite / the user-scoped eager-load in list()); otherwise
-    # a shared card could report another user's pinned/archived/index — e.g. the
-    # owner's card silently unpinning the moment it is shared.
+    # Re-scope the per-user position to the caller (see scope_position_to_caller):
+    # a shared card's joined-load collapses N per-user rows into one slot and picks
+    # arbitrarily, so an unscoped read could report another user's
+    # pinned/archived/index — e.g. the owner's card silently unpinning once shared.
+    # The helper uses set_committed_value so the labels query's autoflush below
+    # can't orphan-delete the sibling row it displaced.
     user_position = await checklist_position_crud.get(
         checklist_id=checklist_id, user_id=current_user.id
     )
-    if user_position is not None:
-        # set_committed_value, NOT plain assignment: the position relationship has
-        # delete-orphan cascade, so `checklist.position = ...` would orphan the
-        # arbitrary row the joined-load picked and DELETE/NULL it on the next
-        # autoflush (the labels query below) — corrupting another user's position.
-        # This overrides the loaded value for serialization without dirtying it.
-        set_committed_value(checklist, "position", user_position)
+    scope_position_to_caller(checklist, user_position)
     # Labels are per-user; the ORM relationship returns every collaborator's
     # labels, so scope them to the caller before returning. Done last so no
     # query runs after the in-memory reassignment (which is never committed).
@@ -365,21 +361,14 @@ async def update_checklist(
             detail=f"No checklist with id '{checklist_id}'",
         ),
     )
-    # CheckListPosition is per-user: a shared card has N position rows, but
-    # CheckList.position is a scalar (uselist=False) joined relationship, so the
-    # eager-load collapses them into one slot and picks arbitrarily. Re-scope to
-    # the caller (mirroring get_checklist) so a collaborator's edit never round-
-    # trips the owner's pinned/archived/index — which silently un-pinned shared
-    # cards after a share.
+    # Re-scope the per-user position to the caller (see scope_position_to_caller)
+    # so a collaborator's edit never round-trips the owner's pinned/archived/index
+    # — which silently un-pinned shared cards after a share. The helper's
+    # set_committed_value also prevents orphan-deleting the displaced sibling row.
     user_position = await checklist_position_crud.get(
         checklist_id=checklist_id, user_id=current_user.id
     )
-    if user_position is not None:
-        # set_committed_value, NOT plain assignment: reassigning the delete-orphan
-        # position relationship would orphan the joined-loaded (arbitrary) row and
-        # delete/NULL it on the next flush — silently corrupting another user's
-        # pinned/archived/index. This overrides it for serialization only.
-        set_committed_value(result, "position", user_position)
+    scope_position_to_caller(result, user_position)
     attach_my_permission(result, checklist_access.permission_level())
     await sync_crud.create(SyncNotification(cl_id=checklist_id, upd_prop="checklist"))
     return result

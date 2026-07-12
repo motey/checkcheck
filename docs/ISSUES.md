@@ -49,43 +49,77 @@ not. Postgres makes the arbitrary pick genuinely undefined (SQLite masked it).
 
 ## Systemic: per-user relationship reassignment on shared cards (orphan-delete + unscoped serialization)
 
-**Status:** open · **Severity:** high · **Discovered:** 2026-07-12
+**Status:** resolved (2026-07-12) · **Severity:** high · **Discovered:** 2026-07-12
 
-**Scope**
+**Resolution**
 
-The fix above hardened only `get_checklist` and `update_checklist`. The same
-pattern — re-scoping a shared card's per-user `position` / `labels` by **plain
-assignment** onto a session-attached ORM object — appears in several more routes
-and carries the same two hazards:
+Centralised the per-user position re-scope in one helper,
+`access.scope_position_to_caller`, which always uses `set_committed_value` (never
+plain assignment), and routed every checklist-returning site through it:
+
+- `routes_checklist_public.py` — `get_public_checklist` (owner scope) and
+  `join_public_checklist` (joiner scope).
+- `routes_checklist_share.py` — `accept_invite` (accepter scope).
+- `routes_checklist.py` — the `create_checklist` idempotent-replay branch, plus
+  `get_checklist` / `update_checklist` refactored onto the helper (they already
+  used `set_committed_value` inline).
+
+**Root-cause clarification found while fixing**
+
+The orphan DELETE only *persists* when a **commit follows** the plain reassignment
+in the same request. The base CRUD `create`/`update` commit, so `update_checklist`
+(which does `sync_crud.create` after re-scoping) deterministically corrupted the
+owner's row — that path was the one already fixed, and is covered deterministically
+by `tests/tests_shared_position_scope.py`. The remaining sites (public get/join,
+invite accept, create-replay) re-scope but do **not** commit afterward, so their
+orphaned DELETE was rolled back at session close: a latent landmine, not active
+corruption. The helper removes the landmine regardless of what runs afterwards.
+
+The `labels` reassignment carries no delete-orphan hazard (`cascade_delete=False`,
+link-model M2M) and was already the last statement before return on every site, so
+its dirty state is never flushed; left as-is.
+
+New invariant test `tests/tests_shared_position_orphan.py` locks per-user position
+scoping across the three read/join/accept routes (each user keeps their own
+pinned/index; the re-scope neither leaks nor disturbs a sibling row).
+
+**Original scope**
+
+The prior fix hardened only `get_checklist` and `update_checklist`. The same
+pattern — re-scoping a shared card's per-user `position` by **plain assignment**
+onto a session-attached ORM object — appeared in several more routes and carried
+the same hazards:
 
 - **Orphan-delete corruption:** `position` has delete-orphan cascade, so
   `checklist.position = user_position` orphans the arbitrarily joined-loaded row
-  and deletes/NULLs *another user's* position on the next autoflush (the following
-  `labels` query autoflushes). Use `set_committed_value(obj, "position", ...)`.
+  and deletes/NULLs *another user's* position once a commit follows.
 - **Unscoped leak:** any checklist-returning route that does NOT re-scope position
-  (and replace `labels` with the caller's set) serves another user's
-  pinned/archived/index/labels for shared cards.
+  serves another user's pinned/archived/index for shared cards.
 
-**Suspect sites (not yet verified/fixed)**
+**Suspect sites (all audited/fixed)**
 
-- `routes_checklist_public.py:140-141`, `:276-277` — plain `position`/`labels` reassignment.
-- `routes_checklist_share.py:726-727` — plain `position`/`labels` reassignment.
-- `routes_checklist.py:213` — create idempotent-replay branch: plain `existing.position = user_position`.
-- `create_checklist` and any other `-> CheckListApiWithSubObj` route (share/public
-  routers) should be audited for missing position/label re-scoping.
-
-**Suggested fix**
-
-Audit every route returning a checklist DTO; switch all per-user relationship
-overrides to `set_committed_value`; add a shared-card cross-user regression test
-per route (mirror `tests/tests_shared_position_scope.py`). Consider centralizing
-the "scope a checklist to the caller" step in one helper so no route reinvents it.
+- `routes_checklist_public.py` `get_public_checklist`, `join_public_checklist`.
+- `routes_checklist_share.py` `accept_invite`.
+- `routes_checklist.py` create idempotent-replay branch.
+- `create_checklist`'s main path assigns a freshly-created card's only position
+  row (no cross-user sibling), so it was left as plain assignment.
 
 ---
 
 ## Username validation rejects underscores — breaks OIDC provisioning
 
-**Status:** open · **Severity:** medium · **Discovered:** 2026-07-12
+**Status:** resolved (2026-07-12) · **Severity:** medium · **Discovered:** 2026-07-12
+
+**Resolution**
+
+Took the low-risk option: added `_` to the allowed set on both `UserRegisterAPI`
+and `_UserWithName` — `^[a-zA-Z0-9._-]+$`
+([user.py:60](../CheckCheck/backend/checkcheckserver/model/user.py#L60),
+[user.py:106](../CheckCheck/backend/checkcheckserver/model/user.py#L106)). This
+unbreaks the `PREFIX_USERNAME_WITH_PROVIDER_SLUG` `f"{slug}_{user_name}"` prefix
+(which was violating its own pattern) and OIDC usernames containing underscores.
+Regression test `test_username_with_underscore_is_accepted_and_can_log_in` in
+`tests/tests_auth.py` creates an underscore user and logs in as them.
 
 **Symptom**
 

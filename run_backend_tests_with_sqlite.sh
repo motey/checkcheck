@@ -46,5 +46,6 @@ if [ "$HAS_SELECTION" -eq 0 ]; then
     CHECKCHECK_TEST_SHARING_REQUIRE_INVITE_ACCEPT=1 \
         python -m pytest --db=sqlite \
             tests/tests_sharing_invites.py \
-            tests/tests_sharing_groups.py
+            tests/tests_sharing_groups.py \
+            tests/tests_shared_position_orphan.py
 fi

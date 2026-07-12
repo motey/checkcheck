@@ -29,6 +29,7 @@ from checkcheckserver.api.access import (
     require_checklist_permission,
     permission_at_least,
     attach_my_permission,
+    scope_position_to_caller,
     ChecklistAccessLevel,
     UserChecklistAccess,
 )
@@ -719,11 +720,14 @@ async def accept_invite(
     )
 
     checklist = await checklist_crud.get(id_=checklist_id)
+    # set_committed_value (via scope_position_to_caller), not plain assignment: the
+    # delete-orphan position relationship would otherwise orphan the arbitrarily
+    # joined-loaded row and delete the owner's position on the labels query's
+    # autoflush below — silently un-pinning the card the caller just accepted.
     user_position = await checklist_position_crud.get(
         checklist_id=checklist_id, user_id=current_user.id
     )
-    if user_position is not None:
-        checklist.position = user_position
+    scope_position_to_caller(checklist, user_position)
     checklist.labels = await checklist_label_crud.list_labels_for_user(
         checklist_id=checklist_id, user_id=current_user.id
     )

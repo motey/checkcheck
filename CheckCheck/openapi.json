@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "CheckCheck REST API",
-    "version": "0.1.dev113+gf7bfe22.d20260712"
+    "version": "0.1.dev114+g532fc9e14.d20260712"
   },
   "paths": {
     "/api/health": {
@@ -163,7 +163,7 @@
               "type": "string",
               "minLength": 3,
               "maxLength": 128,
-              "pattern": "^[a-zA-Z0-9.-]+$",
+              "pattern": "^[a-zA-Z0-9._-]+$",
               "title": "User Name"
             }
           }
@@ -7873,7 +7873,7 @@
             "type": "string",
             "maxLength": 128,
             "minLength": 3,
-            "pattern": "^[a-zA-Z0-9.-]+$",
+            "pattern": "^[a-zA-Z0-9._-]+$",
             "title": "User Name",
             "examples": [
               "clara.immerwahr",
@@ -8052,7 +8052,7 @@
             "type": "string",
             "maxLength": 128,
             "minLength": 3,
-            "pattern": "^[a-zA-Z0-9.-]+$",
+            "pattern": "^[a-zA-Z0-9._-]+$",
             "title": "User Name",
             "examples": [
               "clara.immerwahr",

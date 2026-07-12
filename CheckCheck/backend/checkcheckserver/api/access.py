@@ -3,6 +3,7 @@ import uuid
 import enum
 from typing import List, Literal, Annotated, Optional
 from fastapi import HTTPException, status, Security, Depends, Path, Query, Header
+from sqlalchemy.orm.attributes import set_committed_value
 
 # internal imports
 from checkcheckserver.config import Config
@@ -75,6 +76,37 @@ def attach_my_permission(checklist: CheckList, level) -> CheckList:
     non-field attribute. The response serialiser reads it back via ``getattr``
     (``from_attributes``), and SQLAlchemy's unit of work ignores the unmapped key."""
     checklist.__dict__["my_permission"] = ChecklistAccessLevel(level).value
+    return checklist
+
+
+def scope_position_to_caller(checklist: CheckList, position) -> CheckList:
+    """Override a checklist's per-user ``position`` for serialization only.
+
+    ``CheckList.position`` is a scalar (``uselist=False``) joined relationship, but
+    ``CheckListPosition`` is **per-user**: a shared card has N position rows (one
+    per collaborator + the owner). The eager-load collapses them into the single
+    slot and picks one **arbitrarily**, so any route returning a checklist DTO must
+    re-scope the position to the caller (or, on the anonymous public surface, to
+    the owner) before responding — otherwise it serves another user's
+    pinned/archived/index.
+
+    Uses ``set_committed_value`` rather than plain ``checklist.position = position``
+    because the relationship has **delete-orphan cascade**: a plain reassignment
+    orphans the arbitrarily joined-loaded row and marks it for deletion. Any commit
+    later in the request (e.g. an ``update``/``create`` CRUD call, or a sync-
+    notification write) then DELETEs/NULLs it — *another user's* position — and even
+    an intervening SELECT's autoflush issues that DELETE inside the transaction.
+    ``update_checklist`` demonstrated the persistent corruption (it commits after
+    re-scoping); the read/join/accept routes only avoid it today by not committing
+    after the reassignment — a fragile accident. ``set_committed_value`` overrides
+    the loaded value for serialization without dirtying the session, so the sibling
+    row is never orphaned regardless of what runs afterwards.
+
+    A ``None`` position is left untouched (the caller has no per-user row yet).
+    Centralised here so no route re-invents the ``set_committed_value`` discipline.
+    """
+    if position is not None:
+        set_committed_value(checklist, "position", position)
     return checklist
 
 

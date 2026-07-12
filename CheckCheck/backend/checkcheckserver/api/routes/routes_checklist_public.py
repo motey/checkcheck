@@ -33,6 +33,7 @@ from checkcheckserver.api.access import (
     verify_item_belongs_to_public_checklist,
     link_is_resolvable,
     attach_my_permission,
+    scope_position_to_caller,
     ChecklistAccessLevel,
     UserChecklistAccess,
 )
@@ -133,11 +134,14 @@ async def get_public_checklist(
     )
     # An anonymous visitor has no per-user rows, so render with the owner's:
     # their card position/collapse settings and their private label set.
+    # scope_position_to_caller uses set_committed_value (not plain assignment): the
+    # position relationship has delete-orphan cascade, so re-pointing it at the
+    # owner's row would orphan the arbitrarily joined-loaded row and delete another
+    # collaborator's position on the labels query's autoflush below.
     owner_position = await checklist_position_crud.get(
         checklist_id=checklist_id, user_id=owner_id
     )
-    if owner_position is not None:
-        checklist.position = owner_position
+    scope_position_to_caller(checklist, owner_position)
     checklist.labels = await checklist_label_crud.list_labels_for_user(
         checklist_id=checklist_id, user_id=owner_id
     )
@@ -269,11 +273,13 @@ async def join_public_checklist(
         )
 
     # Return the card scoped to the joining user (their own position + labels).
+    # set_committed_value (via scope_position_to_caller), not plain assignment: the
+    # delete-orphan position relationship would otherwise orphan the joined-loaded
+    # row and delete another user's position on the labels query's autoflush below.
     user_position = await checklist_position_crud.get(
         checklist_id=checklist_id, user_id=current_user.id
     )
-    if user_position is not None:
-        checklist.position = user_position
+    scope_position_to_caller(checklist, user_position)
     checklist.labels = await checklist_label_crud.list_labels_for_user(
         checklist_id=checklist_id, user_id=current_user.id
     )

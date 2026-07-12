@@ -136,6 +136,23 @@ def test_create_auth_test_user():
     user = create_test_user(AUTH_TEST_USER_NAME, AUTH_TEST_USER_PW, AUTH_TEST_USER_EMAIL)
     _state["test_user_id"] = user["id"]
 
+
+def test_username_with_underscore_is_accepted_and_can_log_in():
+    """Regression: the user_name constraint allowed '.'/'-' but rejected '_', an
+    arbitrary inconsistency that also broke OIDC provisioning — external IdPs
+    routinely issue underscore usernames, and the PREFIX_USERNAME_WITH_PROVIDER_SLUG
+    option builds ``f"{slug}_{user_name}"`` (with an underscore) that then violated
+    its own pattern. Underscore is now allowed; a user with one must be creatable
+    and able to authenticate."""
+    underscore_name = "under_score_user"
+    pw = "underscorepw_secure123"
+    user = create_test_user(underscore_name, pw, "under_score_user@test.com")
+    assert user["user_name"] == underscore_name
+    # And it authenticates end-to-end (the created user is active with a password).
+    with _AsUser(underscore_name, pw):
+        me = req("api/user/me")
+        assert me["user_name"] == underscore_name
+
 # ── Password change (self-service) ────────────────────────────────────────────
 
 def test_change_own_password_wrong_old():
