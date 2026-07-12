@@ -5,6 +5,120 @@ that discovered them. Newest first.
 
 ---
 
+## Sharing a card breaks pinning — `PATCH /checklist/{id}` returns another user's position
+
+**Status:** resolved (2026-07-12) · **Severity:** high · **Discovered:** 2026-07-12
+
+**Resolution**
+
+Two-part fix in [routes_checklist.py](../CheckCheck/backend/checkcheckserver/api/routes/routes_checklist.py):
+
+1. `update_checklist` (`PATCH /checklist/{id}`) now re-scopes the returned
+   `CheckList.position` to the caller via `CheckListPositionCRUD.get(...)`, exactly
+   as `get_checklist` already did — this was the missed sibling of the 2026-07-06
+   `get_checklist` fix below.
+2. Both routes now use `set_committed_value(obj, "position", user_position)` instead
+   of plain attribute assignment. The `position` relationship has delete-orphan
+   cascade, so `obj.position = user_position` orphaned the arbitrary joined-loaded
+   row and **deleted/NULLed another user's position on the next autoflush**,
+   corrupting their pinned/archived/index. `set_committed_value` overrides the
+   loaded value for serialization without dirtying the session.
+
+Deterministic Postgres regression test:
+`test_patch_shared_checklist_returns_callers_own_position` in
+`tests/tests_shared_position_scope.py` (collaborator edits a card the owner has
+pinned; pre-fix the response leaks the owner's `pinned=True`, and the owner's own
+next edit loses its position to the orphan corruption).
+
+**Symptom**
+
+Create three checklists, share the second → pinning any checklist appears broken.
+The single-card sibling below (`get_checklist`, resolved 2026-07-06) covered the
+`share_added` → `GET /checklist/{id}` refresh path, but the `PATCH` path stayed
+unscoped, and the plain-assignment re-scope in both routes could orphan-delete a
+sibling user's position row.
+
+**Root cause**
+
+Same `CheckList.position` `lazy="joined"`, `uselist=False`, per-user hazard as the
+issue below — an unscoped eager-load collapses N per-user rows into one slot and
+picks arbitrarily. Only `get_checklist` had been re-scoped; `update_checklist` had
+not. Postgres makes the arbitrary pick genuinely undefined (SQLite masked it).
+
+---
+
+## Systemic: per-user relationship reassignment on shared cards (orphan-delete + unscoped serialization)
+
+**Status:** open · **Severity:** high · **Discovered:** 2026-07-12
+
+**Scope**
+
+The fix above hardened only `get_checklist` and `update_checklist`. The same
+pattern — re-scoping a shared card's per-user `position` / `labels` by **plain
+assignment** onto a session-attached ORM object — appears in several more routes
+and carries the same two hazards:
+
+- **Orphan-delete corruption:** `position` has delete-orphan cascade, so
+  `checklist.position = user_position` orphans the arbitrarily joined-loaded row
+  and deletes/NULLs *another user's* position on the next autoflush (the following
+  `labels` query autoflushes). Use `set_committed_value(obj, "position", ...)`.
+- **Unscoped leak:** any checklist-returning route that does NOT re-scope position
+  (and replace `labels` with the caller's set) serves another user's
+  pinned/archived/index/labels for shared cards.
+
+**Suspect sites (not yet verified/fixed)**
+
+- `routes_checklist_public.py:140-141`, `:276-277` — plain `position`/`labels` reassignment.
+- `routes_checklist_share.py:726-727` — plain `position`/`labels` reassignment.
+- `routes_checklist.py:213` — create idempotent-replay branch: plain `existing.position = user_position`.
+- `create_checklist` and any other `-> CheckListApiWithSubObj` route (share/public
+  routers) should be audited for missing position/label re-scoping.
+
+**Suggested fix**
+
+Audit every route returning a checklist DTO; switch all per-user relationship
+overrides to `set_committed_value`; add a shared-card cross-user regression test
+per route (mirror `tests/tests_shared_position_scope.py`). Consider centralizing
+the "scope a checklist to the caller" step in one helper so no route reinvents it.
+
+---
+
+## Username validation rejects underscores — breaks OIDC provisioning
+
+**Status:** open · **Severity:** medium · **Discovered:** 2026-07-12
+
+**Symptom**
+
+The `user_name` constraint is `pattern=r"^[a-zA-Z0-9.-]+$"` (letters, digits, dot,
+hyphen) on both `UserRegisterAPI` and `_UserWithName`
+([user.py:60](../CheckCheck/backend/checkcheckserver/model/user.py#L60),
+[user.py:106](../CheckCheck/backend/checkcheckserver/model/user.py#L106)). It
+rejects underscores (and spaces, `@`, unicode). Underscore is URL-safe and a very
+common username character, so allowing `.`/`-` but not `_` is an arbitrary,
+undocumented inconsistency.
+
+**Why it's more than cosmetic**
+
+OIDC provisioning builds a real `UserCreate` from the IdP's `preferred_username`
+via `UserCreate.from_oidc_userinfo`
+([user.py:137](../CheckCheck/backend/checkcheckserver/model/user.py#L137)), which
+inherits the same pattern. External IdPs (Keycloak, Azure AD, …) routinely issue
+usernames containing underscores, so those users would fail Pydantic validation
+and **could never log in**. Worse, the app's own
+`PREFIX_USERNAME_WITH_PROVIDER_SLUG` option constructs `f"{slug}_{user_name}"`
+([user.py:145](../CheckCheck/backend/checkcheckserver/model/user.py#L145)) — with
+an underscore — which then violates its own pattern, so enabling that option would
+break every OIDC login.
+
+**Suggested fix**
+
+Either add `_` to the allowed set (`^[a-zA-Z0-9._-]+$`) — the low-risk option that
+also unbreaks the provider-slug prefix — or sanitize/relax the pattern on the OIDC
+path specifically. Add a regression test creating a user (and an OIDC login) with
+an underscore username.
+
+---
+
 ## Sidebar count badges: `shared_by_me` not adjusted on the actor's own archive
 
 **Status:** resolved (2026-07-12, Chunk B1) · **Severity:** low · **Discovered:** 2026-07-11 (WI-15, flag-on flip)
