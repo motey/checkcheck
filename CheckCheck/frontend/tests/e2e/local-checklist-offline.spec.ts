@@ -84,6 +84,35 @@ async function snapshotCardName(page: Page, clId: string): Promise<string> {
   );
 }
 
+// The persisted snapshot's value of a boolean checklist flag (null if absent).
+async function snapshotCardFlag(
+  page: Page,
+  clId: string,
+  flag: "checked_items_seperated" | "checked_items_collapsed"
+): Promise<boolean | null> {
+  return page.evaluate(
+    ({ id, flag }) =>
+      new Promise<boolean | null>((resolve) => {
+        const req = indexedDB.open("checkcheck-localfirst");
+        req.onsuccess = () => {
+          try {
+            const g = req.result.transaction("kv", "readonly").objectStore("kv").get("checkList");
+            g.onsuccess = () => {
+              const data: any = g.result;
+              const card = (data?.checkLists ?? []).find((c: any) => c.id === id);
+              resolve(card ? card[flag] ?? null : null);
+            };
+            g.onerror = () => resolve(null);
+          } catch {
+            resolve(null);
+          }
+        };
+        req.onerror = () => resolve(null);
+      }),
+    { id: clId, flag }
+  );
+}
+
 // How many ops are queued in the outbox DB right now?
 async function outboxOpCount(page: Page): Promise<number> {
   return page.evaluate(
@@ -276,5 +305,67 @@ test.describe("local-first checklist offline", () => {
     const serverAlphaIdx = items.findIndex((i) => (i.text ?? "").includes(alpha));
     const serverBetaIdx = items.findIndex((i) => (i.text ?? "").includes(beta));
     expect(serverBetaIdx, "beta should sort before alpha on the server").toBeLessThan(serverAlphaIdx);
+  });
+
+  // Regression: toggling "Separate checked items" (checked_items_seperated) used
+  // to flip the card locally and then snap back ~200-800ms later, because
+  // `_localUpdate` enqueued an outbox op that dropped the flag — the server never
+  // learned about it and the next delta pull reverted the row. This proves the
+  // flag now survives the round-trip: the toggle sticks locally AND reaches the
+  // server. Both view flags share the same `update` → `_localUpdate` → outbox
+  // path, so persisting one exercises the fix for both.
+  test('the "Separate checked items" toggle persists locally and reaches the server', async ({
+    page,
+  }) => {
+    const tag = Date.now();
+    const clName = `LocalToggle-${tag}`;
+
+    // A fresh card defaults to checked_items_seperated = true (server model).
+    const cl = await apiPost(page, "/api/checklist", { name: clName });
+    cleanup.push(cl.id);
+    expect(cl.checked_items_seperated, "new card defaults to separated").toBe(true);
+
+    // ── 1. Online: load the board so the snapshot layer is live, open the card. ─
+    await page.goto("/?localFirst=1");
+    await page.waitForSelector("[data-testid=checklist-board]");
+    const dialog = await openCardByTitle(page, clName);
+    await expect.poll(() => snapshotHasCard(page, cl.id), { timeout: 8_000 }).toBe(true);
+
+    // ── 2. Go offline and flip "Separate checked items" via the options menu. ──
+    await page.route("**/api/**", (route) => route.abort());
+    await dialog.locator('button:has([class*="ellipsis-vertical"])').click();
+    const toggle = page.getByRole("menuitemcheckbox", { name: "Separate checked items" });
+    await expect(toggle).toBeVisible({ timeout: 5_000 });
+    await toggle.click();
+
+    // Optimistic flip lands in the snapshot (true → false) and an op is queued.
+    // With the API blocked, nothing could have reached the server yet.
+    await expect
+      .poll(() => snapshotCardFlag(page, cl.id, "checked_items_seperated"), { timeout: 8_000 })
+      .toBe(false);
+    await expect.poll(() => outboxOpCount(page), { timeout: 8_000 }).toBeGreaterThan(0);
+
+    // ── 3. Reload while STILL offline — the flipped flag hydrates from cache. ──
+    await page.reload();
+    await page.waitForSelector("[data-testid=checklist-board]");
+    await expect
+      .poll(() => snapshotCardFlag(page, cl.id, "checked_items_seperated"), { timeout: 8_000 })
+      .toBe(false);
+    expect(await outboxOpCount(page)).toBeGreaterThan(0);
+
+    // ── 4. Restore the API + reload → the outbox drains to the server. ─────────
+    await page.unroute("**/api/**");
+    await page.reload();
+    await page.waitForSelector("[data-testid=checklist-board]");
+    await expect.poll(() => outboxOpCount(page), { timeout: 15_000 }).toBe(0);
+
+    // Server truth: the flag flipped and stuck — no snap-back.
+    const serverCard = await page.request.get(`/api/checklist/${cl.id}`).then((r) => r.json());
+    expect(serverCard.checked_items_seperated, "flag persisted server-side").toBe(false);
+
+    // And after a delta pull would have run, the local snapshot still agrees.
+    await expect
+      .poll(() => snapshotCardFlag(page, cl.id, "checked_items_seperated"), { timeout: 8_000 })
+      .toBe(false);
   });
 });

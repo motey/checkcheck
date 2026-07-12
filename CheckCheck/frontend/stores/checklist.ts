@@ -550,6 +550,15 @@ export const useCheckListsStore = defineStore("checkList", {
           ...("name" in checklist ? { name: checklist.name } : {}),
           ...("text" in checklist ? { text: checklist.text } : {}),
           ...("color_id" in checklist ? { color_id: checklist.color_id } : {}),
+          // The two view flags are edited via `update` (MoreOptionsMenu toggle and
+          // the Seperated collapse chevron). Without forwarding them the server
+          // never persists the change and the next delta pull snaps it back.
+          ...("checked_items_seperated" in checklist
+            ? { checked_items_seperated: checklist.checked_items_seperated }
+            : {}),
+          ...("checked_items_collapsed" in checklist
+            ? { checked_items_collapsed: checklist.checked_items_collapsed }
+            : {}),
         })
       );
       return row;

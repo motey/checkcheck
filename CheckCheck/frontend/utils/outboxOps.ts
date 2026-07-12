@@ -242,7 +242,13 @@ export function checklistCreateOp(checkListId: string, body: ChecklistCreateOpBo
 /** `PATCH /api/checklist/{id}` — content edit (name/text/color). Replay-safe LWW. */
 export function checklistUpdateOp(
   checkListId: string,
-  body: { name?: string | null; text?: string | null; color_id?: string | null }
+  body: {
+    name?: string | null;
+    text?: string | null;
+    color_id?: string | null;
+    checked_items_seperated?: boolean | null;
+    checked_items_collapsed?: boolean | null;
+  }
 ): OutboxOpInput {
   return {
     entityType: "checklist",
