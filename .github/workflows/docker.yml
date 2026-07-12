@@ -84,4 +84,4 @@ jobs:
           password: ${{ secrets.DOCKERHUB_TOKEN }}
           repository: ${{ env.IMAGE }}
           short-description: "CheckCheck — collaborative, offline-capable checklists (web UI + REST API)."
-          readme-filepath: ./README.md
+          readme-filepath: ./README_DOCKER.md
