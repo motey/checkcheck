@@ -70,3 +70,17 @@ jobs:
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      # Keep the Docker Hub overview in sync from main (so it's populated before
+      # the first release too). Cosmetic — never fail the build on it. Needs
+      # DOCKERHUB_TOKEN to be a Read/Write/Delete-scoped PAT (the description API
+      # rejects narrower tokens with 403; image push works with any read/write).
+      - name: Update Docker Hub description
+        continue-on-error: true
+        uses: peter-evans/dockerhub-description@v5
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          repository: ${{ env.IMAGE }}
+          short-description: "CheckCheck — collaborative, offline-capable checklists (web UI + REST API)."
+          readme-filepath: ./README_DOCKER.md
