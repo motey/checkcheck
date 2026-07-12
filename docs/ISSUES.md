@@ -166,7 +166,7 @@ fires one debounced `fetchCounts` (server truth) per dirty drain. That refetch i
 exact for every bucket including `shared_by_me`, so the actor's own archive
 reconciles the badge on drain without needing a `collaborator_count` DTO field.
 Same mechanism also fixed the broader create/delete/label counts staleness
-(Chunk B1 in `docs/plans/2.0_REVIEW_FINDINGS.md`).
+(Chunk B1 in `docs/archive/2.0_REVIEW_FINDINGS.md`).
 
 **Symptom**
 

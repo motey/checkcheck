@@ -65,6 +65,9 @@ ENV SERVER_LISTENING_HOST=0.0.0.0
 ENV LOG_LEVEL=${LOG_LEVEL}
 ENV APP_PROVISIONING_DATA_YAML_FILES='[]'
 ENV SQL_DATABASE_URL=sqlite+aiosqlite:////data/db/local.sqlite
+# Optional YAML config. Mount a file here (or set the settings as env vars); a
+# missing file is ignored, and env vars override anything in it.
+ENV CHECKCHECK_CONFIG_FILE=/config/config.yml
 
 LABEL org.opencontainers.image.title="CheckCheck" \
       org.opencontainers.image.version="${APP_VERSION}" \

@@ -1,79 +1,66 @@
-# DZDCheckCheck Server
+# CheckCheck backend
 
-The server module for DZDCheckCheck, a system to document the medical history of study participant.
+The CheckCheck server: a FastAPI application (`checkcheckserver`) that serves the
+REST API and the built frontend. This file is the developer setup for the
+backend. For running a real instance see [docs/deployment.md](../../docs/deployment.md);
+for settings see [docs/configuration.md](../../docs/configuration.md).
 
-## Local Setup
+## Dev environment
 
-###  Install req only
+The repository uses two virtualenvs (see the root helper scripts):
 
+- `CheckCheck/backend/.venv` is the pdm-managed env that runs the dev server.
+  Bootstrap it with `./build_server_dev_env.sh` from the repo root.
+- the root `.venv` runs the test suite (pytest).
 
-`python -m pip install pip-tools -U`
+Keep both in sync when dependencies change.
 
-`python -m piptools compile -o CheckCheck/backend/requirements.txt CheckCheck/backend/pyproject.toml`
+## Configuration
 
-`python -m pip install -r CheckCheck/backend/requirements.txt -U`
+Configuration is a pydantic-settings model in
+[`checkcheckserver/config.py`](checkcheckserver/config.py). It is the single
+source of truth; `docs/CONFIG_REFERENCE.md` and `config.example.yml` are
+generated from it with `./gen_config_docs.sh`. Every field can be set through an
+environment variable, a `.env` file, or a `config.yml`.
 
+The three required settings with no default are `SERVER_SESSION_SECRET`,
+`AUTH_JWT_SECRET`, and `ADMIN_USER_PW`. A local `.env` next to
+`checkcheckserver/` is the convenient place to keep them during development.
 
-### FAQ
+## Database (development)
 
-* The return to the /auth ednpoint from the Authentik OIDC provider fails with an "ValueError: Invalid key set format" error
-  * I had to update the provider in authentik. seems to be an issue with the self-signed singing key in the demo env
+Production runs on PostgreSQL (see [docs/deployment.md](../../docs/deployment.md)).
+For local development the default `SQL_DATABASE_URL`
+(`sqlite+aiosqlite:///./local.sqlite`) uses a bundled SQLite file so the server
+boots with no database to set up.
 
-## Run
+SQLite is development-only: it is single-process (the real-time sync fan-out
+that PostgreSQL does through `pg_notify` falls back to an in-process loop) and is
+on track to be removed. Do not run a real instance on it. Test against
+PostgreSQL before trusting a change; SQLite is the convenience path, not the
+target.
 
-### Run demo with pre build docker image (recomended)
+## Tests
 
-`docker run -e DEMO_MODE=true motey/checkcheck-server`
+From the repo root:
 
-### Run backend worker seperate
-
-Start server without background worker
-`docker run -v ./data:/data -e DEMO_MODE=true -e BACKGROUND_WORKER_IN_EXTRA_PROCESS=false motey/checkcheck-server`
-
-
-Start extra container with background worker
-`docker run -v ./data:/data -e BACKGROUND_WORKER_IN_EXTRA_PROCESS=false motey/checkcheck-server --run_worker_only`
-
-### Alembic - Database Migrations
-
-`alembic init -t async CheckCheck/backend/migrations`
-
-add to script.py.mako
-
+```bash
+./run_backend_tests_with_sqlite.sh      # quick, Docker-free
+./run_backend_tests_with_postgres.sh    # the run that counts
 ```
-import sqlmodel
+
+The Postgres run is the authoritative one. Pass a path or `-k` filter to narrow
+it, for example `./run_backend_tests_with_sqlite.sh tests/tests_auth.py`.
+
+## Database migrations (Alembic)
+
+The schema is versioned with Alembic and migrated automatically on server start.
+When you change a `table=True` model class under `checkcheckserver/model`,
+generate a migration from the repo root:
+
+```bash
+alembic revision --autogenerate -m "short description of the change"
 ```
 
-add to env.py
-
-```
-# Tim: Pull sqlurl from checkcheckserver config
-import sys
-import os
-from pathlib import Path
-
-MODULE_DIR = Path(__file__).parent
-MODULE_PARENT_DIR = MODULE_DIR.parent.absolute()
-sys.path.insert(0, os.path.normpath(MODULE_PARENT_DIR))
-from checkcheckserver.config import Config as CheckCheckServerConfig
-
-checkcheckserver_config = CheckCheckServerConfig()
-config.set_main_option("sqlalchemy.url", str(checkcheckserver_config.SQL_DATABASE_URL))
-
-
-# Tim: Import CheckCheckServer Models
-from sqlmodel import SQLModel
-from alembic import context
-from checkcheckserver.model._tables import *
-
-target_metadata = SQLModel.metadata
-``` 
-
-#### Change the data(-base) model
-
-When making a change on a `=table`-class (Or a parent class) in `CheckCheck/backend/checkcheckserver/model` you'll need to tell alembic to create a migration script.  
-This way existing instances can upgrade their database when doing updates.
-
-In this repos rootfolder run
-
-`alembic revision --autogenerate -m "<A short message what did changed>"`
+Alembic reads the database URL and models from `checkcheckserver.config`, so the
+same configuration drives migrations and the app.

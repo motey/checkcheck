@@ -1,0 +1,400 @@
+# CheckCheck configuration template - GENERATED from config.py.
+# Regenerate with `./gen_config_docs.sh`; do not edit by hand.
+# Copy this to config.yml and fill in the required (Required: True) values. Every setting can
+# also be supplied via its environment variable (shown per field below); env vars win over the
+# file. A readable walkthrough lives in docs/configuration.md.
+
+
+# ## APP_NAME - Application name ###
+# Type:        str
+# Required:    False
+# Default:     "CheckCheck"
+# Env-var:     'APP_NAME'
+# Description: Display name of the instance. Shown in the UI title and used in some log lines.
+APP_NAME: CheckCheck
+
+# ## LOG_LEVEL - Log level ###
+# Type:         Enum
+# Required:     False
+# Default:      "INFO"
+# Allowed vals: ['CRITICAL', 'ERROR', 'WARNING', 'INFO', 'DEBUG']
+# Env-var:      'LOG_LEVEL'
+# Description:  How much the server logs. `DEBUG` is noisy but the quickest way to see why something misbehaves; `INFO` is the sensible default for production.
+LOG_LEVEL: INFO
+
+# ## DEBUG_SQL - Log SQL statements ###
+# Type:        bool
+# Required:    False
+# Default:     false
+# Env-var:     'DEBUG_SQL'
+# Description: When true, the database engine prints every SQL query to the log. Very verbose; leave off unless debugging queries.
+DEBUG_SQL: false
+
+# ## DOCKER_MODE - Running inside the official Docker image ###
+# Type:        bool
+# Required:    False
+# Default:     false
+# Env-var:     'DOCKER_MODE'
+# Description: Set automatically by the Docker image. Only affects a few path defaults; do not set it by hand outside a container.
+DOCKER_MODE: false
+
+# ## SERVER_LISTENING_HOST - Listening host ###
+# Type:        str
+# Required:    False
+# Default:     "localhost"
+# Env-var:     'SERVER_LISTENING_HOST'
+# Description: The interface the server binds to. Use `0.0.0.0` to accept connections from outside the machine (this is the default inside the Docker image); `localhost` only accepts local connections.
+# Example No. 1:
+#  >SERVER_LISTENING_HOST: 0.0.0.0
+# Example No. 2:
+#  >SERVER_LISTENING_HOST: localhost
+# Example No. 3:
+#  >SERVER_LISTENING_HOST: 127.0.0.1
+SERVER_LISTENING_HOST: localhost
+
+# ## SERVER_LISTENING_PORT - Listening port ###
+# Type:        int
+# Required:    False
+# Default:     8181
+# Env-var:     'SERVER_LISTENING_PORT'
+# Description: The TCP port the server binds to.
+# Example No. 1:
+#  >SERVER_LISTENING_PORT: 8181
+# Example No. 2:
+#  >SERVER_LISTENING_PORT: 8080
+# Example No. 3:
+#  >SERVER_LISTENING_PORT: 80
+SERVER_LISTENING_PORT: 8181
+
+# ## SERVER_HOSTNAME - Public hostname ###
+# Type:        str
+# Required:    False
+# Env-var:     'SERVER_HOSTNAME'
+# Description: The external hostname where the app is reached, usually a fully qualified domain name in production. Used to build absolute URLs and the allowed CORS origin. If left unset it is guessed from the machine hostname, which is rarely correct behind a reverse proxy, so set it explicitly when serving a real domain.
+# Example No. 1:
+#  >SERVER_HOSTNAME: checklists.example.com
+# Example No. 2:
+#  >SERVER_HOSTNAME: localhost
+SERVER_HOSTNAME: timwork
+
+# ## SERVER_PROTOCOL - Public protocol ###
+# Type:         Enum
+# Required:     False
+# Default:      "http"
+# Allowed vals: ['http', 'https']
+# Env-var:      'SERVER_PROTOCOL'
+# Description:  The scheme (`http` or `https`) used to build absolute URLs. Set this to `https` when a reverse proxy terminates TLS in front of the app; automatic detection cannot see the original scheme in every proxy setup.
+SERVER_PROTOCOL: http
+
+# ## CLIENT_URL - Extra allowed origin ###
+# Type:        str
+# Required:    False
+# Default:     null
+# Env-var:     'CLIENT_URL'
+# Description: An additional browser origin allowed to call the API (CORS), on top of the server's own URL. Only needed when the frontend is served from a different origin than the backend, for example during frontend development.
+# Example:
+#  >CLIENT_URL: http://localhost:3000
+CLIENT_URL:
+
+# ## SERVER_UVICORN_LOG_LEVEL - Uvicorn log level ###
+# Type:        str
+# Required:    False
+# Default:     null
+# Env-var:     'SERVER_UVICORN_LOG_LEVEL'
+# Description: Log level for the uvicorn web server. Falls back to LOG_LEVEL when unset.
+# Example No. 1:
+#  >SERVER_UVICORN_LOG_LEVEL: info
+# Example No. 2:
+#  >SERVER_UVICORN_LOG_LEVEL: warning
+SERVER_UVICORN_LOG_LEVEL:
+
+# ## SERVER_SESSION_SECRET - Session secret ###
+# Type:        Object
+# Required:    True
+# Constraints: MinLen(min_length=64)
+# Env-var:     'SERVER_SESSION_SECRET'
+# Description: Secret used to sign the browser session cookie. Provide a long random string and keep it stable: changing it logs everyone out. Required, minimum 64 characters. Generate one with `openssl rand -hex 32`.
+SERVER_SESSION_SECRET:
+  CHANGE_ME_generate_a_long_random_string_at_least_64_characters_long
+
+# ## SET_SESSION_COOKIE_SECURE - Secure session cookie ###
+# Type:        bool
+# Required:    False
+# Default:     true
+# Env-var:     'SET_SESSION_COOKIE_SECURE'
+# Description: When true the session cookie is only sent over HTTPS. Set to false for local development over plain HTTP, otherwise the browser drops the cookie and login appears to do nothing. Keep it true in production.
+SET_SESSION_COOKIE_SECURE: true
+
+# ## API_TOKEN_DEFAULT_EXPIRY_TIME_MINUTES - Default API token lifetime (minutes) ###
+# Type:        int
+# Required:    False
+# Default:     10080
+# Env-var:     'API_TOKEN_DEFAULT_EXPIRY_TIME_MINUTES'
+# Description: How long a newly created API token stays valid. Applies to the token minted on login and to tokens created in the token manager. Set to null for no default expiry.
+# Example No. 1:
+#  >API_TOKEN_DEFAULT_EXPIRY_TIME_MINUTES: 10080
+# Example No. 2:
+#  >API_TOKEN_DEFAULT_EXPIRY_TIME_MINUTES: 43200
+API_TOKEN_DEFAULT_EXPIRY_TIME_MINUTES: 10080
+
+# ## API_TOKEN_ALLOW_NEVER_EXPIRE - Allow never-expiring API tokens ###
+# Type:        bool
+# Required:    False
+# Default:     true
+# Env-var:     'API_TOKEN_ALLOW_NEVER_EXPIRE'
+# Description: Whether users may create API tokens that never expire. When false, every token must carry an expiry: the 'Never' option is hidden in the UI and rejected by the server.
+API_TOKEN_ALLOW_NEVER_EXPIRE: true
+
+# ## SQL_DATABASE_URL - Database URL ###
+# Type:        str
+# Required:    False
+# Default:     "sqlite+aiosqlite:///./local.sqlite"
+# Env-var:     'SQL_DATABASE_URL'
+# Description: SQLAlchemy async connection URL. PostgreSQL is the supported production backend; SQLite is fine for local development and single-process use only. See `docs/deployment.md` for why (SSE fan-out is single-process on SQLite).
+# Example No. 1:
+#  >SQL_DATABASE_URL: sqlite+aiosqlite:///./local.sqlite
+# Example No. 2:
+#  >SQL_DATABASE_URL: postgresql+asyncpg://checkcheck:secret@localhost:5432/checkcheck
+SQL_DATABASE_URL: sqlite+aiosqlite:///./local.sqlite
+
+# ## ADMIN_USER_NAME - Admin username ###
+# Type:        str
+# Required:    False
+# Default:     "admin"
+# Env-var:     'ADMIN_USER_NAME'
+# Description: Username of the built-in administrator account created on first start.
+ADMIN_USER_NAME: admin
+
+# ## ADMIN_USER_PW - Admin password ###
+# Type:        Object
+# Required:    True
+# Env-var:     'ADMIN_USER_PW'
+# Description: Password for the built-in administrator account. Required. This is your first way into a fresh instance; change it after logging in and never commit it. The value is only used to create or reset the admin account on start.
+ADMIN_USER_PW:
+  CHANGE_ME_generate_a_long_random_string_at_least_64_characters_long
+
+# ## ADMIN_USER_EMAIL - Admin email ###
+# Type:        str
+# Required:    False
+# Default:     null
+# Env-var:     'ADMIN_USER_EMAIL'
+# Description: Optional email address for the built-in administrator account.
+# Example:
+#  >ADMIN_USER_EMAIL: admin@example.com
+ADMIN_USER_EMAIL:
+
+# ## ADMIN_ROLE_NAME - Admin role name ###
+# Type:        str
+# Required:    False
+# Default:     "admin"
+# Env-var:     'ADMIN_ROLE_NAME'
+# Description: Name of the role that grants full administrative access. Rarely needs changing.
+ADMIN_ROLE_NAME: admin
+
+# ## USERMANAGER_ROLE_NAME - User-manager role name ###
+# Type:        str
+# Required:    False
+# Default:     "usermanager"
+# Env-var:     'USERMANAGER_ROLE_NAME'
+# Description: Name of the role that may manage other users without full admin rights. Rarely needs changing.
+USERMANAGER_ROLE_NAME: usermanager
+
+# ## NEW_USER_DEFAULT_LABELS - Default labels for new users ###
+# Type:        List of str
+# Required:    False
+# Default:     ["Work", "Private", "Inspiration"]
+# Env-var:     'NEW_USER_DEFAULT_LABELS'
+# Description: Labels created automatically for every new account. Set to an empty list to start users with no labels.
+# Example No. 1:
+#  >NEW_USER_DEFAULT_LABELS:
+#  >- Work
+#  >- Private
+#  >- Inspiration
+# Example No. 2:
+#  >NEW_USER_DEFAULT_LABELS: []
+NEW_USER_DEFAULT_LABELS:
+
+  # ## List[0] ###
+  # YAML-path: NEW_USER_DEFAULT_LABELS.[0]
+  # Type:      str
+  # Required:  False
+  # Env-var:   'NEW_USER_DEFAULT_LABELS__<list-index>'
+  - Work
+
+  # ## List[1] ###
+  # YAML-path: NEW_USER_DEFAULT_LABELS.[1]
+  # Type:      str
+  # Required:  False
+  # Env-var:   'NEW_USER_DEFAULT_LABELS__<list-index>'
+  - Private
+
+  # ## List[2] ###
+  # YAML-path: NEW_USER_DEFAULT_LABELS.[2]
+  # Type:      str
+  # Required:  False
+  # Env-var:   'NEW_USER_DEFAULT_LABELS__<list-index>'
+  - Inspiration
+
+# ## APP_PROVISIONING_DATA_YAML_FILES - Extra provisioning data files ###
+# Type:        List of str
+# Required:    False
+# Env-var:     'APP_PROVISIONING_DATA_YAML_FILES'
+# Description: Optional list of YAML files whose contents are loaded into the database on start. Use this to seed an instance with predefined data. Most deployments leave it empty.
+# Example:
+#  >APP_PROVISIONING_DATA_YAML_FILES:
+#  >- /config/seed_data.yaml
+APP_PROVISIONING_DATA_YAML_FILES: []
+
+# ## APP_PROVISIONING_DEFAULT_DATA_YAML_FILE - Default provisioning data file ###
+# Type:        str
+# Required:    False
+# Default:     "./CheckCheck/backend/checkcheckserver/default_data.yaml"
+# Env-var:     'APP_PROVISIONING_DEFAULT_DATA_YAML_FILE'
+# Description: Baseline data (roles and similar) always loaded on start. This ships with the app and normally should not be changed. To seed your own data use APP_PROVISIONING_DATA_YAML_FILES instead.
+APP_PROVISIONING_DEFAULT_DATA_YAML_FILE:
+  ./CheckCheck/backend/checkcheckserver/default_data.yaml
+
+# ## SHARING_ENABLED - Enable sharing ###
+# Type:        bool
+# Required:    False
+# Default:     true
+# Env-var:     'SHARING_ENABLED'
+# Description: Master switch for the sharing feature (collaborators and public links). When false, all sharing endpoints are disabled.
+SHARING_ENABLED: true
+
+# ## SHARING_USER_SEARCH_ENABLED - Enable user search when sharing ###
+# Type:        bool
+# Required:    False
+# Default:     true
+# Env-var:     'SHARING_USER_SEARCH_ENABLED'
+# Description: Allow signed-in users to search for other users by name when choosing who to share with. When false the search endpoint is disabled and a sharer must type an exact identifier.
+SHARING_USER_SEARCH_ENABLED: true
+
+# ## SHARING_PUBLIC_LINKS_ENABLED - Enable public share links ###
+# Type:        bool
+# Required:    False
+# Default:     true
+# Env-var:     'SHARING_PUBLIC_LINKS_ENABLED'
+# Description: Allow owners to create public URLs that let anyone with the link open a card without an account. When false, public-link endpoints are disabled.
+SHARING_PUBLIC_LINKS_ENABLED: true
+
+# ## SHARING_REQUIRE_INVITE_ACCEPT - Require invite acceptance ###
+# Type:        bool
+# Required:    False
+# Default:     false
+# Env-var:     'SHARING_REQUIRE_INVITE_ACCEPT'
+# Description: When true, sharing a card creates a pending invite that the recipient must accept before the card appears for them. When false, sharing adds the collaborator immediately.
+SHARING_REQUIRE_INVITE_ACCEPT: false
+
+# ## AUTH_BASIC_LOGIN_IS_ENABLED - Enable local login ###
+# Type:        bool
+# Required:    False
+# Default:     true
+# Env-var:     'AUTH_BASIC_LOGIN_IS_ENABLED'
+# Description: Allow users stored in the local database to log in with a username and password. You can disable this when authenticating exclusively through an external OIDC provider.
+AUTH_BASIC_LOGIN_IS_ENABLED: true
+
+# ## AUTH_BASIC_USER_DB_REGISTER_ENABLED - Allow self-registration ###
+# Type:        bool
+# Required:    False
+# Default:     false
+# Env-var:     'AUTH_BASIC_USER_DB_REGISTER_ENABLED'
+# Description: Allow anyone to create a local account through the public registration endpoint. Off by default. Enable only when you have anti-abuse controls in place, since there is no email verification step yet.
+AUTH_BASIC_USER_DB_REGISTER_ENABLED: false
+
+# ## AUTH_BASIC_SESSION_LIFETIME_MINUTES - Local session lifetime (minutes) ###
+# Type:        int
+# Required:    False
+# Default:     20160
+# Env-var:     'AUTH_BASIC_SESSION_LIFETIME_MINUTES'
+# Description: How long a browser session stays valid before the user must log in again. Default is two weeks.
+# Example No. 1:
+#  >AUTH_BASIC_SESSION_LIFETIME_MINUTES: 20160
+# Example No. 2:
+#  >AUTH_BASIC_SESSION_LIFETIME_MINUTES: 1440
+AUTH_BASIC_SESSION_LIFETIME_MINUTES: 20160
+
+# ## AUTH_JWT_SECRET - JWT signing secret ###
+# Type:        Object
+# Required:    True
+# Constraints: MinLen(min_length=64)
+# Env-var:     'AUTH_JWT_SECRET'
+# Description: Secret used to sign API access tokens (JWT). Provide a long random string, keep it stable, and keep it different from SERVER_SESSION_SECRET. Required, minimum 64 characters. Generate one with `openssl rand -hex 32`.
+AUTH_JWT_SECRET:
+  CHANGE_ME_generate_a_long_random_string_at_least_64_characters_long
+
+# ## AUTH_JWT_ALGORITHM - JWT algorithm ###
+# Type:         Enum
+# Required:     False
+# Default:      "HS256"
+# Allowed vals: ['HS256']
+# Env-var:      'AUTH_JWT_ALGORITHM'
+# Description:  Algorithm used to sign JWT tokens. Only HS256 is supported at the moment.
+AUTH_JWT_ALGORITHM: HS256
+
+# ## AUTH_ACCESS_TOKEN_EXPIRES_MINUTES - Access token lifetime (minutes, deprecated) ###
+# Type:        int
+# Required:    False
+# Default:     20160
+# Env-var:     'AUTH_ACCESS_TOKEN_EXPIRES_MINUTES'
+# Description: Deprecated. Use API_TOKEN_DEFAULT_EXPIRY_TIME_MINUTES instead.
+AUTH_ACCESS_TOKEN_EXPIRES_MINUTES: 20160
+
+# ## AUTH_OIDC_PROVIDERS - OpenID Connect providers ###
+# Type:        List of Object (OpenIDConnectProvider)
+# Required:    False
+# Env-var:     'AUTH_OIDC_PROVIDERS'
+# Description: List of external OpenID Connect providers users may log in with. Empty by default (local login only). One entry per provider; see the example below and the walkthrough in `docs/configuration.md`. When any provider is set, also set AUTH_OIDC_TOKEN_STORAGE_SECRET.
+# Example:
+#  >AUTH_OIDC_PROVIDERS:
+#  >- ENABLED: true
+#  >  PROVIDER_DISPLAY_NAME: Company SSO
+#  >  CONFIGURATION_ENDPOINT: https://sso.example.com/application/o/checkcheck/.well-known/openid-configuration
+#  >  CLIENT_ID: checkcheck
+#  >  CLIENT_SECRET: the-client-secret
+#  >  SCOPES:
+#  >  - openid
+#  >  - profile
+#  >  - email
+#  >  - offline_access
+#  >  USER_NAME_ATTRIBUTE: preferred_username
+#  >  USER_MAIL_ATTRIBUTE: email
+#  >  AUTO_CREATE_AUTHORIZED_USER: true
+#  >  ROLE_MAPPING:
+#  >    sso-admins:
+#  >    - admin
+AUTH_OIDC_PROVIDERS: []
+
+# ## AUTH_OIDC_TOKEN_STORAGE_SECRET - OIDC token storage secret ###
+# Type:        Object
+# Required:    False
+# Default:     "change_me_only_relevant_when_an_oidc_provider_is_configured"
+# Env-var:     'AUTH_OIDC_TOKEN_STORAGE_SECRET'
+# Description: Secret used to encrypt OIDC access and refresh tokens before storing them in the database. Only used when at least one OIDC provider is configured; set a long random string in that case. Generate one with `openssl rand -hex 32`.
+AUTH_OIDC_TOKEN_STORAGE_SECRET:
+  change_me_only_relevant_when_an_oidc_provider_is_configured
+
+# ## EXPORT_CACHE_DIR - Export cache directory ###
+# Type:        str
+# Required:    False
+# Default:     "./export_cache"
+# Env-var:     'EXPORT_CACHE_DIR'
+# Description: Directory where the results of export jobs (CSV, JSON) are written. Must be writable by the server process.
+EXPORT_CACHE_DIR: ./export_cache
+
+# ## FRONTEND_FILES_DIR - Frontend files directory ###
+# Type:        str
+# Required:    False
+# Default:     "CheckCheck/frontend/.output/public"
+# Env-var:     'FRONTEND_FILES_DIR'
+# Description: Directory of the built frontend (the generated Nuxt output containing index.html). The Docker image sets this for you.
+FRONTEND_FILES_DIR: CheckCheck/frontend/.output/public
+
+# ## DB_MIGRATION_ALEMBIC_CONFIG_FILE - Alembic config file ###
+# Type:        str
+# Required:    False
+# Default:     "./alembic.ini"
+# Env-var:     'DB_MIGRATION_ALEMBIC_CONFIG_FILE'
+# Description: Path to the Alembic configuration used to run database migrations on start. The default resolves next to the source tree; rarely changed.
+DB_MIGRATION_ALEMBIC_CONFIG_FILE:
+  ./alembic.ini

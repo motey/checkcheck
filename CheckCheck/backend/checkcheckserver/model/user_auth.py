@@ -45,7 +45,9 @@ def _generate_fernet_key(input_str: str) -> bytes:
     return fernet_key
 
 
-fernet = Fernet(_generate_fernet_key(config.AUTH_OIDC_TOKEN_STORAGE_SECRET))
+fernet = Fernet(
+    _generate_fernet_key(config.AUTH_OIDC_TOKEN_STORAGE_SECRET.get_secret_value())
+)
 
 
 class AllowedAuthSchemeType(str, enum.Enum):

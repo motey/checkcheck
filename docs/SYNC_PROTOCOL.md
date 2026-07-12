@@ -3,7 +3,7 @@
 **Status:** Active — the client-facing contract the local-first frontend (WI-6…11)
 is built against.
 **Consolidates:** decisions made in WI-1…WI-4 (see
-[VERSION_2.0_WORK_ITEMS.md](plans/VERSION_2.0_WORK_ITEMS.md) *“Decisions taken
+[VERSION_2.0_WORK_ITEMS.md](archive/VERSION_2.0_WORK_ITEMS.md) *“Decisions taken
 in-session”* blocks). This document invents nothing new; it is the single place a
 client author needs to read.
 

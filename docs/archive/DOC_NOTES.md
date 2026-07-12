@@ -1,4 +1,11 @@
-# DOC_NOTES — non-obvious facts the full documentation must not miss
+# DOC_NOTES (archived)
+
+> Archived 2026-07-12. This was the pre-writing trap list. The operator-facing
+> facts now live in `docs/configuration.md`, `docs/deployment.md`, and
+> `docs/administration.md`; the developer/designer/security notes below are kept
+> here for history and overlap with project memory.
+
+# DOC_NOTES - non-obvious facts the full documentation must not miss
 
 Collected 2026-07-11 after the full 2.0 review, while the whole system was in
 one head. Not documentation — a trap list for whoever (or whatever) writes it
