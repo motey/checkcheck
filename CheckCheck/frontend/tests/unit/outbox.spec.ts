@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import {
   OutboxEngine,
+  affectsSidebarCounts,
   backoffMs,
   classifyError,
   coalesce,
@@ -145,6 +146,34 @@ function labelAttach(clId: string, labelId: string): OutboxOpInput {
       method: "put",
       path: "/api/checklist/{checklist_id}/label/{label_id}",
       pathParams: { checklist_id: clId, label_id: labelId },
+    },
+  };
+}
+
+/** A checklist⇄label detach op (WI-9): entity id is the "{clId}:{labelId}" pair. */
+function labelDetach(clId: string, labelId: string): OutboxOpInput {
+  return {
+    entityType: "label",
+    entityId: `${clId}:${labelId}`,
+    kind: "delete",
+    request: {
+      method: "delete",
+      path: "/api/checklist/{checklist_id}/label/{label_id}",
+      pathParams: { checklist_id: clId, label_id: labelId },
+    },
+  };
+}
+/** A checklist position op (reorder / archive / pin). */
+function checklistPosition(id: string, body: Record<string, unknown>): OutboxOpInput {
+  return {
+    entityType: "checklist",
+    entityId: id,
+    kind: "position",
+    request: {
+      method: "patch",
+      path: "/api/checklist/{checklist_id}/position",
+      pathParams: { checklist_id: id },
+      body,
     },
   };
 }
@@ -353,7 +382,8 @@ describe("OutboxEngine drain", () => {
 
     expect(sent).toEqual(["i1:create", "i1:update", "i2:create"]);
     expect(engine.pending).toBe(0);
-    expect(events.at(-1)).toEqual({ type: "idle" });
+    // Item-only drain: nothing card-level, so the idle event asks for no refetch.
+    expect(events.at(-1)).toEqual({ type: "idle", countsDirty: false });
   });
 
   it("does not drain while offline", async () => {
@@ -828,5 +858,142 @@ describe("OutboxEngine.reconcileResync", () => {
     const dropped = await engine.reconcileResync(new Set());
     expect(dropped).toEqual([]);
     expect(engine.queue).toHaveLength(1);
+  });
+
+  it("keeps a bare (non-pair) label op whose label survives, drops one whose label is gone", () => {
+    // Forward-compat: label CRUD is online-only today, but the resync partition
+    // must not mangle a future queued label op with a plain-UUID id (finding B3).
+    const bareEdit: OutboxOp = {
+      ...op(1, { entityType: "label", entityId: "labelX", kind: "update", request: { method: "patch", path: "/api/label/{label_id}", pathParams: { label_id: "labelX" }, body: { name: "n" } } }),
+    };
+    const bareCreate: OutboxOp = {
+      ...op(2, { entityType: "label", entityId: "labelNew", kind: "create", request: { method: "post", path: "/api/label", body: { id: "labelNew" } } }),
+    };
+    const gone = partitionResync([bareEdit], new Set());
+    expect(gone.dropped.map((o) => o.entityId)).toEqual(["labelX"]); // edit of a vanished label
+    const survives = partitionResync([bareEdit, bareCreate], new Set(["labelX"]));
+    expect(survives.dropped).toEqual([]); // edit's label known, create always survives
+  });
+});
+
+// ── affectsSidebarCounts (finding B1) ────────────────────────────────────────
+
+describe("affectsSidebarCounts", () => {
+  it("is true for card create/delete/archive and label attach/detach", () => {
+    expect(affectsSidebarCounts(op(1, checklistCreate("cl1")))).toBe(true);
+    expect(affectsSidebarCounts(op(2, checklistDelete("cl1")))).toBe(true);
+    expect(affectsSidebarCounts(op(3, checklistPosition("cl1", { archived: true })))).toBe(true);
+    expect(affectsSidebarCounts(op(4, labelAttach("cl1", "l1")))).toBe(true);
+    expect(affectsSidebarCounts(op(5, labelDetach("cl1", "l1")))).toBe(true);
+  });
+  it("is false for item ops, card renames, and pure reorders/pins", () => {
+    expect(affectsSidebarCounts(op(1, itemCreate("i1")))).toBe(false);
+    expect(affectsSidebarCounts(op(2, itemUpdate("i1", { text: "x" })))).toBe(false);
+    expect(affectsSidebarCounts(op(3, checklistUpdate("cl1", { name: "n" })))).toBe(false);
+    expect(affectsSidebarCounts(op(4, checklistPosition("cl1", { index: 5 })))).toBe(false);
+    expect(affectsSidebarCounts(op(5, checklistPosition("cl1", { pinned: true })))).toBe(false);
+  });
+});
+
+// ── idle `countsDirty` signal (finding B1) ───────────────────────────────────
+
+describe("OutboxEngine idle countsDirty", () => {
+  async function drainAll(inputs: OutboxOpInput[]): Promise<OutboxEvent[]> {
+    const { store } = memStore();
+    const events: OutboxEvent[] = [];
+    let online = false;
+    const engine = new OutboxEngine({
+      store,
+      isOnline: () => online,
+      transport: async () => {},
+      emit: (e) => events.push(e),
+    });
+    await engine.init();
+    for (const input of inputs) await engine.enqueue(input);
+    online = true;
+    engine.setOnline(true);
+    await settle();
+    return events;
+  }
+
+  it("flags countsDirty when a card create drains", async () => {
+    const events = await drainAll([checklistCreate("cl1")]);
+    expect(events.at(-1)).toEqual({ type: "idle", countsDirty: true });
+  });
+
+  it("flags countsDirty when a label attach drains", async () => {
+    const events = await drainAll([labelAttach("cl1", "l1")]);
+    expect(events.at(-1)).toEqual({ type: "idle", countsDirty: true });
+  });
+
+  it("does not flag countsDirty for an item-only drain", async () => {
+    const events = await drainAll([itemCreate("i1"), itemState("i1", true)]);
+    expect(events.at(-1)).toEqual({ type: "idle", countsDirty: false });
+  });
+
+  it("resets countsDirty after the idle it reports on", async () => {
+    const { store } = memStore();
+    const events: OutboxEvent[] = [];
+    let online = false;
+    const engine = new OutboxEngine({
+      store,
+      isOnline: () => online,
+      transport: async () => {},
+      emit: (e) => events.push(e),
+    });
+    await engine.init(); // offline: no drain, no idle yet
+    await engine.enqueue(checklistCreate("cl1"));
+    online = true;
+    engine.setOnline(true);
+    await settle();
+    // A second, item-only drain must report a *clean* idle — the flag was
+    // consumed by the first idle, not left latched.
+    await engine.enqueue(itemUpdate("i1", { text: "x" }));
+    await settle();
+    const idles = events.filter((e) => e.type === "idle");
+    expect(idles.map((e) => (e as any).countsDirty)).toEqual([true, false]);
+  });
+});
+
+// ── Drain-window race: delete must not cancel an already-sent create (B2) ─────
+
+describe("OutboxEngine drain-window race", () => {
+  it("does not cancel a create that has already been sent when a delete arrives mid-drain", async () => {
+    const { store } = memStore();
+    const sent: string[] = [];
+    let online = true;
+    let releaseCreate: (() => void) | null = null;
+    const engine = new OutboxEngine({
+      store,
+      isOnline: () => online,
+      transport: async (o) => {
+        sent.push(`${o.entityId}:${o.kind}`);
+        if (o.entityId === "cl1" && o.kind === "create") {
+          // Hold the create's transport open so we can enqueue a delete while it
+          // is in flight (the finding B2 window), then let it resolve.
+          await new Promise<void>((resolve) => {
+            releaseCreate = resolve;
+          });
+        }
+      },
+    });
+    await engine.init();
+
+    // Enqueue the create; it starts draining and blocks in transport.
+    void engine.enqueue(checklistCreate("cl1"));
+    await settle(2);
+    expect(sent).toEqual(["cl1:create"]); // in flight, awaiting release
+
+    // Delete the same card while its create is in flight → must NOT cancel it
+    // (the create already reached the server); it queues behind the locked op.
+    await engine.enqueue(checklistDelete("cl1"));
+    releaseCreate!();
+    await settle();
+
+    // Both the create (already sent) and the delete replay — the server ends up
+    // consistent with the client (card created then deleted), never a card the
+    // client thinks was never made.
+    expect(sent).toEqual(["cl1:create", "cl1:delete"]);
+    expect(engine.pending).toBe(0);
   });
 });

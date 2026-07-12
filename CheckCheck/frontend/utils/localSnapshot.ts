@@ -311,6 +311,25 @@ async function rebuildFromFull(pinia: Pinia, res: ChangesResponseType): Promise<
   const itemStore = useCheckListsItemStore(pinia);
   const labelStore = useCheckListsLabelStore(pinia);
 
+  // A card created offline whose `create` op is still queued is unknown to the
+  // reset server, so it is absent from `res.checklists` — the wholesale rebuild
+  // below would drop it from the board until the create drains and the next pull
+  // returns it (finding B4). Capture the optimistic row (and its cached items)
+  // now, before the overwrite, and re-insert it after: the surviving queued ops
+  // keep draining, so the offline card stays visible the whole time.
+  const queuedCreates = useOutbox().queuedCreateIds("checklist");
+  const survivingCards: CheckListType[] = [];
+  const survivingItems: Record<string, CheckListItemType[]> = {};
+  if (queuedCreates.size > 0) {
+    const serverIds = new Set(res.checklists.map((c) => c.id));
+    for (const card of checkListStore.checkLists) {
+      if (queuedCreates.has(card.id) && !serverIds.has(card.id)) {
+        survivingCards.push(card);
+        survivingItems[card.id] = itemStore.checkListsItems[card.id] ?? [];
+      }
+    }
+  }
+
   // Group the flat item list by checklist. A since=0 pull ships every live item,
   // so every card is fully loaded.
   const itemsByChecklist: Record<string, CheckListItemType[]> = {};
@@ -344,6 +363,22 @@ async function rebuildFromFull(pinia: Pinia, res: ChangesResponseType): Promise<
   itemStore.total_backend_count_checked_per_checklist = checked;
   itemStore.total_backend_count_unchecked_per_checklist = unchecked;
   labelStore.labels = [...res.labels].sort((a, b) => (b.sort_order ?? 0) - (a.sort_order ?? 0));
+
+  // Re-insert the offline-created cards the reset server doesn't know yet (B4).
+  for (const card of survivingCards) {
+    checkListStore.checkLists.push(card);
+    const list = survivingItems[card.id] ?? [];
+    itemStore.checkListsItems[card.id] = list;
+    itemStore.checklistWasFullLoadedOnce[card.id] = true;
+    const c = list.filter((i) => i.state.checked).length;
+    itemStore.total_backend_count_per_checklist[card.id] = list.length;
+    itemStore.total_backend_count_checked_per_checklist[card.id] = c;
+    itemStore.total_backend_count_unchecked_per_checklist[card.id] = list.length - c;
+  }
+  if (survivingCards.length > 0) {
+    checkListStore.total_backend_count += survivingCards.length;
+    await checkListStore._sort();
+  }
 
   await writeCursor(res.next_cursor);
   void checkListStore.fetchCounts();

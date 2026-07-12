@@ -7,7 +7,18 @@ that discovered them. Newest first.
 
 ## Sidebar count badges: `shared_by_me` not adjusted on the actor's own archive
 
-**Status:** open · **Severity:** low · **Discovered:** 2026-07-11 (WI-15, flag-on flip)
+**Status:** resolved (2026-07-12, Chunk B1) · **Severity:** low · **Discovered:** 2026-07-11 (WI-15, flag-on flip)
+
+**Resolution**
+
+Took option (b). The outbox now flags a drain as `countsDirty` when a
+count-affecting op replays (`affectsSidebarCounts` — card create/delete/archive
+and label attach/detach), carries that on its `idle` event, and `useSyncNotices`
+fires one debounced `fetchCounts` (server truth) per dirty drain. That refetch is
+exact for every bucket including `shared_by_me`, so the actor's own archive
+reconciles the badge on drain without needing a `collaborator_count` DTO field.
+Same mechanism also fixed the broader create/delete/label counts staleness
+(Chunk B1 in `docs/plans/2.0_REVIEW_FINDINGS.md`).
 
 **Symptom**
 

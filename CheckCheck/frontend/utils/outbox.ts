@@ -122,6 +122,20 @@ function coalesceKey(op: Pick<OutboxOp, "entityType" | "entityId" | "kind">): st
 }
 
 /**
+ * The parent checklist id of a checklist⇄label *association* op, or `null` if
+ * `op` is not one. Pair-ops key on a composite `"{checklistId}:{labelId}"` entity
+ * id (see `checklistLabelKey`); label CRUD is online-only today, but a future
+ * queued label create/update/delete would carry a bare UUID (no colon) and must
+ * NOT be parsed as a pair — the explicit colon guard keeps that op from being
+ * silently mangled (finding B3). `i > 0` also rejects a stray leading colon.
+ */
+function checklistLabelParentId(op: OutboxOp): string | null {
+  if (op.entityType !== "label") return null;
+  const i = op.entityId.indexOf(":");
+  return i > 0 ? op.entityId.slice(0, i) : null;
+}
+
+/**
  * Whether `op` is a *child* write of the checklist `checklistId` — an item op
  * (its request targets that card via `pathParams.checklist_id`) or a
  * checklist⇄label association op (its composite entity id is
@@ -134,7 +148,7 @@ function isChecklistChild(op: OutboxOp, checklistId: string): boolean {
     return op.request.pathParams?.checklist_id === checklistId;
   }
   if (op.entityType === "label") {
-    return op.entityId.startsWith(`${checklistId}:`);
+    return checklistLabelParentId(op) === checklistId;
   }
   return false;
 }
@@ -317,7 +331,8 @@ export function outboxFieldGuard(queue: readonly OutboxOp[]): EditGuard {
     } else if (op.entityType === "label") {
       // A checklist⇄label association op (entityId "{checklistId}:{labelId}")
       // changes the card's label set; keep the local `labels` until it drains.
-      const checklistId = op.entityId.slice(0, op.entityId.indexOf(":"));
+      // A future bare label-CRUD op has no card to guard, so it is skipped.
+      const checklistId = checklistLabelParentId(op);
       if (checklistId) addFields(checklistFields, checklistId, ["labels"]);
     }
   }
@@ -344,7 +359,7 @@ export function pendingChecklistIds(queue: readonly OutboxOp[]): Set<string> {
       const clId = op.request.pathParams?.checklist_id;
       if (clId) ids.add(clId);
     } else if (op.entityType === "label") {
-      const clId = op.entityId.slice(0, op.entityId.indexOf(":"));
+      const clId = checklistLabelParentId(op);
       if (clId) ids.add(clId);
     }
   }
@@ -380,7 +395,12 @@ export function partitionResync(
   const survives = (op: OutboxOp): boolean => {
     if (lockedSeqs.has(op.seq)) return true;
     if (op.entityType === "label") {
-      return existsAfterResync(op.entityId.slice(0, op.entityId.indexOf(":")));
+      const parent = checklistLabelParentId(op);
+      // Pair-op (attach/detach): survives only if its card does. A future bare
+      // label-CRUD op (no colon) is judged like any entity — create re-makes it,
+      // an edit/delete needs the label to still exist.
+      if (parent !== null) return existsAfterResync(parent);
+      return op.kind === "create" || existsAfterResync(op.entityId);
     }
     if (op.entityType === "item") {
       // The parent card must survive, or the item route 404s no matter what.
@@ -421,8 +441,33 @@ export interface OutboxStore {
 export type OutboxEvent =
   /** A terminal error (403/404/409/410/…) dropped an op — WI-11 surfaces this. */
   | { type: "op-dropped"; op: OutboxOp; status: number | undefined }
-  /** The queue drained to empty. */
-  | { type: "idle" };
+  /**
+   * The queue drained to empty. `countsDirty` is true when at least one op that
+   * affects the sidebar count badges (a card create/delete/archive or a label
+   * attach/detach — see `affectsSidebarCounts`) drained successfully since the
+   * last idle: the confirming delta pull is blind to the actor's own optimistic
+   * change, so the badges only reconcile if the drain triggers a `fetchCounts`
+   * (finding B1). Item edits and reorders don't move the badges, so a drain of
+   * only those leaves `countsDirty` false and fires no request.
+   */
+  | { type: "idle"; countsDirty: boolean };
+
+/**
+ * Whether a drained op moves the sidebar count badges (`home` / `archived` /
+ * `labels[id]` / `shared_*`), which count *cards*, not items. A card create or
+ * delete changes `home`; an archive toggle moves a card between `home` and
+ * `archived`; a label attach/detach changes `labels[id]`. Item ops and pure
+ * reorders (position without `archived`) never touch these, so they must not
+ * trigger a count refetch on every checkbox toggle or drag.
+ */
+export function affectsSidebarCounts(op: OutboxOp): boolean {
+  if (op.entityType === "label") return true; // attach/detach → labels[id]
+  if (op.entityType === "checklist") {
+    if (op.kind === "create" || op.kind === "delete") return true;
+    if (op.kind === "position") return "archived" in (op.request.body ?? {});
+  }
+  return false;
+}
 
 /** Cancel handle for a scheduled retry. */
 type Cancel = () => void;
@@ -478,6 +523,10 @@ export class OutboxEngine {
   private ops: OutboxOp[] = [];
   private nextSeq = 1;
   private inflightSeq: number | null = null;
+  // Set when a count-affecting op (see `affectsSidebarCounts`) drains; read and
+  // cleared when the queue goes idle so the consumer can refetch the badges once
+  // per drain (finding B1).
+  private countsDirty = false;
   private draining = false;
   private retryCancel: Cancel | null = null;
   private readonly scheduler: (fn: () => void, delayMs: number) => Cancel;
@@ -558,6 +607,7 @@ export class OutboxEngine {
     this.ops = [];
     this.nextSeq = 1;
     this.inflightSeq = null;
+    this.countsDirty = false;
     await this.deps.store.clear();
     this.deps.onChange?.(this.ops.length);
   }
@@ -642,7 +692,6 @@ export class OutboxEngine {
     while (this.ops.length > 0) {
       if (!this.isOnline()) break;
       const op = this.ops[0]!;
-      let failedRetryable = false;
       this.inflightSeq = op.seq;
       try {
         await this.deps.transport(op);
@@ -650,32 +699,40 @@ export class OutboxEngine {
         const status = httpStatusOf(err);
         if (classifyError(status) === "retryable") {
           op.attempts += 1;
-          failedRetryable = true;
-        } else {
-          // Terminal — drop this op and surface it, then keep draining.
-          this.remove(op.seq);
-          await this.deps.store.remove(op.opId);
+          this.inflightSeq = null;
+          await this.deps.store.put(op); // record the bumped attempt count
           this.deps.onChange?.(this.ops.length);
-          this.deps.emit?.({ type: "op-dropped", op, status });
-          continue;
+          this.scheduleRetry(op.attempts);
+          return; // stop the drain; the timer (or a reconnect) resumes it
         }
-      } finally {
+        // Terminal — drop this op and surface it, then keep draining. Clear
+        // inflightSeq only after the op leaves the queue (finding B2).
+        this.remove(op.seq);
         this.inflightSeq = null;
-      }
-
-      if (failedRetryable) {
-        await this.deps.store.put(op); // record the bumped attempt count
+        await this.deps.store.remove(op.opId);
         this.deps.onChange?.(this.ops.length);
-        this.scheduleRetry(op.attempts);
-        return; // stop the drain; the timer (or a reconnect) resumes it
+        this.deps.emit?.({ type: "op-dropped", op, status });
+        continue;
       }
 
       // Success — the endpoint is idempotent so a duplicate delivery is safe.
+      // Clear `inflightSeq` only AFTER the op leaves the in-memory queue: while a
+      // just-sent create still sits in `this.ops`, an incoming coalesce (an
+      // offline delete of that card) must see it as locked, or rule 2 would cancel
+      // a create the server has already applied — leaving a card the client
+      // believes never existed (finding B2). Removal + unlock are adjacent and
+      // synchronous, so no enqueue can interleave between them.
+      if (affectsSidebarCounts(op)) this.countsDirty = true;
       this.remove(op.seq);
+      this.inflightSeq = null;
       await this.deps.store.remove(op.opId);
       this.deps.onChange?.(this.ops.length);
     }
-    if (this.ops.length === 0) this.deps.emit?.({ type: "idle" });
+    if (this.ops.length === 0) {
+      const countsDirty = this.countsDirty;
+      this.countsDirty = false;
+      this.deps.emit?.({ type: "idle", countsDirty });
+    }
   }
 
   private scheduleRetry(attempts: number): void {

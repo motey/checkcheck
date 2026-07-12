@@ -31,6 +31,22 @@ export const useSyncNotices = createSharedComposable(() => {
   const pinia = useNuxtApp().$pinia as any;
 
   const recent = new Map<string, number>();
+  // Sidebar counts count *cards* and are moved by the actor's own card
+  // create/delete/archive and label attach/detach — but the confirming delta
+  // pull is blind to those optimistic changes, so the badges never refresh on
+  // their own (finding B1). Only *archive* adjusts them inline
+  // (`_adjustCountsForArchive`); everything else relied on an unrelated refetch.
+  // The outbox reports `countsDirty` when such an op drained, so refetch once per
+  // drain (debounced to coalesce a burst of creates into one request). This also
+  // reconciles `shared_by_me` on archive, closing the docs/ISSUES.md entry.
+  let countsTimer: ReturnType<typeof setTimeout> | null = null;
+  function scheduleCountsRefresh(): void {
+    if (countsTimer) clearTimeout(countsTimer);
+    countsTimer = setTimeout(() => {
+      countsTimer = null;
+      void checkListStore.fetchCounts();
+    }, 500);
+  }
   // A durable-storage failure is a persistent environment condition, not a
   // transient event — toast it once per session rather than on every failed
   // persist (which would fire on every enqueue/drain).
@@ -84,6 +100,10 @@ export const useSyncNotices = createSharedComposable(() => {
   }
 
   function handleOutboxEvent(e: OutboxEvent): void {
+    if (e.type === "idle") {
+      if (e.countsDirty) scheduleCountsRefresh();
+      return;
+    }
     if (e.type !== "op-dropped") return;
     droppedOp(e.op, e.status);
   }
