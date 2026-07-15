@@ -334,6 +334,13 @@ async def auth_oidc_callback(
         token = await oauth_client.authorize_access_token(request)
     except OAuthError as e:
         log.error(e, exc_info=True)
+        # A stale or duplicate session cookie can leave authlib's stored state out
+        # of sync with the callback (`mismatching_state`). For the browser (session)
+        # flow that must not dead-end on a 500 that only a manual cookie-clear
+        # escapes — bounce back to the login page so a fresh attempt self-heals. The
+        # `?oidc_error` marker tells the page to show the form (not auto-loop).
+        if login_type == "session":
+            return RedirectResponse(url="/login?oidc_error=auth")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Auth error can not fetch access token from {oauth_client.access_token_url}. Error: {e}",

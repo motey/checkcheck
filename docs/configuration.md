@@ -119,13 +119,35 @@ AUTH_OIDC_PROVIDERS:
       sso-usermanagers: ["usermanager"]
 ```
 
+### Redirect URI to register with the provider
+
+Register this callback URL as an allowed redirect URI in the provider (in
+Authentik it is the application's *Redirect URIs/Origins*):
+
+```
+<SERVER_PROTOCOL>://<SERVER_HOSTNAME>/api/auth/oidc/callback/<provider-slug>
+```
+
+- `<provider-slug>` is `PROVIDER_DISPLAY_NAME` lowercased with spaces and other
+  non-alphanumeric characters replaced by hyphens. `"Company SSO"` →
+  `company-sso`, so the full URI is
+  `https://checkcheck.example.com/api/auth/oidc/callback/company-sso`.
+- The scheme and host must match what the app actually serves on. Behind a
+  TLS-terminating reverse proxy that means `https` — set `SERVER_PROTOCOL: https`
+  and `SERVER_HOSTNAME` accordingly, and make sure forwarded headers are trusted
+  (`SERVER_FORWARDED_ALLOW_IPS`, default `*`) so the app builds `https` URLs. A
+  scheme mismatch (registering `https` while the app emits `http://…/callback`)
+  is rejected by the provider as a redirect-URI mismatch.
+
 Notes:
 
 - `offline_access` in `SCOPES` is what gets you a refresh token, so sessions can
   be renewed without forcing the user to log in again.
 - Set `AUTO_LOGIN: true` on a single provider to skip the local login form and
   redirect straight to it. Only do this when you also want to disable local
-  login (`AUTH_BASIC_LOGIN_IS_ENABLED: false`).
+  login (`AUTH_BASIC_LOGIN_IS_ENABLED: false`). After an explicit logout the app
+  lands you back on the login form (rather than looping straight back into the
+  provider) so you can switch accounts.
 - `ROLE_MAPPING` and `RESTRICT_USER_SEARCH_TO_OWN_GROUPS` rely on the provider
   delivering the groups claim named by `USER_GROUPS_ATTRIBUTE`.
 

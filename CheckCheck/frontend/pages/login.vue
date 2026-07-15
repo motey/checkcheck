@@ -84,10 +84,18 @@ onMounted(async () => {
     if (error.value) throw error.value;
     authSchemes.value = data.value!;
 
+    // A failed OIDC callback (e.g. a stale-cookie state mismatch) bounces here
+    // with ?oidc_error — show the form and a message instead of auto-looping.
+    const query = router.currentRoute.value.query;
+    if (query.oidc_error != null) {
+      errorMessage.value = "Login could not be completed. Please try again.";
+    }
+
     // AUTO_LOGIN: if a provider is configured to skip the login form, redirect
-    // straight to it. Suppressed after an explicit logout (?logout=1) so the
-    // user isn't instantly bounced back into an active SSO session.
-    const suppressAutoLogin = router.currentRoute.value.query.logout != null;
+    // straight to it. Suppressed after an explicit logout (?logout=1) or an OIDC
+    // error so the user isn't instantly bounced back into an active SSO session
+    // (or into a redirect loop).
+    const suppressAutoLogin = query.logout != null || query.oidc_error != null;
     const autoScheme = authSchemes.value.find((s) => s.auto_login);
     if (autoScheme && !suppressAutoLogin) {
       redirectToOIDC(autoScheme.login_endpoint);

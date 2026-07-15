@@ -121,6 +121,12 @@ class FastApiAppContainer:
         self.app.add_middleware(
             SessionMiddleware,
             secret_key=config.SERVER_SESSION_SECRET.get_secret_value(),
+            # This cookie carries the OIDC login `state`/`nonce` across the redirect
+            # to the provider and back. On an HTTPS deployment it must be Secure (and
+            # SameSite=Lax so it still rides the top-level GET back from the provider),
+            # matching the app's own session cookie.
+            https_only=config.SET_SESSION_COOKIE_SECURE,
+            same_site="lax",
         )
 
     def _mount_routers(self):
