@@ -88,6 +88,7 @@ def start():
         log_level=get_uvicorn_loglevel(),
         log_config=uvicorn_log_config,
         proxy_headers=True,
+        forwarded_allow_ips=config.SERVER_FORWARDED_ALLOW_IPS,
     )
     uvicorn_server = uvicorn.Server(config=uvicorn_config)
 

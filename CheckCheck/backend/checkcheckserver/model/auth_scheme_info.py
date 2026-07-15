@@ -26,3 +26,6 @@ class AuthSchemeInfo(BaseModel):
     login_endpoint: str
     registration_endpoint: Optional[str] = None
     provider_slug: Optional[str] = None
+    # When true the login page redirects straight to this scheme's login_endpoint
+    # instead of waiting for a click (OIDC AUTO_LOGIN).
+    auto_login: bool = False

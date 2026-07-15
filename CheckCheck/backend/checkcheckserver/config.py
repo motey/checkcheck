@@ -111,6 +111,18 @@ class Config(BaseSettings):
             "cannot see the original scheme in every proxy setup."
         ),
     )
+    SERVER_FORWARDED_ALLOW_IPS: str = Field(
+        default="*",
+        title="Trusted proxy IPs for forwarded headers",
+        description=(
+            "Comma-separated list of upstream IPs allowed to set `X-Forwarded-*` headers "
+            "(proto/host/for), or `*` to trust every upstream. The app is designed to run "
+            "behind a reverse proxy (e.g. Traefik) that terminates TLS and whose port — not "
+            "the container's — is the one exposed publicly, so this defaults to `*`. Without "
+            "it uvicorn ignores the forwarded scheme and builds absolute URLs (OIDC "
+            "login/redirect) with the internal `http` scheme instead of the external `https`."
+        ),
+    )
 
     # ── Database ──────────────────────────────────────────────────────────────
     SQL_DATABASE_URL: str = Field(

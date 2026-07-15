@@ -102,6 +102,7 @@ async def list_available_login_schemes(request: Request):
                         "auth_oidc_login_session_based", provider_slug=provider_slug
                     )
                 ),
+                auto_login=bool(oidc_conf.AUTO_LOGIN),
             )
         )
     return schemes

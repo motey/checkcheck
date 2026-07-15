@@ -83,6 +83,15 @@ onMounted(async () => {
     const { data, error } = await useCheckapi("/api/auth/list");
     if (error.value) throw error.value;
     authSchemes.value = data.value!;
+
+    // AUTO_LOGIN: if a provider is configured to skip the login form, redirect
+    // straight to it. Suppressed after an explicit logout (?logout=1) so the
+    // user isn't instantly bounced back into an active SSO session.
+    const suppressAutoLogin = router.currentRoute.value.query.logout != null;
+    const autoScheme = authSchemes.value.find((s) => s.auto_login);
+    if (autoScheme && !suppressAutoLogin) {
+      redirectToOIDC(autoScheme.login_endpoint);
+    }
   } catch (err) {
     console.error("Failed to fetch login methods:", err);
     errorMessage.value = "Failed to load login options.";

@@ -138,7 +138,9 @@ async function logout() {
   if (isLocalFirstEnabled()) {
     await clearLocalState().catch(() => {});
   }
-  window.location.href = "/login";
+  // ?logout=1 suppresses OIDC AUTO_LOGIN so the user lands on the login form
+  // instead of being bounced straight back into their still-active SSO session.
+  window.location.href = "/login?logout=1";
 }
 </script>
 

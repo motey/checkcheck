@@ -70,6 +70,14 @@ SERVER_HOSTNAME: timwork
 # Description:  The scheme (`http` or `https`) used to build absolute URLs. Set this to `https` when a reverse proxy terminates TLS in front of the app; automatic detection cannot see the original scheme in every proxy setup.
 SERVER_PROTOCOL: http
 
+# ## SERVER_FORWARDED_ALLOW_IPS - Trusted proxy IPs for forwarded headers ###
+# Type:        str
+# Required:    False
+# Default:     "*"
+# Env-var:     'SERVER_FORWARDED_ALLOW_IPS'
+# Description: Comma-separated list of upstream IPs allowed to set `X-Forwarded-*` headers (proto/host/for), or `*` to trust every upstream. The app is designed to run behind a reverse proxy (e.g. Traefik) that terminates TLS and whose port - not the container's - is the one exposed publicly, so this defaults to `*`. Without it uvicorn ignores the forwarded scheme and builds absolute URLs (OIDC login/redirect) with the internal `http` scheme instead of the external `https`.
+SERVER_FORWARDED_ALLOW_IPS: '*'
+
 # ## SQL_DATABASE_URL - Database URL ###
 # Type:        str
 # Required:    False

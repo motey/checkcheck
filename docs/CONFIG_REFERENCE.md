@@ -153,6 +153,21 @@ The scheme (`http` or `https`) used to build absolute URLs. Set this to `https` 
 
 ---
 
+## `SERVER_FORWARDED_ALLOW_IPS`
+
+*Trusted proxy IPs for forwarded headers*
+
+Comma-separated list of upstream IPs allowed to set `X-Forwarded-*` headers (proto/host/for), or `*` to trust every upstream. The app is designed to run behind a reverse proxy (e.g. Traefik) that terminates TLS and whose port - not the container's - is the one exposed publicly, so this defaults to `*`. Without it uvicorn ignores the forwarded scheme and builds absolute URLs (OIDC login/redirect) with the internal `http` scheme instead of the external `https`.
+
+| Property | Value |
+|---|---|
+| Type | str |
+| Required | No |
+| Default | `"*"` |
+| Environment variable | `SERVER_FORWARDED_ALLOW_IPS` |
+
+---
+
 ## `SQL_DATABASE_URL`
 
 *Database URL*
