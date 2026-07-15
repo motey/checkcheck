@@ -46,6 +46,16 @@ RUN pip install -U -r /opt/$APPNAME/requirements.txt
 # Install the application.
 COPY CheckCheck/backend/checkcheckserver /opt/$APPNAME/$MODULENAME
 
+# Alembic migration scripts. They live beside the package in the repo
+# (backend/migrations). At runtime _init_db.py resolves them relative to the
+# package parent — /opt/$APPNAME/migrations in this image — so they must be
+# copied there or start-up migrations crash with "Path doesn't exist".
+COPY CheckCheck/backend/migrations /opt/$APPNAME/migrations
+# Alembic config file. DB_MIGRATION_ALEMBIC_CONFIG_FILE defaults to /alembic.ini
+# in this image layout (script_location and sqlalchemy.url are overridden at
+# runtime; this mainly supplies the logging configuration).
+COPY alembic.ini /alembic.ini
+
 # Stamp the version instead of shipping the .git folder. BOTH names are
 # required: checkcheckserver/__init__.py also imports __version_git_branch__ and
 # only guards ModuleNotFoundError, so a partial file would crash on boot.
