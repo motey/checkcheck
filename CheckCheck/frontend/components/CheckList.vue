@@ -19,6 +19,7 @@
     <div v-if="!editModeActive" data-testid="card-title" class="flex-none pr-8 text-base font-semibold leading-snug break-words line-clamp-2" v-html="highlightText(checkList!.name, searchQuery)" />
     <UTextarea
       v-if="editModeActive"
+      :autofocus="true"
       autoresize
       variant="none"
       :rows="0"
@@ -38,7 +39,6 @@
       <UTextarea
         v-if="editModeActive"
         ref="notesTextField"
-        :autofocus="true"
         autoresize
         variant="none"
         :rows="0"

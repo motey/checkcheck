@@ -2,6 +2,7 @@ from typing import Optional
 
 
 from typing import List, Literal, Annotated, NoReturn
+import asyncio
 import uuid
 
 from fastapi import (
@@ -87,6 +88,29 @@ api_token_security = HTTPBearer(auto_error=False)
 not_authenticated_exception = HTTPException(status_code=401, detail="Not authenticated")
 
 
+# Serialize concurrent OIDC token refreshes per credential. A single-page app
+# fires several API calls (and the /api/sync reconnect) in parallel; when the
+# access token expires they would each independently POST the *same* refresh
+# token to the IdP. IdPs rotate refresh tokens (single-use), so only the first
+# grant succeeds and the rest get `invalid_grant` — which used to wipe the
+# session and bounce the user to /login every few minutes. The whole app runs on
+# one uvicorn worker / event loop (see main.py), so an asyncio.Lock keyed per
+# user_auth.id gives real mutual exclusion: the winner refreshes, the others wait
+# and then observe the already-refreshed credential (double-checked below).
+# One lock per OIDC credential; the dict grows by at most one entry per fresh
+# interactive OIDC login over the server's lifetime — negligible for a
+# self-hosted deployment, and reset on restart.
+_oidc_refresh_locks: dict[uuid.UUID, asyncio.Lock] = {}
+
+
+def _get_oidc_refresh_lock(user_auth_id: uuid.UUID) -> asyncio.Lock:
+    lock = _oidc_refresh_locks.get(user_auth_id)
+    if lock is None:
+        lock = asyncio.Lock()
+        _oidc_refresh_locks[user_auth_id] = lock
+    return lock
+
+
 async def get_current_user_auth(
     request: Request,
     user_session_crud: UserSessionCRUD = Depends(UserSessionCRUD.get_crud),
@@ -138,23 +162,53 @@ async def get_current_user_auth(
             # For API-token path user_session is None; look it up by user_auth_id
             if user_session is None:
                 user_session = await user_session_crud.get_by_user_auth_id(user_auth.id)
-            try:
-                user_auth = await oidc_refresh_access_token(
-                    oauth_client=oauth_clients[user_auth.oidc_provider_slug],
-                    user_auth_crud=user_auth_crud,
-                    user_auth=user_auth,
-                    user_session_crud=user_session_crud,
-                    user_session=user_session,
-                    raise_custom_expection_if_fails=not_authenticated_exception,
-                )
-            except HTTPException as e:
-                await wipe_expired_user_session_or_user_auth(
-                    user_auth=user_auth,
-                    user_auth_crud=user_auth_crud,
-                    user_session=user_session,
-                    user_session_crud=user_session_crud,
-                )
-                raise e
+            # Serialize the refresh so parallel requests don't each burn the
+            # (rotating, single-use) refresh token against the IdP.
+            async with _get_oidc_refresh_lock(user_auth.id):
+                # Double-checked: a concurrent request may have already refreshed
+                # while we waited for the lock. Re-read from the DB and only refresh
+                # if it is *still* expired — this is what stops every request but
+                # the first from failing (and being wiped) under a rotating IdP.
+                fresh_user_auth = await user_auth_crud.get(user_auth.id)
+                if fresh_user_auth is None:
+                    raise not_authenticated_exception
+                fresh_session = user_session
+                if user_session is not None:
+                    fresh_session = await user_session_crud.get(user_session.id)
+                still_expired = (
+                    fresh_session is not None and fresh_session.is_expired()
+                ) or fresh_user_auth.is_expired()
+                if not still_expired:
+                    # Already refreshed by another request in this window.
+                    user_auth = fresh_user_auth
+                else:
+                    try:
+                        user_auth = await oidc_refresh_access_token(
+                            oauth_client=oauth_clients[fresh_user_auth.oidc_provider_slug],
+                            user_auth_crud=user_auth_crud,
+                            user_auth=fresh_user_auth,
+                            user_session_crud=user_session_crud,
+                            user_session=fresh_session,
+                            raise_custom_expection_if_fails=not_authenticated_exception,
+                        )
+                    except HTTPException as e:
+                        # The refresh genuinely failed. Before destroying the
+                        # credential, re-read once more: a parallel/earlier refresh
+                        # may have succeeded (e.g. a transient IdP blip on this
+                        # request only), in which case this request is still valid
+                        # and must NOT be logged out. Only wipe when it is still
+                        # definitively expired.
+                        recheck = await user_auth_crud.get(fresh_user_auth.id)
+                        if recheck is not None and not recheck.is_expired():
+                            user_auth = recheck
+                        else:
+                            await wipe_expired_user_session_or_user_auth(
+                                user_auth=fresh_user_auth,
+                                user_auth_crud=user_auth_crud,
+                                user_session=fresh_session,
+                                user_session_crud=user_session_crud,
+                            )
+                            raise e
     return user_auth
 
 

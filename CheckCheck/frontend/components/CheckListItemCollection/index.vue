@@ -8,7 +8,7 @@
         @add-item-after="addItemAfter" @delete-item="deleteItem"></CheckListItem>
     </li>
     <li v-if="filterCheckedItems!=true" class="no-drag px-0 py-0 sm:px-0 sm:py-0 md:px-0 md:py-0 lg:px-0 lg:py-0">
-      <CheckListItemCollectionAddNewButton  :parentCheckList="parentCheckList">
+      <CheckListItemCollectionAddNewButton  :parentCheckList="parentCheckList" @add-item="addItemAtEnd">
       </CheckListItemCollectionAddNewButton>
     </li>
     
@@ -72,6 +72,13 @@ async function addItemAfter(afterItemId: string) {
   const created = await checkListsItemStore.create(props.parentCheckList.id, {
     position: { index: newIndex },
   } as CheckListItemCreateType);
+  await nextTick();
+  itemComponentRefs.get(created.id)?.focusTextarea?.();
+}
+
+// "Add new item" button: append an item to the end and focus its textarea.
+async function addItemAtEnd() {
+  const created = await checkListsItemStore.create(props.parentCheckList.id);
   await nextTick();
   itemComponentRefs.get(created.id)?.focusTextarea?.();
 }
