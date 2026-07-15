@@ -40,7 +40,19 @@
       @focus="onTextFocus"
       @blur="onTextBlur"
       @keydown.enter="onEnter"
+      @keydown.delete="onBackspace"
     />
+    <button
+      v-if="parentEditMode && canEdit"
+      type="button"
+      data-testid="delete-item"
+      :class="{ nonActive: !hover }"
+      class="list-item-delete flex-none self-center transition-opacity text-gray-400 hover:text-red-500"
+      title="Delete item"
+      @click.stop="onDelete(false)"
+    >
+      <UIcon name="i-lucide-x" class="w-5 h-5" />
+    </button>
   </div>
 </template>
 
@@ -95,7 +107,7 @@ const searchQuery = computed(() => (route.query.search as string) || null);
 // Board preview clamps differently for one-liners vs multi-line items (see the
 // display node): only items with an authored newline get the two-line treatment.
 const previewHasNewline = computed(() => (props.checkListItem?.text ?? "").includes("\n"));
-const emit = defineEmits(["checkedItem", "addItemAfter"]);
+const emit = defineEmits(["checkedItem", "addItemAfter", "deleteItem"]);
 
 // Enter adds a new item below; Shift+Enter (and IME confirm) inserts a newline.
 function onEnter(e: KeyboardEvent) {
@@ -103,6 +115,22 @@ function onEnter(e: KeyboardEvent) {
   e.preventDefault();
   if (!canEdit.value) return;
   emit("addItemAfter", props.checkListItem!.id);
+}
+
+// Backspace on an already-empty item deletes it (Keep-style) and moves focus
+// up to the previous item. Fires on keydown before the value changes, so an
+// item with text just loses its last char; the *next* backspace removes it.
+function onBackspace(e: KeyboardEvent) {
+  if (!canEdit.value || e.isComposing) return;
+  if (localText.value.length > 0) return;
+  e.preventDefault();
+  emit("deleteItem", props.checkListItem!.id, true);
+}
+
+// The × button deletes without hijacking focus (mouse users stay where they are).
+function onDelete(focusPrev: boolean) {
+  if (!canEdit.value) return;
+  emit("deleteItem", props.checkListItem!.id, focusPrev);
 }
 
 // Called by the parent collection after it inserts the freshly created item.

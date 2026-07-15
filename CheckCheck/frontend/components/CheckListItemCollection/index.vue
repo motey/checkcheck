@@ -5,7 +5,7 @@
       <CheckListItem class="px-0 py-0 sm:px-0 sm:py-0 md:px-0 md:py-0 lg:px-0 lg:py-0 text-[13px] sm:text-sm"
         :ref="(el) => registerItemRef(item.id, el)"
         :parentCheckList="parentCheckList" :checkListItem="item" :parentEditMode="true"
-        @add-item-after="addItemAfter"></CheckListItem>
+        @add-item-after="addItemAfter" @delete-item="deleteItem"></CheckListItem>
     </li>
     <li v-if="filterCheckedItems!=true" class="no-drag px-0 py-0 sm:px-0 sm:py-0 md:px-0 md:py-0 lg:px-0 lg:py-0">
       <CheckListItemCollectionAddNewButton  :parentCheckList="parentCheckList">
@@ -74,6 +74,18 @@ async function addItemAfter(afterItemId: string) {
   } as CheckListItemCreateType);
   await nextTick();
   itemComponentRefs.get(created.id)?.focusTextarea?.();
+}
+
+// Delete an item. When triggered by backspace-on-empty, move focus to the end
+// of the previous visible item so keyboard editing flows uninterrupted.
+async function deleteItem(itemId: string, focusPrev: boolean) {
+  const idx = checklistItems.value.findIndex((i) => i.id === itemId);
+  const prev = idx > 0 ? checklistItems.value[idx - 1] : undefined;
+  await checkListsItemStore.delete(props.parentCheckList.id, itemId);
+  if (focusPrev && prev) {
+    await nextTick();
+    itemComponentRefs.get(prev.id)?.focusTextarea?.();
+  }
 }
 
 const [ItemsView, draggableItems] = useDragAndDrop(checklistItems, {
