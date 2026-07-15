@@ -118,16 +118,65 @@
         </NuxtLink>
       </UTooltip>
 
-      <!-- Running server version (from GET /api/public-config). Hidden until the
-           config resolves and when the rail is collapsed. -->
-      <p
-        v-if="!collapsed && serverVersion"
-        data-testid="sidebar-server-version"
-        class="px-2 pt-2 text-xs text-muted/70 tabular-nums truncate"
-        :title="`CheckCheck server ${serverVersion}`"
-      >
-        v{{ serverVersion }}
-      </p>
+      <!-- Project stamp: running server version (GET /api/public-config), repo
+           link, authorship and license. Hidden until the config resolves. The
+           collapsed rail shows just the GitHub mark to keep the footer compact. -->
+      <div v-if="!collapsed && serverVersion" class="px-2 pt-2 space-y-1.5">
+        <div class="flex items-center gap-1.5 text-xs text-muted/70">
+          <span
+            data-testid="sidebar-server-version"
+            class="tabular-nums"
+            :title="`CheckCheck server ${serverVersion}`"
+          >
+            v{{ serverVersion }}
+          </span>
+          <span aria-hidden="true">·</span>
+          <span>
+            by
+            <a
+              :href="authorUrl"
+              target="_blank"
+              rel="noopener noreferrer"
+              class="hover:text-primary transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary rounded"
+            >motey</a>
+          </span>
+        </div>
+        <div class="flex items-center gap-2">
+          <a
+            :href="repoUrl"
+            target="_blank"
+            rel="noopener noreferrer"
+            class="inline-flex items-center gap-1 text-xs text-muted/70 hover:text-primary transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary rounded"
+          >
+            <UIcon name="i-lucide-github" class="size-3.5" />
+            GitHub
+          </a>
+          <a
+            :href="`${repoUrl}/blob/main/LICENSE`"
+            target="_blank"
+            rel="noopener noreferrer"
+            title="MIT licensed — open source"
+            class="inline-flex items-center gap-1 rounded-full border border-default px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted/70 hover:text-primary hover:border-primary transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+          >
+            <UIcon name="i-lucide-scale" class="size-3" />
+            MIT
+          </a>
+        </div>
+      </div>
+      <div v-else-if="collapsed && serverVersion" class="pt-2 flex justify-center">
+        <UTooltip :text="`CheckCheck v${serverVersion} · MIT · by motey`" side="right">
+          <a
+            :href="repoUrl"
+            target="_blank"
+            rel="noopener noreferrer"
+            data-testid="sidebar-server-version"
+            :title="`CheckCheck server ${serverVersion}`"
+            class="inline-flex text-muted/70 hover:text-primary transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary rounded"
+          >
+            <UIcon name="i-lucide-github" class="size-5" />
+          </a>
+        </UTooltip>
+      </div>
     </div>
   </nav>
 </template>
@@ -151,6 +200,10 @@ const publicConfig = usePublicConfigStore();
 
 // Running server version, shown in the sidebar footer (null until config loads).
 const serverVersion = computed(() => publicConfig.serverVersion);
+
+// Project stamp links (footer). Static — the repo/author are compile-time facts.
+const repoUrl = "https://github.com/motey/checkcheck";
+const authorUrl = "https://github.com/motey";
 
 // Sidebar count badges (fetched once on mount, kept fresh via useSync). null
 // until the first fetch resolves — badges just stay hidden until then.

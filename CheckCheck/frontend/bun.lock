@@ -5,7 +5,7 @@
     "": {
       "name": "nuxt-app",
       "dependencies": {
-        "@formkit/drag-and-drop": "^0.5.3",
+        "@formkit/drag-and-drop": "0.6.1",
         "@iconify-json/lucide": "^1.2.73",
         "@iconify/iconify": "^3.1.1",
         "@iconify/json": "^2.2.406",
@@ -321,7 +321,7 @@
 
     "@floating-ui/vue": ["@floating-ui/vue@1.1.9", "", { "dependencies": { "@floating-ui/dom": "^1.7.4", "@floating-ui/utils": "^0.2.10", "vue-demi": ">=0.13.0" } }, "sha512-BfNqNW6KA83Nexspgb9DZuz578R7HT8MZw1CfK9I6Ah4QReNWEJsXWHN+SdmOVLNGmTPDi+fDT535Df5PzMLbQ=="],
 
-    "@formkit/drag-and-drop": ["@formkit/drag-and-drop@0.5.3", "", {}, "sha512-VGQsKYc350OOMbz7wYt69YqDbn49x7RJ32eqiJieNke54nGZYmx18XEqTw0lBiJmH3RaiH6V45gB1u+tvI/TNw=="],
+    "@formkit/drag-and-drop": ["@formkit/drag-and-drop@0.6.1", "", { "peerDependencies": { "@marko/runtime-tags": ">=6.0.166" }, "optionalPeers": ["@marko/runtime-tags"] }, "sha512-DNKoPqdg9RW7k0zZlF2FH636Cc16V3tuGDVKWNHpSXr3amF4nmQZfieoLNVRxqWxXVFJq2DY+vf8SCD10JyjAA=="],
 
     "@iconify-json/lucide": ["@iconify-json/lucide@1.2.73", "", { "dependencies": { "@iconify/types": "*" } }, "sha512-++HFkqDNu4jqG5+vYT+OcVj9OiuPCw9wQuh8G5QWQnBRSJ9eKwSStiU8ORgOoK07xJsm/0VIHySMniXUUXP9Gw=="],
 
