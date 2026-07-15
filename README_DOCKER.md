@@ -2,7 +2,7 @@
 
 A collaborative, self-hostable, offline-capable checklist application (web UI + REST API).
 
-**Status: Pre-Alpha.**
+**Status: Early Beta. (I just started using it in real life) **
 
 ## Tags
 

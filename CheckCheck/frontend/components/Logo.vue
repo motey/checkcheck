@@ -5,7 +5,7 @@
       class="relative bg-amber-400 rounded-lg flex items-center justify-center shrink-0"
       :class="size === 'full' ? 'size-12' : 'size-8'"
     >
-      <UIcon name="i-lucide-list-checks" :class="[size === 'full' ? 'size-8' : 'size-5', 'text-white']" />
+      <UIcon name="i-lucide-list-checks" :class="[size === 'full' ? 'size-8' : 'size-5', 'text-amber-900']" />
       <!-- Folded corner -->
       <div class="absolute top-0 right-0 overflow-hidden" :class="size === 'full' ? 'w-4 h-4' : 'w-3 h-3'">
         <div class="w-full h-full bg-default clip-path-folded-corner"></div>

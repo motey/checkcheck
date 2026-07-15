@@ -124,6 +124,9 @@ export default defineNuxtConfig({
     head: {
       meta: [{ name: "theme-color", content: "#FBBF24" }],
       link: [
+        // SVG favicon (crisp at every size) with an .ico fallback for legacy browsers.
+        { rel: "icon", type: "image/svg+xml", href: "/favicon.svg" },
+        { rel: "icon", type: "image/x-icon", href: "/favicon.ico" },
         { rel: "apple-touch-icon", href: "/icons/apple-touch-icon-180x180.png" },
       ],
     },

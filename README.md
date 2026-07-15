@@ -6,8 +6,9 @@ organise with labels, and share individual cards with other people. Because it
 is local-first, the app keeps working while you are offline and syncs back up
 when the connection returns, and it installs as a PWA.
 
-**Status: Pre-Alpha.** Usable and self-hostable, but rough edges remain and
-things can still change. See [Limitations](#limitations) before you rely on it.
+**Status: Early Beta.** Usable and self-hostable, but rough edges remain and
+things can still change. See [Limitations](#limitations) before you rely on it.  
+(I just started driving it in real life)
 
 ![Screenshot](Screenshot.png)
 
