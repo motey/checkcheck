@@ -22,6 +22,26 @@ export default defineNuxtConfig({
       colors: ["primary", "error"],
     },
   },
+  // Bundle every used icon into the client build so offline cold starts never
+  // need a network fetch. Without this @nuxt/icon resolves icons at runtime from
+  // the Iconify HTTP API (or a /api/_nuxt_icon server endpoint) — both of which
+  // fail offline, leaving the UI iconless. `scan` collects the i-lucide-* names
+  // from source; `provider: none` disables the runtime HTTP fallback entirely.
+  icon: {
+    provider: "none",
+    clientBundle: {
+      scan: true,
+      sizeLimitKb: 512,
+      // `scan` only sees icon names in components; these live in .ts helpers
+      // (toast/notification options) and must be listed so they're bundled too.
+      icons: [
+        "lucide:ban",
+        "lucide:database-backup",
+        "lucide:download",
+        "lucide:server-crash",
+      ],
+    },
+  },
   colorMode: {
     preference: "system", // default value of $colorMode.preference
     fallback: "light", // fallback value if not system preference found
