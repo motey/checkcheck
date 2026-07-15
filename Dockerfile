@@ -83,4 +83,14 @@ LABEL org.opencontainers.image.title="CheckCheck" \
       org.opencontainers.image.version="${APP_VERSION}" \
       org.opencontainers.image.source="https://github.com/motey/checkcheck"
 
+# Container health probe. Hits the unauthenticated /api/health endpoint, which
+# performs a real DB round-trip. That endpoint returns HTTP 200 even when the DB
+# is down (with {"healthy": false}), so we parse the body and require healthy ==
+# true — a green status here means "app is up AND the database is reachable".
+# The port is read from SERVER_LISTENING_PORT (default 8181) so the probe follows
+# a reconfigured port. Uses stdlib urllib only — no curl dependency. start-period
+# covers first-boot schema creation + migrations; tune it up for slow databases.
+HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
+    CMD ["python", "-c", "import os,sys,json,urllib.request; p=os.environ.get('SERVER_LISTENING_PORT','8181'); r=urllib.request.urlopen('http://127.0.0.1:%s/api/health' % p, timeout=8); sys.exit(0 if json.load(r).get('healthy') is True else 1)"]
+
 ENTRYPOINT ["python", "./main.py"]
