@@ -50,3 +50,22 @@ def test_checklist_crud():
     req(f"api/checklist/{second_checklist_id}", "delete")
     res = req("api/checklist")
     dict_must_contain(res, {"total_count": 1}, required_keys=["items"])
+
+
+def test_checklist_suggest_existing_items_flag():
+    # New cards default to suggesting existing items (Keep-style dedup helper).
+    res = req("api/checklist", "post", b={"name": "Groceries"})
+    checklist_id = res["id"]
+    dict_must_contain(res, {"suggest_existing_items": True})
+
+    # The per-card toggle round-trips through PATCH.
+    res = req(
+        f"api/checklist/{checklist_id}",
+        "patch",
+        b={"suggest_existing_items": False},
+    )
+    dict_must_contain(res, {"suggest_existing_items": False})
+
+    # And is reflected on a subsequent read.
+    res = req(f"api/checklist/{checklist_id}")
+    dict_must_contain(res, {"suggest_existing_items": False})

@@ -35,6 +35,18 @@ const items = computed(
           e.preventDefault();
         },
       },
+      {
+        label: "Suggest existing items",
+        icon: "i-lucide-list-checks",
+        type: "checkbox" as const,
+        checked: checkList.value?.suggest_existing_items ?? true,
+        onUpdateChecked(checked: boolean) {
+          checkListsStore.update(props.checkListId, { suggest_existing_items: checked } as CheckListUpdateType);
+        },
+        onSelect(e: Event) {
+          e.preventDefault();
+        },
+      },
     ] satisfies DropdownMenuItem[]
 );
 </script>

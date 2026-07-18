@@ -1,4 +1,5 @@
 <template>
+  <div>
   <div class="checklist-item-row flex items-start gap-1.5 py-0.5" @mouseover="hover = true" @mouseleave="hover = false">
     <span
       v-if="parentEditMode && canEdit"
@@ -54,6 +55,30 @@
       <UIcon name="i-lucide-x" class="w-5 h-5" />
     </button>
   </div>
+    <!-- Keep-style autocomplete: while typing a new item, list existing *checked*
+         items whose text starts with what's been typed so far, so the user can
+         uncheck one instead of creating a duplicate. Detection is fully
+         client-side (reads the in-memory item store); accepting is the only
+         write. Gated per-card via suggest_existing_items; mousedown.prevent keeps
+         the textarea focused so clicking a row doesn't dismiss the list mid-click. -->
+    <ul
+      v-if="parentEditMode && suggestions.length"
+      data-testid="uncheck-suggestions"
+      class="ml-8 mb-1 flex flex-col rounded-md border border-current/10 bg-current/5 overflow-hidden"
+    >
+      <li v-for="s in suggestions" :key="s.id">
+        <button
+          type="button"
+          data-testid="uncheck-suggestion"
+          class="flex w-full items-center gap-1.5 px-2 py-1 text-xs text-left opacity-80 hover:opacity-100 hover:bg-current/10 transition cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-inset"
+          @mousedown.prevent.stop="onAcceptSuggestion(s)"
+        >
+          <UIcon name="i-lucide-corner-down-left" class="flex-none size-4" />
+          <span class="min-w-0 truncate">Uncheck &ldquo;{{ s.text }}&rdquo;</span>
+        </button>
+      </li>
+    </ul>
+  </div>
 </template>
 
 <script setup lang="ts">
@@ -64,6 +89,7 @@ import { useCheckListsItemStore } from "@/stores/checklist_item";
 import { useTextareaAutosize } from '@vueuse/core'
 import { highlightText } from "@/utils/highlight";
 import { markEditing, clearEditing } from "@/utils/editGuard";
+import { findMatchingCheckedItems } from "@/utils/normalizeItemText";
 
 const props = defineProps({
   checkListItem: { type: Object as PropType<CheckListItemType>, required: false },
@@ -107,7 +133,30 @@ const searchQuery = computed(() => (route.query.search as string) || null);
 // Board preview clamps differently for one-liners vs multi-line items (see the
 // display node): only items with an authored newline get the two-line treatment.
 const previewHasNewline = computed(() => (props.checkListItem?.text ?? "").includes("\n"));
-const emit = defineEmits(["checkedItem", "addItemAfter", "deleteItem"]);
+const emit = defineEmits(["checkedItem", "addItemAfter", "deleteItem", "acceptSuggestion"]);
+
+// Keep-style autocomplete: the *checked* items in this card whose normalized
+// text starts with what the user is currently typing into this (unchecked)
+// item, so the list narrows live as they type. Fully client-side — reads the
+// already-loaded item store, no network. Only shown while the field is focused,
+// the per-card toggle is on, and this item is itself unchecked (we never offer
+// to uncheck a match while editing a checked item).
+const suggestions = computed<CheckListItemType[]>(() => {
+  if (!props.parentEditMode) return [];
+  if (props.parentCheckList.suggest_existing_items === false) return [];
+  if (!canEdit.value) return [];
+  if (!textFocused.value) return [];
+  if (props.checkListItem?.state.checked) return [];
+  const checkedItems = checkListsItemStore.getCheckListItems(props.parentCheckList.id, true);
+  return findMatchingCheckedItems(checkedItems, props.checkListItem?.id, localText.value);
+});
+
+// Accept a suggestion: hand the pair up to the collection, which unchecks the
+// chosen item, removes this just-typed duplicate, and refocuses the match.
+function onAcceptSuggestion(match: CheckListItemType) {
+  if (!match || !props.checkListItem) return;
+  emit("acceptSuggestion", { currentItemId: props.checkListItem.id, matchedItemId: match.id });
+}
 
 // Enter adds a new item below; Shift+Enter (and IME confirm) inserts a newline.
 function onEnter(e: KeyboardEvent) {

@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "CheckCheck REST API",
-    "version": "0.0.8.dev1+g268738138.d20260718"
+    "version": "0.0.8.dev3+g7972505a2.d20260718"
   },
   "paths": {
     "/api/health": {
@@ -5678,6 +5678,19 @@
             "description": "If checked_items_seperated is enabled and this is set to true the client should hide any checked items. ",
             "default": true
           },
+          "suggest_existing_items": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Suggest Existing Items",
+            "description": "When enabled the client suggests unchecking an existing checked item instead of creating a duplicate while the user types a new item. ",
+            "default": true
+          },
           "id": {
             "anyOf": [
               {
@@ -5764,6 +5777,19 @@
             ],
             "title": "Checked Items Collapsed",
             "description": "If checked_items_seperated is enabled and this is set to true the client should hide any checked items. ",
+            "default": true
+          },
+          "suggest_existing_items": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Suggest Existing Items",
+            "description": "When enabled the client suggests unchecking an existing checked item instead of creating a duplicate while the user types a new item. ",
             "default": true
           },
           "id": {
@@ -6485,6 +6511,19 @@
             ],
             "title": "Checked Items Collapsed",
             "description": "If checked_items_seperated is enabled and this is set to true the client should hide any checked items. ",
+            "default": true
+          },
+          "suggest_existing_items": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Suggest Existing Items",
+            "description": "When enabled the client suggests unchecking an existing checked item instead of creating a duplicate while the user types a new item. ",
             "default": true
           }
         },

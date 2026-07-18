@@ -63,6 +63,10 @@ class CheckListBase(BaseTable):
         default=True,
         description="If checked_items_seperated is enabled and this is set to true the client should hide any checked items. ",
     )
+    suggest_existing_items: Optional[bool] = Field(
+        default=True,
+        description="When enabled the client suggests unchecking an existing checked item instead of creating a duplicate while the user types a new item. ",
+    )
 
 
 class CheckList(CheckListBase, TimestampedModel, SoftDeleteMixin, table=True):

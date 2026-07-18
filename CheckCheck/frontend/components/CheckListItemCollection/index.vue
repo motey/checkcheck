@@ -5,7 +5,7 @@
       <CheckListItem class="px-0 py-0 sm:px-0 sm:py-0 md:px-0 md:py-0 lg:px-0 lg:py-0 text-[13px] sm:text-sm"
         :ref="(el) => registerItemRef(item.id, el)"
         :parentCheckList="parentCheckList" :checkListItem="item" :parentEditMode="true"
-        @add-item-after="addItemAfter" @delete-item="deleteItem"></CheckListItem>
+        @add-item-after="addItemAfter" @delete-item="deleteItem" @accept-suggestion="acceptSuggestion"></CheckListItem>
     </li>
     <li v-if="filterCheckedItems!=true" class="no-drag px-0 py-0 sm:px-0 sm:py-0 md:px-0 md:py-0 lg:px-0 lg:py-0">
       <CheckListItemCollectionAddNewButton  :parentCheckList="parentCheckList" @add-item="addItemAtEnd">
@@ -81,6 +81,21 @@ async function addItemAtEnd() {
   const created = await checkListsItemStore.create(props.parentCheckList.id);
   await nextTick();
   itemComponentRefs.get(created.id)?.focusTextarea?.();
+}
+
+// Keep-style dedup: the user typed a new item that matches an existing checked
+// item, and accepted the suggestion. Uncheck the match (it reactively moves into
+// the unchecked section) instead of keeping a duplicate, drop the just-typed
+// item (its still-queued create coalesces away in the outbox), and move focus to
+// the now-unchecked match.
+async function acceptSuggestion(payload: { currentItemId: string; matchedItemId: string }) {
+  const { currentItemId, matchedItemId } = payload;
+  await checkListsItemStore.updateState(props.parentCheckList.id, matchedItemId, {
+    checked: false,
+  } as CheckListItemStateUpdateType);
+  await deleteItem(currentItemId, false);
+  await nextTick();
+  itemComponentRefs.get(matchedItemId)?.focusTextarea?.();
 }
 
 // Delete an item. When triggered by backspace-on-empty, move focus to the end

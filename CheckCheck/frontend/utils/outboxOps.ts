@@ -248,6 +248,7 @@ export function checklistUpdateOp(
     color_id?: string | null;
     checked_items_seperated?: boolean | null;
     checked_items_collapsed?: boolean | null;
+    suggest_existing_items?: boolean | null;
   }
 ): OutboxOpInput {
   return {

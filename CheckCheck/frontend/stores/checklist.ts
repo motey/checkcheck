@@ -559,6 +559,9 @@ export const useCheckListsStore = defineStore("checkList", {
           ...("checked_items_collapsed" in checklist
             ? { checked_items_collapsed: checklist.checked_items_collapsed }
             : {}),
+          ...("suggest_existing_items" in checklist
+            ? { suggest_existing_items: checklist.suggest_existing_items }
+            : {}),
         })
       );
       return row;
