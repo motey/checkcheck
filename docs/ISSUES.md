@@ -5,6 +5,74 @@ that discovered them. Newest first.
 
 ---
 
+## Client stays "Offline" after the server recovers — SSE never reconnects
+
+**Status:** resolved (2026-07-18) · **Severity:** medium · **Discovered:** 2026-07-18
+
+**Resolution**
+
+Added a manual, capped-backoff reconnect to the `/api/sync` `EventSource` in
+[useSync.ts](../CheckCheck/frontend/composables/useSync.ts). `onerror` now
+distinguishes the two close states: `readyState === CONNECTING` is a transient
+blip the browser is already retrying (log only, unchanged), while
+`readyState === EventSource.CLOSED` is the *permanent* HTTP-error close (a 502/503
+from a bounced backend behind Traefik) the browser will never retry — that now
+schedules a `disconnect()` + `connect()` rebuild on an exponential backoff
+(`1s → 30s` cap). A successful `onopen` clears the pending timer and resets the
+backoff to its floor, restoring the `setConnectivity(true)` path so the outbox
+resumes draining and the online-only surfaces (WI-12) re-enable without a reload.
+
+The rebuild preserves `hasOpened` across the reconnect (it is otherwise reset by
+`disconnect()`), so the first `onopen` after recovery runs the reconcile
+delta-pull — catching up on everything that changed while the server was down —
+rather than treating the reconnect as a fresh initial load. `disconnect()` also
+clears any pending reconnect timer so an explicit teardown can't leave a rebuild
+in flight.
+
+**Symptom**
+
+When the backend is briefly unreachable while the browser's own network
+interface stays up (a redeploy / container restart behind Traefik is the common
+case), the client flips to "Offline" and **never returns to "Online" once the
+server is back** — until a manual page reload. While stuck, the outbox stops
+draining and the online-only surfaces (share / invite / notifications, WI-12)
+stay disabled. Reproduced by watching the tab in the foreground across a server
+bounce.
+
+**Root cause**
+
+Recovery from a *server-only* outage depends entirely on the `/api/sync`
+`EventSource` auto-reconnecting and firing `onopen`
+([useSync.ts:80](../CheckCheck/frontend/composables/useSync.ts#L80) →
+`setConnectivity(true)`). But `EventSource` only auto-reconnects after a
+*network-level* drop or a clean stream end. When the stream fails on an **HTTP
+error status** — exactly what a down backend behind Traefik returns (502/503) —
+the spec requires the browser to fail the connection *permanently*: `onerror`
+fires once, `readyState` goes to `CLOSED`, and it never retries.
+[`es.onerror`](../CheckCheck/frontend/composables/useSync.ts#L109) sets
+connectivity `false` on the stated assumption that "`onopen` flips it back true
+on reconnect" — but for an HTTP-error close there is no reconnect: nothing
+inspects `readyState === CLOSED` to re-create the stream, and there is no
+periodic reconnect/probe timer. The window `online` event can't rescue it either
+(the interface never went down). The only recovery paths are a full reload or the
+`visibilitychange → probe()` in
+[`onVisible`](../CheckCheck/frontend/composables/useSync.ts#L60), which never
+fires while the tab stays in the foreground — the reported scenario.
+
+**Fix direction**
+
+In `onerror`, detect `es.readyState === EventSource.CLOSED` and schedule a manual
+reconnect (`disconnect()` + `connect()`) on a capped backoff; and/or run a
+periodic `probe()` while the signal is `false` that re-`connect()`s on the first
+success. Either restores the `onopen → setConnectivity(true)` path for a
+server-only outage without a reload. (Related cosmetic effect: `server_version`
+in the sidebar is fetched once per page load and memoized
+([publicConfig.ts:40](../CheckCheck/frontend/stores/publicConfig.ts#L40)), so an
+open tab shows the version as-of last load; a working reconnect/refresh would let
+it track the running server too.)
+
+---
+
 ## Sharing a card breaks pinning — `PATCH /checklist/{id}` returns another user's position
 
 **Status:** resolved (2026-07-12) · **Severity:** high · **Discovered:** 2026-07-12
@@ -298,3 +366,29 @@ state with another user's arbitrary position — the card kept unpinning.
 
 This is the single-card sibling of the already-fixed `list()` eager-load bug
 above; that fix never reached the `get_checklist` path.
+
+
+## Logo and create button not distinguishable on mobile
+
+**Status:** resolved (2026-07-18) · **Severity:** low · **Discovered:** 2026-07-18
+
+**Resolution**
+
+The navbar logo is now hidden on mobile (`hidden md:flex`) at
+[Navbar.vue:17](../CheckCheck/frontend/components/Navbar.vue#L17). The mobile bar
+reduces to hamburger · search · create — three distinct controls with no
+button-like decorative tile competing with the create button. Branding is
+retained in the slide-menu drawer header
+([SideMenuDrawer.vue:10](../CheckCheck/frontend/components/SideMenuDrawer.vue#L10)),
+where the logo is a real home link.
+
+**Symptom**
+
+My first test user told me, the he was not sure that the logo was a logo or an button.
+
+**Root cause**
+
+On mobile the logo rendered as a colored rounded tile with a `list-checks` icon
+sitting immediately next to the emerald `list-plus` create button — two similar
+colored icon-tiles. Worse, the navbar logo was not wrapped in a link, so it
+looked tappable but did nothing.

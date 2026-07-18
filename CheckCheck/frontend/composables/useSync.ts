@@ -50,6 +50,46 @@ export const useSync = createSharedComposable(() => {
   // disconnected are lost → reconcile the store).
   let hasOpened = false;
 
+  // Manual reconnect on a capped backoff. The browser's own EventSource retry
+  // only covers network-level drops and clean stream ends; when the stream fails
+  // on an HTTP error status — exactly what a down backend behind Traefik returns
+  // (502/503) — the spec requires the browser to fail *permanently*: `onerror`
+  // fires once, `readyState` goes to CLOSED, and it never retries. Without this
+  // the client stays stuck "Offline" after a server-only outage until a reload
+  // (see docs/ISSUES.md). We watch for the CLOSED state and rebuild the stream
+  // ourselves; `onopen` then restores the `setConnectivity(true)` path.
+  const RECONNECT_MIN_MS = 1_000;
+  const RECONNECT_MAX_MS = 30_000;
+  let reconnectDelay = RECONNECT_MIN_MS;
+  let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+
+  function clearReconnect() {
+    if (reconnectTimer !== null) {
+      clearTimeout(reconnectTimer);
+      reconnectTimer = null;
+    }
+  }
+
+  function scheduleReconnect() {
+    if (reconnectTimer !== null) return; // already pending
+    const delay = reconnectDelay;
+    reconnectDelay = Math.min(reconnectDelay * 2, RECONNECT_MAX_MS);
+    console.warn(`[sync] SSE closed — reconnecting in ${delay}ms`);
+    reconnectTimer = setTimeout(() => {
+      reconnectTimer = null;
+      // Tear down the dead stream and rebuild it. `connect()` no-ops if a stream
+      // already exists, so `disconnect()` first guarantees a fresh EventSource.
+      // Preserve `hasOpened` across the rebuild: we *had* a live connection before
+      // the outage, so the next `onopen` must run the reconcile delta-pull (catch
+      // up on everything that changed while the server was down), not treat this
+      // as a fresh initial load.
+      const wasOpened = hasOpened;
+      disconnect();
+      connect();
+      hasOpened = wasOpened;
+    }, delay);
+  }
+
   // When a backgrounded tab returns to the foreground, catch up. A mobile PWA
   // (iOS standalone especially) gets its page — and its SSE stream — frozen by
   // the OS while backgrounded; on resume the browser's EventSource auto-reconnect
@@ -78,6 +118,9 @@ export const useSync = createSharedComposable(() => {
     }
     es = new EventSource("/api/sync");
     es.onopen = () => {
+      // A live stream means our manual-reconnect backoff can reset to its floor.
+      clearReconnect();
+      reconnectDelay = RECONNECT_MIN_MS;
       // A live sync socket proves real server reachability — feed the outbox's
       // connectivity signal (WI-7) so a reconnect resumes draining queued writes.
       // Harmless flag-off (no outbox listens); gated to avoid confusing the
@@ -107,8 +150,6 @@ export const useSync = createSharedComposable(() => {
       }
     };
     es.onerror = () => {
-      // The browser retries automatically; log for visibility only.
-      console.warn("[sync] SSE connection error — browser will retry");
       // A dropped sync socket is our earliest proof of lost reachability (the
       // `offline` window event may lag, or the interface may be up but the
       // server unreachable). Feed the connectivity signal (finding #8) so the
@@ -116,10 +157,22 @@ export const useSync = createSharedComposable(() => {
       // flips it back true on reconnect. Gated flag-on like onopen so the legacy
       // path's behaviour is untouched.
       if (isLocalFirstEnabled()) setConnectivity(false);
+      // Two cases behind onerror:
+      //   • readyState === CONNECTING → a transient blip; the browser is already
+      //     auto-retrying, so leave it be (log only).
+      //   • readyState === CLOSED    → a *permanent* failure (HTTP error close,
+      //     e.g. a 502/503 from a bounced backend behind Traefik). The browser
+      //     will never retry on its own, so schedule a manual reconnect.
+      if (es && es.readyState === EventSource.CLOSED) {
+        scheduleReconnect();
+      } else {
+        console.warn("[sync] SSE connection error — browser will retry");
+      }
     };
   }
 
   function disconnect() {
+    clearReconnect();
     es?.close();
     es = null;
     hasOpened = false;

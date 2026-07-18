@@ -14,7 +14,10 @@
         @click="emit('toggleSidebar')"
       />
 
-      <Logo class="shrink-0" />
+      <!-- Hidden on mobile: the amber logo tile read as a tappable button next
+           to the create button and confused first-time users. Branding still
+           lives in the slide-menu drawer header. Shown from md up. -->
+      <Logo class="shrink-0 hidden md:flex" />
 
       <div class="flex-1 flex justify-center min-w-0">
         <CreateCheckListBox />
