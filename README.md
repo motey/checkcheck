@@ -12,6 +12,23 @@ things can still change. See [Limitations](#limitations) before you rely on it.
 
 ![Screenshot](Screenshot.png)
 
+## Features
+
+- **Checklists.** Make lists and check things off.
+- **Labels.** Organise cards with labels.
+- **Sharing.** Share individual cards with other people and collaborate.
+- **Real-time collaboration.** Shared cards update live across devices as
+  people edit them.
+- **Public share links.** Publish a card to a link (optionally
+  passphrase-protected) — viewers need no account.
+- **Offline-capable.** Local-first, so it keeps working while you are offline
+  and syncs back up when the connection returns.
+- **Installable PWA.** Add it to your device like a native app.
+- **SSO / OpenID Connect.** Bring your own identity provider (Authentik,
+  Keycloak, …).
+- **Light & dark themes.** Follows your system, or pick one.
+- **Self-hostable.** Ships as a single container: a web UI backed by a REST API.
+
 ## Run it (Docker)
 
 The published image is [`motey/checkcheck`](https://hub.docker.com/r/motey/checkcheck).
