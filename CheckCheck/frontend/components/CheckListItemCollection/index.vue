@@ -112,6 +112,15 @@ async function deleteItem(itemId: string, focusPrev: boolean) {
 
 const [ItemsView, draggableItems] = useDragAndDrop(checklistItems, {
   dragHandle: ".list-item-drag-handle",
+  // Touch reorder inside the (transformed) editor modal: mirror the board-card
+  // fix (memory `mobile-dnd-longpress`). Without longPress the synth drag arms
+  // on the first pointermove, which the nested overflow-y-auto scroll container
+  // tends to claim as a scroll instead — so no sort ever fires. Requiring a
+  // press-and-hold to arm lets a normal touch still scroll the item list.
+  // Desktop native mouse drag is unaffected.
+  longPress: true,
+  longPressDuration: 250,
+  longPressClass: "list-item-longpress",
   onDragstart: () => { dragInProgress = true; },
   onDragend: (event) => {
     dragInProgress = false;
@@ -128,5 +137,14 @@ const [ItemsView, draggableItems] = useDragAndDrop(checklistItems, {
 </script>
 
 <style scoped>
-
+/* Touch "picked up" cue: the longPress timer adds .list-item-longpress to the
+   dragged <li> once the press-and-hold threshold is met, before the synthetic
+   drag begins — immediate feedback that the row is now grabbable. Kept subtle
+   (no scale, to avoid horizontal overflow / a second transformed ancestor for
+   the drag clone) and removed automatically the moment the drag starts. */
+:deep(.list-item-longpress) {
+  background-color: rgb(0 0 0 / 0.06);
+  border-radius: 0.375rem;
+  transition: background-color 0.12s ease;
+}
 </style>

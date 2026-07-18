@@ -5,6 +5,128 @@ that discovered them. Newest first.
 
 ---
 
+## Checklist ITEMS won't reorder via touch drag (cards work) — synthetic drag inside the editor UModal
+
+**Status:** fix applied, awaiting on-device verification · **Severity:** medium · **Discovered:** 2026-07-18
+
+**Fix applied (2026-07-18) — longPress on items, awaiting on-device check**
+
+Reading the *installed* `@formkit/drag-and-drop@0.6.1` source narrowed the
+diagnosis away from the transform:
+- The synth clone is a **top-layer popover** (`popover="manual"` + `showPopover()`,
+  [index.mjs:2358](../CheckCheck/frontend/node_modules/@formkit/drag-and-drop/index.mjs#L2358)),
+  not a plain `position:fixed` element — a transformed ancestor can only offset
+  where the clone *renders* (cosmetic).
+- Sort hit-testing uses **raw viewport coords**: `getElFromPoint` →
+  `document.elementFromPoint(clientX, clientY)`
+  ([index.mjs:2915](../CheckCheck/frontend/node_modules/@formkit/drag-and-drop/index.mjs#L2915)),
+  with the clone `pointer-events:none` so it's skipped. That path is
+  transform-independent, so the transform alone can't explain "nothing sorts".
+
+The one config difference from the working board cards is `longPress`. Without
+it, the synth drag arms on the **first** pointermove
+([index.mjs:1305](../CheckCheck/frontend/node_modules/@formkit/drag-and-drop/index.mjs#L1305)),
+which the nested `overflow-y-auto` scroll container tends to claim as a scroll
+instead. So the applied fix mirrors the card path in
+[CheckListItemCollection/index.vue](../CheckCheck/frontend/components/CheckListItemCollection/index.vue):
+`longPress:true`, `longPressDuration:250`, `longPressClass:"list-item-longpress"`
+(+ a subtle background-only press cue — no scale, to avoid adding a second
+transformed ancestor for the clone). Desktop native mouse drag returns early
+before the longPress gate ([index.mjs:1293](../CheckCheck/frontend/node_modules/@formkit/drag-and-drop/index.mjs#L1293)),
+so `item-movement.spec.ts` is unaffected.
+
+**Verify on a real phone / DevTools touch:** open the card editor, press-and-hold
+an item's grip (~250 ms, row highlights), then drag — it should sort. A normal
+touch-drag on the list should still scroll. If it still won't sort, fall back to
+neutralising the modal transform (option 3 below).
+
+**Original status:** open · **Discovered:** 2026-07-18
+
+**Symptom**
+
+On a mobile/touch device, dragging a checklist **item** inside the open card
+editor does not work: you can grab the item by its grip handle, but it will not
+snap into any other slot — nothing moves/sorts. Dragging whole checklist **cards**
+on the board *does* work on touch (fixed 2026-07-18 via longPress — see memory
+`mobile-dnd-longpress`). Item reorder on **desktop** (mouse) also works
+(`tests/e2e/item-movement.spec.ts` passes).
+
+**Diagnosis (strong hypothesis, not yet on-device-confirmed)**
+
+Items are the only draggable surface rendered **inside a modal**:
+[CheckListEditModal.vue](../CheckCheck/frontend/components/CheckListEditModal.vue)
+wraps the card in Nuxt UI's `UModal` (Reka UI dialog). The modal content sits
+under a CSS **transform** (centering/animation). `@formkit/drag-and-drop`'s
+touch path uses a **synthetic drag**: it appends a `position: fixed` clone and
+hit-tests with `document.elementFromPoint` to decide sort targets. A transformed
+ancestor breaks both — `fixed` becomes relative to the transformed element and
+the pointer→element math is offset — so `validateSort`/`sort` never fires. This
+matches the observed matrix exactly:
+
+| surface | path on touch | in transformed modal? | works? |
+|---|---|---|---|
+| board cards | synthetic (longPress) | no | ✅ |
+| items, desktop | **native** mouse drag (no clone) | yes | ✅ |
+| items, touch | synthetic (grip handle) | **yes** | ❌ |
+
+Native mouse drag has no clone/fixed-positioning, so the transform doesn't
+affect it — which is why desktop item reorder passes but touch fails.
+
+Secondary suspect: the item list is also inside a nested scroll container —
+`flex-1 min-h-0 overflow-y-auto overscroll-contain` at
+[CheckList.vue:37](../CheckCheck/frontend/components/CheckList.vue#L37) — which
+can compound synthetic-drag coordinate/scroll issues. Rule this in/out after the
+transform theory.
+
+**Current item DnD config** (no longPress; grip handle only):
+[CheckListItemCollection/index.vue:98](../CheckCheck/frontend/components/CheckListItemCollection/index.vue#L98)
+— `dragHandle: ".list-item-drag-handle"`, `plugins:[animations()]`. The handle
+span has `touch-none select-none`
+([CheckListItem.vue:6](../CheckCheck/frontend/components/CheckListItem.vue#L6)).
+
+**Fixes to try (cheapest first; each needs on-device verification — see below)**
+
+1. **Confirm the transform theory quickly:** on a phone (or DevTools device mode
+   with touch), open the editor, and while dragging an item inspect whether the
+   synthetic clone is offset from the finger / lands in the wrong place. Or
+   temporarily remove the modal transform (e.g. `transform: none` on the UModal
+   content) and see if item drag starts sorting.
+2. **Tell FormKit where to append the synthetic clone / hit-test root.** Check the
+   installed `@formkit/drag-and-drop` config for a `root` / synthetic-parent /
+   `synthDragScrolling` type option (grep `dist`/`index.mjs` for `root`,
+   `insertPoint`, `getRootNode`, `appendTo`). If the clone can be appended inside
+   the (transformed) modal content or the transform accounted for, sorting should
+   resume. This is the most likely *correct* fix.
+3. **Neutralise the transform** on the specific ancestor the clone/positioning
+   depends on (a transformed scroll/positioning context is the actual breaker),
+   without breaking the modal's centering/animation.
+4. **Lower-value fallbacks:** add `longPress` to items to match cards (unlikely to
+   fix the sort — longPress only gates *when* the drag arms, not the clone math),
+   and/or widen `touch-action: none` beyond the grip.
+
+**How to test** (touch reorder is NOT automatable — see below)
+
+There is a `mobile` Playwright project (Pixel 7) + `tests/e2e/touch-movement.spec.ts`,
+but it deliberately only asserts tap-opens-editor and that press-hold *arms* the
+card drag. **Full touch drag-to-reorder cannot be reproduced in Playwright**:
+FormKit's synthetic sort only advances for a real device's pointer-before-touch
+event ordering — neither hand-dispatched PointerEvents (moves reach `synthMove`
+but the `remap`/`currentTargetValue` state machine never lands a sort) nor CDP
+`Input.dispatchTouchEvent` reproduce it. So verify this fix by **hand on a real
+phone** (or Chrome DevTools device-mode touch emulation). Desktop item reorder is
+still guarded by `item-movement.spec.ts`; keep it green.
+
+**References**
+- Memory: `mobile-dnd-longpress` (Phase 1 card fix + the two library gotchas:
+  lib sets no `touch-action` itself; longPressClass only added on a *cancelable*
+  pointerdown), `flaky-e2e-dnd-sharing`.
+- Key files: `CheckListItemCollection/index.vue` (item DnD config),
+  `CheckListItem.vue` (grip handle), `CheckListEditModal.vue` (UModal wrapper),
+  `CheckList.vue` (scroll container), `CheckListBoard.vue` (working card longPress
+  reference), `playwright.config.ts` (`mobile` project), `touch-movement.spec.ts`.
+
+---
+
 ## Client stays "Offline" after the server recovers — SSE never reconnects
 
 **Status:** resolved (2026-07-18) · **Severity:** medium · **Discovered:** 2026-07-18

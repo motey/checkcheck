@@ -8,7 +8,7 @@
       title="Drag to reorder"
       :id="checkListItem!.id"
     >
-      <UIcon name="i-lucide-grip-vertical" class="w-5 h-5 cursor-row-resize" />
+      <UIcon name="i-lucide-grip-vertical" class="w-6 h-6 sm:w-5 sm:h-5 cursor-row-resize" />
     </span>
     <div class="flex-none flex items-center self-stretch min-h-5 sm:min-h-6" :title="canCheck ? undefined : 'View only'">
       <UCheckbox v-model="checkListItem!.state.checked" :disabled="!canCheck" @click.stop="toggleCheck()" :size="isMobile ? 'sm' : 'md'" />
@@ -254,6 +254,13 @@ watch(localText, (t) => debouncedUpdateCheckListItemText(t));
     padding-top: 0.125rem;
     padding-bottom: 0.125rem;
     min-height: 26px;
+  }
+  /* Bigger grab target on touch: pad the handle so the whole ~34px box is
+     draggable, and pull it back with a matching negative margin so the icon
+     stays visually aligned and neighbours (checkbox/text) don't shift. */
+  .list-item-drag-handle {
+    padding: 0.375rem 0.25rem;
+    margin: -0.375rem -0.125rem;
   }
 }
 .strikethrough {
