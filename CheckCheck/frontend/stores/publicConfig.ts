@@ -9,6 +9,11 @@ export type PublicConfigState = {
   config: PublicConfigType | null;
 };
 
+// In-flight GET /api/public-config, module-scoped so it's reset on every page
+// load and shared across concurrent fetch() callers (dedupe without memoizing a
+// stale hydrated snapshot — see the note in the fetch action).
+let inflight: Promise<PublicConfigType | null> | null = null;
+
 export const usePublicConfigStore = defineStore("publicConfig", {
   state: () =>
     ({
@@ -36,23 +41,35 @@ export const usePublicConfigStore = defineStore("publicConfig", {
   },
   actions: {
     async fetch(): Promise<PublicConfigType | null> {
-      // Already loaded — the flags don't change within a session.
-      if (this.config) return this.config;
+      // Always refresh from the network on a fetch() — do NOT short-circuit on
+      // `this.config` being set. `config` is snapshotted to IndexedDB and
+      // *hydrated* on boot (localSnapshot.ts), so an "already loaded" check here
+      // conflated a stale hydrated snapshot with a completed fetch: the request
+      // never ran and `server_version` (plus the feature flags) stayed frozen at
+      // whatever a past session persisted — the real cause of the "stuck version"
+      // in the sidebar (no amount of reload / cache:no-store / SW-clearing helped
+      // because the fetch simply didn't happen). The hydrated value still shows
+      // instantly on first paint and remains as the offline fallback below.
+      //
+      // Dedupe only *concurrent* calls (the two boot branches are mutually
+      // exclusive, but keep it robust); resets each page load, so every load
+      // refreshes.
+      if (inflight) return inflight;
       const { $checkapi } = useNuxtApp();
-      try {
-        // `cache: "no-store"` forces the browser to bypass its HTTP disk cache for
-        // this request. The server now stamps `Cache-Control: no-store` on every
-        // /api/* reply (APINoStoreCacheMiddleware), but that only stops *future*
-        // poisoning — a browser that heuristically cached this response back when
-        // the header was absent (pre-"uncache api") keeps serving that stale
-        // `server_version` from disk without ever revalidating, so no-store never
-        // reaches it. Requesting with no-store makes such a browser self-heal on
-        // the next load instead of needing a manual "Forget About This Site".
-        this.config = await $checkapi("/api/public-config", { method: "get", cache: "no-store" });
-      } catch (error) {
-        console.error("Could not fetch feature flags 'GET /api/public-config'", error);
-      }
-      return this.config;
+      inflight = (async () => {
+        try {
+          // `cache: "no-store"` also keeps the browser's own HTTP cache out of the
+          // loop (server sends the same header) so the refresh is always live.
+          this.config = await $checkapi("/api/public-config", { method: "get", cache: "no-store" });
+        } catch (error) {
+          // Offline / server error — keep the hydrated (or previous) config.
+          console.error("Could not fetch feature flags 'GET /api/public-config'", error);
+        } finally {
+          inflight = null;
+        }
+        return this.config;
+      })();
+      return inflight;
     },
   },
 });
