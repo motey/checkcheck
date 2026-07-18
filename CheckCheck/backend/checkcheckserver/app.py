@@ -6,6 +6,8 @@ from fastapi import Depends
 from fastapi import FastAPI
 import getversion.plugin_setuptools_scm
 from starlette.middleware.sessions import SessionMiddleware
+from starlette.datastructures import MutableHeaders
+from starlette.types import ASGIApp, Message, Receive, Scope, Send
 from fastapi.middleware.cors import CORSMiddleware
 from checkcheckserver.api.routers_map import mount_fast_api_routers
 from pathlib import Path
@@ -23,6 +25,38 @@ log = get_logger()
 config = Config()
 
 from dataclasses import dataclass
+
+
+class APINoStoreCacheMiddleware:
+    """Stamp ``Cache-Control: no-store`` on every ``/api/*`` response.
+
+    API replies are dynamic and must never be reused from a browser (or proxy)
+    cache — otherwise a stale JSON body can be served after a deploy (e.g. an old
+    ``server_version`` from ``/api/public-config``). FastAPI sends no cache headers
+    by default, which leaves the response *eligible* for heuristic caching; this
+    closes that door explicitly.
+
+    Pure-ASGI (not ``BaseHTTPMiddleware``) so it never buffers the body — the
+    long-lived ``/api/sync`` SSE stream passes straight through, headers stamped
+    once on ``http.response.start``. ``setdefault`` leaves any endpoint that sets
+    its own ``Cache-Control`` untouched.
+    """
+
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http" or not scope.get("path", "").startswith("/api/"):
+            await self.app(scope, receive, send)
+            return
+
+        async def send_with_no_store(message: Message) -> None:
+            if message["type"] == "http.response.start":
+                headers = MutableHeaders(raw=message["headers"])
+                headers.setdefault("cache-control", "no-store")
+            await send(message)
+
+        await self.app(scope, receive, send_with_no_store)
 
 
 @dataclass
@@ -93,6 +127,9 @@ class FastApiAppContainer:
                 cb.func(**params)
 
     def _apply_api_middleware(self):
+        # Prevent any browser/proxy from reusing a dynamic API reply from cache.
+        self.app.add_middleware(APINoStoreCacheMiddleware)
+
         allow_origins = []
         for oidc_config in config.AUTH_OIDC_PROVIDERS:
             if oidc_config.ENABLED:
