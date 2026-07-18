@@ -40,7 +40,15 @@ export const usePublicConfigStore = defineStore("publicConfig", {
       if (this.config) return this.config;
       const { $checkapi } = useNuxtApp();
       try {
-        this.config = await $checkapi("/api/public-config", { method: "get" });
+        // `cache: "no-store"` forces the browser to bypass its HTTP disk cache for
+        // this request. The server now stamps `Cache-Control: no-store` on every
+        // /api/* reply (APINoStoreCacheMiddleware), but that only stops *future*
+        // poisoning — a browser that heuristically cached this response back when
+        // the header was absent (pre-"uncache api") keeps serving that stale
+        // `server_version` from disk without ever revalidating, so no-store never
+        // reaches it. Requesting with no-store makes such a browser self-heal on
+        // the next load instead of needing a manual "Forget About This Site".
+        this.config = await $checkapi("/api/public-config", { method: "get", cache: "no-store" });
       } catch (error) {
         console.error("Could not fetch feature flags 'GET /api/public-config'", error);
       }
