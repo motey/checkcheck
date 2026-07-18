@@ -32,10 +32,25 @@ export default defineConfig({
       testMatch: /auth\.setup\.ts/,
     },
     // 2. Feature tests – run with a pre-authenticated browser.
+    //    Desktop Chrome; excludes the touch-only specs (those need hasTouch).
     {
       name: "chromium",
+      testIgnore: /touch-.*\.spec\.ts/,
       use: {
         ...devices["Desktop Chrome"],
+        storageState: "tests/e2e/.auth/state.json",
+      },
+      dependencies: ["auth-setup"],
+    },
+    // 3. Touch/mobile specs – a real touch-capable context (hasTouch + mobile
+    //    viewport/UA) so tap-to-open and the @formkit/drag-and-drop longPress
+    //    synthetic-drag path (touch pointerType) can be exercised. Scoped to
+    //    touch-*.spec.ts only; the desktop project ignores those.
+    {
+      name: "mobile",
+      testMatch: /touch-.*\.spec\.ts/,
+      use: {
+        ...devices["Pixel 7"],
         storageState: "tests/e2e/.auth/state.json",
       },
       dependencies: ["auth-setup"],

@@ -3,7 +3,7 @@
     <span
       v-if="parentEditMode && canEdit"
       :class="{ nonActive: !hover }"
-      class="list-item-drag-handle flex-none self-center transition-opacity"
+      class="list-item-drag-handle flex-none self-center transition-opacity touch-none select-none"
       title="Drag to reorder"
       :id="checkListItem!.id"
     >

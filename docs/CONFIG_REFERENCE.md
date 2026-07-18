@@ -591,7 +591,7 @@ OAuth2 client secret belonging to CLIENT_ID. Required. Keep it out of version co
 
 *Requested scopes*
 
-Scopes requested from the provider. `offline_access` is needed to receive a refresh token so the session can be kept alive without re-login.
+Scopes requested from the provider. `offline_access` is needed to receive a refresh token so the session can be kept alive without re-login. The provider must also be configured to grant this scope (in Authentik, add the built-in OpenID 'offline_access' scope mapping to the provider's selected scopes) - if it is not granted, no refresh token is issued and the session bounces to the login screen every access-token lifetime.
 
 | Property | Value |
 |---|---|

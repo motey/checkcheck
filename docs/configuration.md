@@ -142,7 +142,16 @@ Authentik it is the application's *Redirect URIs/Origins*):
 Notes:
 
 - `offline_access` in `SCOPES` is what gets you a refresh token, so sessions can
-  be renewed without forcing the user to log in again.
+  be renewed without forcing the user to log in again. **Requesting the scope is
+  not enough — the provider must also be configured to grant it**, otherwise it
+  silently issues no refresh token. In Authentik: open the application's
+  *OAuth2/OpenID Provider* and add the built-in *"authentik default OAuth Mapping:
+  OpenID 'offline_access'"* scope mapping to its **Selected Scopes** (Keycloak and
+  most others grant `offline_access` out of the box). Symptom of a missing
+  refresh token: the app works, then bounces to the login screen roughly every
+  access-token lifetime (Authentik's default is 5 minutes) and again whenever a
+  backgrounded tab is reopened — because with no refresh token the session cannot
+  survive the access token expiring.
 - Set `AUTO_LOGIN: true` on a single provider to skip the local login form and
   redirect straight to it. Only do this when you also want to disable local
   login (`AUTH_BASIC_LOGIN_IS_ENABLED: false`). After an explicit logout the app

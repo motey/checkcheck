@@ -237,6 +237,13 @@ const dragOptions = () => ({
   onDragstart: () => { checklistDragInProgress = true; pendingDragToken = 1; },
   onDragend,
   draggable: (el: HTMLElement) => !(el && el.classList.contains("no-drag")),
+  // Cards are whole-card draggable AND tap-to-open. On touch, require a
+  // press-and-hold to pick a card up so a normal tap still opens the editor and
+  // a vertical swipe still scrolls the board (see longPressClass for the
+  // "picked up" cue). Desktop native drag is unaffected.
+  longPress: true,
+  longPressDuration: 250,
+  longPressClass: "dnd-longpress",
   plugins: [animations()],
 });
 
@@ -358,5 +365,13 @@ ul {
 }
 .checklist-preview:hover {
   transform: translateY(-2px);
+}
+/* Touch "picked up" cue: the longPress timer adds .dnd-longpress to the card's
+   <li> once the press-and-hold threshold is met, before the synthetic drag
+   begins — gives immediate haptic-like feedback that the card is now grabbable. */
+:deep(.dnd-longpress) {
+  transform: scale(1.03);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 0.18);
+  transition: transform 0.12s ease, box-shadow 0.12s ease;
 }
 </style>
