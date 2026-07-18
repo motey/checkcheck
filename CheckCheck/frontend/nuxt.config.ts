@@ -98,10 +98,16 @@ export default defineNuxtConfig({
   // it deliberately NEVER caches `/api/*`: offline reads come from the local
   // snapshot, never a stale HTTP response, and writes queue in the outbox (WI-7).
   pwa: {
-    // Keep "prompt" (not "autoUpdate") so we own *when* a waiting worker
-    // activates — plugins/pwa.client.ts auto-applies it at the next safe moment
-    // (online, not typing, outbox drained) instead of reloading ungated.
-    registerType: "prompt",
+    // "autoUpdate": a freshly deployed service worker activates itself
+    // (workbox emits skipWaiting + clientsClaim) and vite-plugin-pwa's register
+    // script reloads the page on the `activated` update event — no waiting
+    // worker, no toast, no dependence on app code to trigger it. We moved off
+    // "prompt" because its waiting worker was never getting activated in prod
+    // (the update toast never fired), so clients stayed pinned to an old bundle.
+    // Tradeoff: the reload is ungated (can happen mid-session), but it's
+    // data-safe — offline writes are persisted in IndexedDB and replay after the
+    // reload. See plugins/pwa.client.ts (probe only) and docs/ISSUES.md.
+    registerType: "autoUpdate",
     manifest: {
       name: "CheckCheck",
       short_name: "CheckCheck",
@@ -157,6 +163,12 @@ export default defineNuxtConfig({
 
   runtimeConfig: {
     public: {
+      // The client *bundle* version, baked in at build time from the APP_VERSION
+      // Docker build-arg (see Dockerfile frontend stage → NUXT_PUBLIC_CLIENT_VERSION).
+      // Unlike the sidebar's server_version (a live API value fetched once per
+      // load), this reflects the actual JS currently executing — so a stuck/old
+      // bundle is directly visible as client ≠ server. Empty in `nuxt dev`.
+      clientVersion: "",
       // Client-side rollout gate for the local-first layer (Phase 2 / WI-6+).
       // Deploy default; override per-deploy with NUXT_PUBLIC_LOCAL_FIRST=false.
       // At runtime a `?localFirst=0` query param / localStorage override wins

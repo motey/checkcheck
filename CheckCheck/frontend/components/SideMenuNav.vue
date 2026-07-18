@@ -130,6 +130,14 @@
           >
             v{{ serverVersion }}
           </span>
+          <span
+            v-if="versionMismatch"
+            data-testid="sidebar-client-version"
+            class="tabular-nums rounded-full border border-warning/40 px-1.5 text-[10px] text-warning"
+            :title="`This tab is running client ${clientVersion} while the server is ${serverVersion}. It updates automatically on the next reload.`"
+          >
+            client v{{ clientVersion }}
+          </span>
           <span aria-hidden="true">·</span>
           <span>
             by
@@ -200,6 +208,17 @@ const publicConfig = usePublicConfigStore();
 
 // Running server version, shown in the sidebar footer (null until config loads).
 const serverVersion = computed(() => publicConfig.serverVersion);
+
+// The client *bundle* version, baked in at build time (runtimeConfig.public,
+// from the APP_VERSION Docker build-arg). Empty in dev / a plain build. Unlike
+// serverVersion (a live API value), this is the JS actually executing, so when
+// it differs from the server the running bundle is stale (a new version is
+// deploying / the SW hasn't reloaded yet). autoUpdate reloads it automatically;
+// this just makes the state visible instead of guessable.
+const clientVersion = computed(() => useRuntimeConfig().public.clientVersion || "");
+const versionMismatch = computed(
+  () => !!clientVersion.value && !!serverVersion.value && clientVersion.value !== serverVersion.value,
+);
 
 // Project stamp links (footer). Static — the repo/author are compile-time facts.
 const repoUrl = "https://github.com/motey/checkcheck";

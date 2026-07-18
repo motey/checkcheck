@@ -11,6 +11,12 @@ COPY CheckCheck/frontend /frontend_build
 # the frontend at /frontend_build that resolves to /openapi.json, so the schema
 # must land there or type generation fails with ENOENT '/openapi.json'.
 COPY CheckCheck/openapi.json /openapi.json
+# Bake the build version into the client bundle so the sidebar can show the
+# actually-running client version (Nuxt maps NUXT_PUBLIC_CLIENT_VERSION →
+# runtimeConfig.public.clientVersion, inlined at `nuxi generate` time). Same
+# APP_VERSION build-arg the backend stage uses; CI overrides it (git/tag version).
+ARG APP_VERSION=0.0.1
+ENV NUXT_PUBLIC_CLIENT_VERSION=$APP_VERSION
 RUN bun install && bun run build && bunx nuxi generate
 
 # ---------------------------------------------------------------------------
