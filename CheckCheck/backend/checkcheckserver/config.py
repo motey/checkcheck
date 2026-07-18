@@ -303,9 +303,17 @@ class Config(BaseSettings):
             description="The token claim that holds a stable, unique username for the user.",
         )
         USER_DISPLAY_NAME_ATTRIBUTE: str = Field(
-            default="display_name",
+            default="name",
             title="Display-name claim",
-            description="The token claim that holds the user's display name.",
+            description=(
+                "The token claim that holds the user's human-readable display name. "
+                "Defaults to `name`, the standard OpenID Connect `profile`-scope claim "
+                "emitted by virtually every provider (Keycloak, Google, Okta, Auth0, "
+                "Azure AD, ...). Authentik also serves the user's name in the `name` "
+                "claim once the `profile` scope is requested, so the default works "
+                "there unchanged. If the configured claim is absent the display name "
+                "falls back to the username."
+            ),
         )
         USER_MAIL_ATTRIBUTE: str = Field(
             default="email",
@@ -315,7 +323,17 @@ class Config(BaseSettings):
         USER_GROUPS_ATTRIBUTE: str = Field(
             default="groups",
             title="Groups claim",
-            description="The token claim that holds the user's group memberships. Used by ROLE_MAPPING and RESTRICT_USER_SEARCH_TO_OWN_GROUPS.",
+            description=(
+                "The token claim that holds the user's group memberships. Only consulted "
+                "when ROLE_MAPPING or RESTRICT_USER_SEARCH_TO_OWN_GROUPS is in use. Unlike "
+                "the username/email/name claims there is no standard OIDC claim for groups; "
+                "`groups` is the most common convention (Authentik, Okta, Keycloak with a "
+                "groups mapper) and is the default here. Some providers differ: Azure AD / "
+                "Entra emits group object-IDs (not names) under `groups`, Auth0 uses a "
+                "namespaced custom claim (e.g. `https://<app>/groups`), and Google emits no "
+                "groups at all — set this to match your provider, and make sure the claim is "
+                "actually released (often a dedicated scope or claim mapping)."
+            ),
         )
         AUTO_CREATE_AUTHORIZED_USER: bool = Field(
             default=True,

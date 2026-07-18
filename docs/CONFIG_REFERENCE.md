@@ -621,13 +621,13 @@ The token claim that holds a stable, unique username for the user.
 
 *Display-name claim*
 
-The token claim that holds the user's display name.
+The token claim that holds the user's human-readable display name. Defaults to `name`, the standard OpenID Connect `profile`-scope claim emitted by virtually every provider (Keycloak, Google, Okta, Auth0, Azure AD, ...). Authentik also serves the user's name in the `name` claim once the `profile` scope is requested, so the default works there unchanged. If the configured claim is absent the display name falls back to the username.
 
 | Property | Value |
 |---|---|
 | Type | str |
 | Required | No |
-| Default | `"display_name"` |
+| Default | `"name"` |
 | Environment variable | `AUTH_OIDC_PROVIDERS[*]__USER_DISPLAY_NAME_ATTRIBUTE` |
 
 ---
@@ -651,7 +651,7 @@ The token claim that holds the user's email address.
 
 *Groups claim*
 
-The token claim that holds the user's group memberships. Used by ROLE_MAPPING and RESTRICT_USER_SEARCH_TO_OWN_GROUPS.
+The token claim that holds the user's group memberships. Only consulted when ROLE_MAPPING or RESTRICT_USER_SEARCH_TO_OWN_GROUPS is in use. Unlike the username/email/name claims there is no standard OIDC claim for groups; `groups` is the most common convention (Authentik, Okta, Keycloak with a groups mapper) and is the default here. Some providers differ: Azure AD / Entra emits group object-IDs (not names) under `groups`, Auth0 uses a namespaced custom claim (e.g. `https://<app>/groups`), and Google emits no groups at all - set this to match your provider, and make sure the claim is actually released (often a dedicated scope or claim mapping).
 
 | Property | Value |
 |---|---|
