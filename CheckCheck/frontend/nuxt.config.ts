@@ -98,7 +98,10 @@ export default defineNuxtConfig({
   // it deliberately NEVER caches `/api/*`: offline reads come from the local
   // snapshot, never a stale HTTP response, and writes queue in the outbox (WI-7).
   pwa: {
-    registerType: "prompt", // surface a "new version available" toast (see plugins/pwa.client.ts)
+    // Keep "prompt" (not "autoUpdate") so we own *when* a waiting worker
+    // activates — plugins/pwa.client.ts auto-applies it at the next safe moment
+    // (online, not typing, outbox drained) instead of reloading ungated.
+    registerType: "prompt",
     manifest: {
       name: "CheckCheck",
       short_name: "CheckCheck",

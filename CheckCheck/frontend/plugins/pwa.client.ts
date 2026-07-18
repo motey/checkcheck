@@ -3,28 +3,31 @@ import { isLocalFirstEnabled } from "@/utils/localFirst";
 import { isOnline } from "@/utils/connectivity";
 import { useOutbox } from "@/composables/useOutbox";
 
-// ── PWA update flow (WI-13 + proactive refresh) ──────────────────────────────
+// ── PWA update flow (WI-13 + reactive auto-apply) ────────────────────────────
 //
 // `registerType: "prompt"` (nuxt.config `pwa`) means a freshly deployed service
-// worker waits instead of auto-activating, so a user mid-edit is never reloaded
-// out from under themselves. `@vite-pwa/nuxt` exposes that waiting state on
-// `$pwa.needRefresh`.
+// worker installs but *waits* instead of auto-activating. We keep `prompt`
+// (rather than vite-pwa's `autoUpdate`) on purpose: `autoUpdate` bakes
+// skipWaiting + an *ungated* reload into the generated worker, which would yank
+// the app out from under a user mid-edit or reload with unsynced offline writes.
+// Staying on `prompt` lets us own *when* the waiting worker activates —
+// `@vite-pwa/nuxt` exposes the waiting state on `$pwa.needRefresh` and applies
+// it via `$pwa.updateServiceWorker(true)` (postMessage SKIP_WAITING →
+// controllerchange → reload, near-instant so no old-code-vs-new-shell window).
 //
-// Two behaviours here:
+// The failure this fixes: the previous version only auto-applied inside a narrow
+// 15s window right after a "return" event, and otherwise fell back to a toast the
+// user had to click. In practice a new worker's install/precache almost always
+// finished *after* that window, so every update surfaced as a toast — and a user
+// who never clicked it stayed pinned to an old bundle indefinitely (that stale
+// bundle then also reports a stale `server_version` in the corner, and runs an
+// old copy of the sync protocol against a newer server).
 //
-//   1. Proactive probe — the browser only re-checks the service worker on its
-//      own schedule (up to ~24h for an installed PWA), so a freshly deployed
-//      build can sit undiscovered for a long time. We nudge `registration.update()`
-//      at the two moments the user naturally "returns": the tab regaining focus
-//      (`visibilitychange`) and the network coming back (`online`) — exactly the
-//      events worth catching an update on.
-//
-//   2. Safe apply — when a new worker is found *within* one of those return
-//      windows and it's safe (online, tab visible, not typing, outbox drained),
-//      activate + reload silently. Otherwise fall back to a single,
-//      non-auto-dismissing toast with a "Reload" action, so a build discovered
-//      mid-session (or with unsynced writes) is never applied out from under the
-//      user — they decide.
+// New model: a waiting worker is applied automatically the moment it is *safe*,
+// and safety is re-evaluated whenever a blocking condition clears (outbox drains,
+// device comes online, typing stops, tab regains focus) — not just once at the
+// instant the worker is discovered. A toast remains only as a manual escape hatch
+// if conditions stay unsafe for a long stretch.
 //
 // `$pwa` is only wired in a real build (devOptions.enabled is false), so this is
 // a no-op under `nuxt dev` and never fires on the flag-off legacy path.
@@ -35,26 +38,31 @@ export default defineNuxtPlugin(() => {
   const toast = useToast();
 
   // Reactive outbox depth, captured here (Nuxt context is available at plugin
-  // setup) so the event-handler safety check can read it without re-entering
-  // `useNuxtApp()` outside a Nuxt context. The legacy path has no offline writes,
-  // so we don't stand the outbox up there — pending is always 0.
+  // setup) so the safety check can read it without re-entering `useNuxtApp()`
+  // outside a Nuxt context. The legacy path has no offline writes, so we don't
+  // stand the outbox up there — pending is always 0.
   const pendingCount = isLocalFirstEnabled() ? useOutbox().pendingCount : null;
 
   // Throttle the probe so rapid focus/online toggles don't spam update().
   const CHECK_THROTTLE_MS = 20_000;
-  // Auto-apply is armed only briefly after a return moment; an update discovered
-  // outside this window falls back to the toast rather than reloading mid-session.
-  const ARM_WINDOW_MS = 15_000;
+  // Re-probe an always-open tab periodically so a deploy is discovered without a
+  // focus/online event (cheap: a conditional GET of sw.js + precache revalidate).
+  const PERIODIC_PROBE_MS = 3 * 60_000;
+  // If a waiting worker can't be applied safely for this long (e.g. persistent
+  // offline / unsynced writes / continuous typing), surface a manual "Reload".
+  const STALE_UPDATE_MS = 2 * 60_000;
+
   let lastCheck = 0;
-  let armedUntil = 0;
+  let waitingSince = 0; // when the current waiting worker was first seen
+  let applied = false; // guards against a double skipWaiting/reload
+  let toastShown = false;
 
   function checkForUpdate() {
     const now = Date.now();
     if (now - lastCheck < CHECK_THROTTLE_MS) return;
     lastCheck = now;
-    armedUntil = now + ARM_WINDOW_MS;
-    // getSWRegistration() may be undefined before the worker registers; the next
-    // return moment retries. Swallow offline/transient update() rejections.
+    // getSWRegistration() may be undefined before the worker registers; a later
+    // probe retries. Swallow offline/transient update() rejections.
     pwa.getSWRegistration()?.update().catch(() => {});
   }
 
@@ -66,15 +74,16 @@ export default defineNuxtPlugin(() => {
     return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || el.isContentEditable;
   }
 
-  // Only reload silently when it can't disrupt the user or risk local writes:
+  // Only reload when it can't disrupt the user or risk local writes:
   //   • online         — the reload must refetch the shell and resume sync;
-  //   • tab visible    — never reload a backgrounded tab;
+  //   • tab visible    — never reload a backgrounded tab out of turn (it upgrades
+  //                      the moment it regains focus, via the visibility probe);
   //   • not typing     — don't yank a focused field out from under the user;
   //   • outbox drained — queued writes are persisted + idempotent, so a reload
   //                      wouldn't LOSE them, but we still wait so no "pending"
   //                      badge flickers across the reload and no in-flight replay
   //                      is cut mid-request.
-  function safeToAutoReload(): boolean {
+  function safeToApply(): boolean {
     if (!isOnline()) return false;
     if (typeof document !== "undefined" && document.visibilityState !== "visible") return false;
     if (isEditableFocused()) return false;
@@ -83,6 +92,8 @@ export default defineNuxtPlugin(() => {
   }
 
   function showUpdateToast() {
+    if (toastShown) return;
+    toastShown = true;
     toast.add({
       title: "New version available",
       description: "Reload to get the latest CheckCheck.",
@@ -98,28 +109,55 @@ export default defineNuxtPlugin(() => {
     });
   }
 
+  // Apply the waiting worker if it's safe; otherwise keep waiting and, once it has
+  // been blocked long enough, offer the manual "Reload" as an escape hatch. Safe
+  // to call repeatedly — `applied` makes the activation idempotent.
+  function applyIfSafe() {
+    if (applied || !pwa.needRefresh) return;
+    if (safeToApply()) {
+      applied = true;
+      void pwa.updateServiceWorker(true); // skipWaiting + reload
+      return;
+    }
+    if (waitingSince && Date.now() - waitingSince >= STALE_UPDATE_MS) showUpdateToast();
+  }
+
+  // A worker moved into the waiting state (or one was already waiting at load).
   watch(
     () => pwa.needRefresh,
     (needRefresh) => {
       if (!needRefresh) return;
-      // `immediate` fires with armedUntil === 0, so an update already waiting at
-      // load surfaces as a toast (never a surprise reload on first paint).
-      if (Date.now() < armedUntil && safeToAutoReload()) {
-        void pwa.updateServiceWorker(true);
-        return;
-      }
-      showUpdateToast();
+      if (!waitingSince) waitingSince = Date.now();
+      applyIfSafe();
     },
     { immediate: true },
   );
 
-  // Probe for a new build on the two "return" events.
+  // Re-evaluate the moment a blocking condition clears: the outbox finishing its
+  // drain is the common one (a reload was deferred only because writes were still
+  // pending), so a reactive watch closes the gap without waiting for an event.
+  if (pendingCount) watch(pendingCount, () => applyIfSafe());
+
+  // Discover new deploys, and retry the apply, at the natural "return" moments
+  // plus a gentle periodic probe for tabs that stay open and focused.
   if (typeof document !== "undefined") {
     document.addEventListener("visibilitychange", () => {
-      if (document.visibilityState === "visible") checkForUpdate();
+      if (document.visibilityState === "visible") {
+        checkForUpdate();
+        applyIfSafe();
+      }
     });
+    // Typing ended — a deferred update can now apply without stealing a keystroke.
+    document.addEventListener("focusout", () => applyIfSafe());
   }
   if (typeof window !== "undefined") {
-    window.addEventListener("online", checkForUpdate);
+    window.addEventListener("online", () => {
+      checkForUpdate();
+      applyIfSafe();
+    });
+    setInterval(() => {
+      checkForUpdate();
+      applyIfSafe();
+    }, PERIODIC_PROBE_MS);
   }
 });
