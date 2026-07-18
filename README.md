@@ -32,7 +32,7 @@ services:
       AUTH_JWT_SECRET: "replace-with-a-different-64+-random-string"
       ADMIN_USER_PW: "pick-a-strong-password"
       SQL_DATABASE_URL: "postgresql+asyncpg://checkcheck:secret@db:5432/checkcheck"
-      SET_SESSION_COOKIE_SECURE: "false"   # only for plain-HTTP localhost; see below
+      SERVER_PUBLIC_URL: "http://localhost:8181"   # plain-HTTP localhost; see below
 
   db:
     image: postgres:16
@@ -52,11 +52,12 @@ Fill in the two secrets (`openssl rand -hex 32` gives you one each), run
 `docker compose up -d`, then open <http://localhost:8181> and log in as `admin`
 with the password you set.
 
-`SET_SESSION_COOKIE_SECURE: "false"` is only there so login works over plain
-HTTP on localhost. Behind an HTTPS reverse proxy, drop that line (the default is
-`true`) and set `SERVER_PROTOCOL=https` and `SERVER_HOSTNAME=your.domain`. See
-[docs/deployment.md](docs/deployment.md) for the production setup and reverse
-proxy notes.
+`SERVER_PUBLIC_URL` is the external URL users reach the app on. Here it is
+plain-HTTP localhost, which makes the session cookie non-Secure automatically so
+login works. Behind an HTTPS reverse proxy, set it to your real URL
+(`SERVER_PUBLIC_URL=https://your.domain`) — the cookie then becomes Secure on its
+own. See [docs/deployment.md](docs/deployment.md) for the production setup and
+reverse proxy notes.
 
 ## Configuration
 

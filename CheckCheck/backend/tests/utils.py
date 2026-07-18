@@ -31,7 +31,7 @@ server_config = Config()
 
 
 def get_server_base_url() -> str:
-    return f"http://{server_config.SERVER_LISTENING_HOST}:{server_config.SERVER_LISTENING_PORT}"
+    return f"http://{server_config.SERVER_BIND_HOST}:{server_config.SERVER_BIND_PORT}"
 
 
 # ── Authentication helpers ────────────────────────────────────────────────────
@@ -80,7 +80,7 @@ def authorize_for_session(username: str, pw: str) -> requests.Session:
         session.cookies.set(
             cookie.name,
             cookie.value,
-            domain=server_config.SERVER_LISTENING_HOST,
+            domain=server_config.SERVER_BIND_HOST,
             path="/",
         )
     return session
@@ -134,7 +134,7 @@ def oidc_login_get_session(provider_slug: str, sub: str) -> requests.Session:
         session.cookies.set(
             cookie.name,
             cookie.value,
-            domain=server_config.SERVER_LISTENING_HOST,
+            domain=server_config.SERVER_BIND_HOST,
             path="/",
         )
     return session

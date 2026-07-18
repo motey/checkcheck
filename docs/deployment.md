@@ -45,8 +45,7 @@ services:
       SERVER_SESSION_SECRET: "replace-with-64+-random-chars"
       AUTH_JWT_SECRET: "replace-with-a-different-64+-random-string"
       ADMIN_USER_PW: "pick-a-strong-password"
-      SERVER_PROTOCOL: "https"
-      SERVER_HOSTNAME: "checklists.example.com"
+      SERVER_PUBLIC_URL: "https://checklists.example.com"
       SQL_DATABASE_URL: "postgresql+asyncpg://checkcheck:secret@db:5432/checkcheck"
 
   db:
@@ -90,10 +89,19 @@ timeouts.
 Real-time events fan out between server processes through a PostgreSQL
 `pg_notify` channel, so you can run multiple workers safely.
 
-The app already trusts proxy headers (`X-Forwarded-Proto`, `X-Forwarded-For`),
-so forward them from your proxy. Still set `SERVER_PROTOCOL` and
-`SERVER_HOSTNAME` explicitly, since header detection is not reliable in every
-setup.
+Set `SERVER_PUBLIC_URL` to the external URL users reach the app on (scheme
+included, e.g. `https://checklists.example.com`). Every absolute URL — OIDC
+redirect URIs, the CORS origin — is built from it, and the session cookie's
+`Secure` flag is derived from its scheme, so an HTTPS public URL needs no further
+cookie tuning. The app binds internally on `SERVER_BIND_HOST`/`SERVER_BIND_PORT`
+(`0.0.0.0:8181` in the image); point your proxy there.
+
+The app also honours proxy headers (`X-Forwarded-Proto`, `X-Forwarded-For`) from
+trusted upstreams (`SERVER_TRUSTED_PROXIES`, default `*`) for client-IP logging.
+These no longer affect the OIDC redirect URI, which is pinned to
+`SERVER_PUBLIC_URL` — so a spoofed forwarded header cannot divert a login. If the
+container is ever reachable directly (not only through the proxy), narrow
+`SERVER_TRUSTED_PROXIES` to your proxy's IP.
 
 ## Backups
 

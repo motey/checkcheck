@@ -83,12 +83,12 @@ def start():
 
     uvicorn_config = uvicorn.Config(
         app=app_container.app,
-        host=config.SERVER_LISTENING_HOST,
-        port=config.SERVER_LISTENING_PORT,
+        host=config.SERVER_BIND_HOST,
+        port=config.SERVER_BIND_PORT,
         log_level=get_uvicorn_loglevel(),
         log_config=uvicorn_log_config,
         proxy_headers=True,
-        forwarded_allow_ips=config.SERVER_FORWARDED_ALLOW_IPS,
+        forwarded_allow_ips=config.SERVER_TRUSTED_PROXIES,
     )
     uvicorn_server = uvicorn.Server(config=uvicorn_config)
 

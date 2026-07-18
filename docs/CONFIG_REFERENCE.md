@@ -39,132 +39,148 @@ How much the server logs. `DEBUG` is noisy but the quickest way to see why somet
 
 ---
 
-## `SERVER_LISTENING_HOST`
+## `SERVER_BIND_HOST`
 
-*Listening host*
+*Bind host*
 
-The interface the server binds to. Use `0.0.0.0` to accept connections from outside the machine (this is the default inside the Docker image); `localhost` only accepts local connections.
+The network interface the server process binds to (internal). Use `0.0.0.0` to accept connections from outside the machine - this is the default inside the Docker image, and the right value when a reverse proxy on another host or container connects to it. `localhost` accepts local connections only.
 
 | Property | Value |
 |---|---|
 | Type | str |
 | Required | No |
 | Default | `"localhost"` |
-| Environment variable | `SERVER_LISTENING_HOST` |
+| Environment variable | `SERVER_BIND_HOST` |
 
 **Examples:**
 
 *Example 1:*
 
 ```yaml
-SERVER_LISTENING_HOST: 0.0.0.0
+SERVER_BIND_HOST: 0.0.0.0
 ```
 
 *Example 2:*
 
 ```yaml
-SERVER_LISTENING_HOST: localhost
+SERVER_BIND_HOST: localhost
 ```
 
 *Example 3:*
 
 ```yaml
-SERVER_LISTENING_HOST: 127.0.0.1
+SERVER_BIND_HOST: 127.0.0.1
 ```
 
 ---
 
-## `SERVER_LISTENING_PORT`
+## `SERVER_BIND_PORT`
 
-*Listening port*
+*Bind port*
 
-The TCP port the server binds to.
+The TCP port the server process binds to (internal).
 
 | Property | Value |
 |---|---|
 | Type | int |
 | Required | No |
 | Default | `8181` |
-| Environment variable | `SERVER_LISTENING_PORT` |
+| Environment variable | `SERVER_BIND_PORT` |
 
 **Examples:**
 
 *Example 1:*
 
 ```yaml
-SERVER_LISTENING_PORT: 8181
+SERVER_BIND_PORT: 8181
 ```
 
 *Example 2:*
 
 ```yaml
-SERVER_LISTENING_PORT: 8080
+SERVER_BIND_PORT: 8080
 ```
 
 *Example 3:*
 
 ```yaml
-SERVER_LISTENING_PORT: 80
+SERVER_BIND_PORT: 80
 ```
 
 ---
 
-## `SERVER_HOSTNAME`
+## `SERVER_PUBLIC_URL`
 
-*Public hostname*
+*Public base URL*
 
-The external hostname where the app is reached, usually a fully qualified domain name in production. Used to build absolute URLs and the allowed CORS origin. If left unset it is guessed from the machine hostname, which is rarely correct behind a reverse proxy, so set it explicitly when serving a real domain.
+The full external base URL where users reach the app, scheme included, e.g. `https://checklists.example.com`. This is the single source of truth for every absolute URL the server builds (OIDC redirect URIs, the allowed CORS origin) and for whether the session cookie is marked Secure. Set it explicitly in production - behind a reverse proxy the app cannot reliably infer its own external scheme, host or port from forwarded headers. Include a port only if the app is reached on a non-standard one (`https://host:8443`); do not include a path. When left unset it falls back to a URL built from the bind host/port, which is fine for local development only. Supersedes the old SERVER_HOSTNAME + SERVER_PROTOCOL pair.
 
 | Property | Value |
 |---|---|
 | Type | str |
 | Required | No |
-| Environment variable | `SERVER_HOSTNAME` |
+| Default | `null` |
+| Environment variable | `SERVER_PUBLIC_URL` |
 
 **Examples:**
 
 *Example 1:*
 
 ```yaml
-SERVER_HOSTNAME: checklists.example.com
+SERVER_PUBLIC_URL: https://checklists.example.com
 ```
 
 *Example 2:*
 
 ```yaml
-SERVER_HOSTNAME: localhost
+SERVER_PUBLIC_URL: http://localhost:8181
 ```
 
 ---
 
-## `SERVER_PROTOCOL`
-
-*Public protocol*
-
-The scheme (`http` or `https`) used to build absolute URLs. Set this to `https` when a reverse proxy terminates TLS in front of the app; automatic detection cannot see the original scheme in every proxy setup.
-
-| Property | Value |
-|---|---|
-| Type | Enum |
-| Required | No |
-| Default | `"http"` |
-| Allowed values | `http` · `https` |
-| Environment variable | `SERVER_PROTOCOL` |
-
----
-
-## `SERVER_FORWARDED_ALLOW_IPS`
+## `SERVER_TRUSTED_PROXIES`
 
 *Trusted proxy IPs for forwarded headers*
 
-Comma-separated list of upstream IPs allowed to set `X-Forwarded-*` headers (proto/host/for), or `*` to trust every upstream. The app is designed to run behind a reverse proxy (e.g. Traefik) that terminates TLS and whose port - not the container's - is the one exposed publicly, so this defaults to `*`. Without it uvicorn ignores the forwarded scheme and builds absolute URLs (OIDC login/redirect) with the internal `http` scheme instead of the external `https`.
+Comma-separated list of upstream IPs allowed to set `X-Forwarded-*` headers (proto/host/for), or `*` to trust every upstream. Controls whose forwarded headers uvicorn honours for the client IP and request scheme. The app is designed to run behind a reverse proxy (e.g. Traefik) reachable only on an internal network, so this defaults to `*`. Security note: the security-critical absolute URLs (OIDC redirect) are built from SERVER_PUBLIC_URL, not from these headers, so a spoofed header cannot redirect a login elsewhere. Narrow this to your proxy's IP if the container is ever reachable directly.
 
 | Property | Value |
 |---|---|
 | Type | str |
 | Required | No |
 | Default | `"*"` |
-| Environment variable | `SERVER_FORWARDED_ALLOW_IPS` |
+| Environment variable | `SERVER_TRUSTED_PROXIES` |
+
+---
+
+## `SERVER_HOSTNAME`
+
+*Public hostname (deprecated)*
+
+Deprecated: use SERVER_PUBLIC_URL instead. External hostname where the app is reached. When SERVER_PUBLIC_URL is unset it is combined with SERVER_PROTOCOL (and the bind port) to build the public URL, preserving pre-2.1 behaviour.
+
+| Property | Value |
+|---|---|
+| Type | str |
+| Required | No |
+| Default | `null` |
+| Environment variable | `SERVER_HOSTNAME` |
+
+---
+
+## `SERVER_PROTOCOL`
+
+*Public protocol (deprecated)*
+
+Deprecated: use SERVER_PUBLIC_URL instead. Scheme (`http`/`https`) paired with SERVER_HOSTNAME when SERVER_PUBLIC_URL is unset.
+
+| Property | Value |
+|---|---|
+| Type | Enum |
+| Required | No |
+| Default | `null` |
+| Allowed values | `http` · `https` |
+| Environment variable | `SERVER_PROTOCOL` |
 
 ---
 
@@ -816,13 +832,13 @@ Directory where the results of export jobs (CSV, JSON) are written. Must be writ
 
 *Secure session cookie*
 
-When true the session cookie is only sent over HTTPS. Set to false for local development over plain HTTP, otherwise the browser drops the cookie and login appears to do nothing. Keep it true in production.
+When true the session cookie is only sent over HTTPS. Leave unset (the default) to derive it from SERVER_PUBLIC_URL: Secure on an `https` URL, not Secure on `http` (so login works over plain-HTTP localhost without a manual override, and is Secure in production). Set it explicitly only to override that.
 
 | Property | Value |
 |---|---|
 | Type | bool |
 | Required | No |
-| Default | `true` |
+| Default | `null` |
 | Environment variable | `SET_SESSION_COOKIE_SECURE` |
 
 ---

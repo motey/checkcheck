@@ -80,10 +80,12 @@ frontend dev server proxies `/api` to it on port 8181.
 ./run_dev_frontend.sh --reset  # same, but wipe node_modules and .nuxt first
 ```
 
-Open <http://localhost:3000>. One gotcha on plain-HTTP localhost: set
-`SET_SESSION_COOKIE_SECURE=false`, or the browser silently drops the session
-cookie and login appears to do nothing (see
-[configuration.md](configuration.md#https-hostname-and-the-session-cookie)).
+Open <http://localhost:3000>. On plain-HTTP localhost the session cookie is
+derived non-Secure automatically from the `http://` `SERVER_PUBLIC_URL` (or the
+bind-port fallback), so login works with no extra config. If you override
+`SERVER_PUBLIC_URL` to an `https://` value locally, force
+`SET_SESSION_COOKIE_SECURE=false` or the browser drops the cookie (see
+[configuration.md](configuration.md#public-url-binding-and-the-session-cookie)).
 
 ## How a request flows
 

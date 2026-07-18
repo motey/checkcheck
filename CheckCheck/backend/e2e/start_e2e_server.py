@@ -62,9 +62,10 @@ def _configure_env() -> None:
     os.environ["AUTH_JWT_SECRET"] = "e2e-test-jwt-secret-checkcheck-placeholder-000000000000000000000000000000"
     os.environ["SERVER_SESSION_SECRET"] = "e2e-test-session-secret-checkcheck-placeholder-0000000000000000000000000"
     os.environ["AUTH_OIDC_TOKEN_STORAGE_SECRET"] = "e2e-test-oidc-storage-secret-checkcheck-placeholder-00000000000000000"
-    os.environ["SERVER_LISTENING_PORT"] = str(PORT)
-    os.environ["SERVER_HOSTNAME"] = "localhost"
-    os.environ["SET_SESSION_COOKIE_SECURE"] = "false"
+    os.environ["SERVER_BIND_PORT"] = str(PORT)
+    # Public URL is plain HTTP on localhost, so the session cookie is derived
+    # non-Secure automatically (no SET_SESSION_COOKIE_SECURE override needed).
+    os.environ["SERVER_PUBLIC_URL"] = f"http://localhost:{PORT}"
     os.environ["AUTH_BASIC_LOGIN_IS_ENABLED"] = "true"
     os.environ["AUTH_BASIC_USER_DB_REGISTER_ENABLED"] = "false"
     os.environ["AUTH_ACCESS_TOKEN_EXPIRES_MINUTES"] = "1000"

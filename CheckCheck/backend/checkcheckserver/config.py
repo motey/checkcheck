@@ -1,12 +1,15 @@
 import os
 import socket
+import warnings
 from enum import Enum
 from pathlib import Path
 from typing import Dict, List, Literal, Optional, Tuple, Type
 
 from pydantic import (
+    AliasChoices,
     Field,
     SecretStr,
+    model_validator,
 )
 from pydantic_settings import (
     BaseSettings,
@@ -75,53 +78,91 @@ class Config(BaseSettings):
     )
 
     # ── Web server ────────────────────────────────────────────────────────────
-    SERVER_LISTENING_HOST: str = Field(
+    # Two distinct concerns, kept deliberately separate:
+    #   * where the process *binds* (SERVER_BIND_*) — internal, what the reverse
+    #     proxy connects to;
+    #   * where the app is *publicly reached* (SERVER_PUBLIC_URL) — external, the
+    #     single source of truth for every absolute URL, CORS origin and cookie.
+    SERVER_BIND_HOST: str = Field(
         default="localhost",
-        title="Listening host",
+        title="Bind host",
         description=(
-            "The interface the server binds to. Use `0.0.0.0` to accept connections from "
-            "outside the machine (this is the default inside the Docker image); `localhost` "
-            "only accepts local connections."
+            "The network interface the server process binds to (internal). Use `0.0.0.0` to "
+            "accept connections from outside the machine — this is the default inside the "
+            "Docker image, and the right value when a reverse proxy on another host or "
+            "container connects to it. `localhost` accepts local connections only."
         ),
         examples=["0.0.0.0", "localhost", "127.0.0.1"],
+        # Backwards compatibility: accept the pre-2.1 name SERVER_LISTENING_HOST.
+        validation_alias=AliasChoices("SERVER_BIND_HOST", "SERVER_LISTENING_HOST"),
     )
-    SERVER_LISTENING_PORT: int = Field(
+    SERVER_BIND_PORT: int = Field(
         default=8181,
-        title="Listening port",
-        description="The TCP port the server binds to.",
+        title="Bind port",
+        description="The TCP port the server process binds to (internal).",
         examples=[8181, 8080, 80],
+        # Backwards compatibility: accept the pre-2.1 name SERVER_LISTENING_PORT.
+        validation_alias=AliasChoices("SERVER_BIND_PORT", "SERVER_LISTENING_PORT"),
     )
-    SERVER_HOSTNAME: Optional[str] = Field(
-        default_factory=socket.gethostname,
-        title="Public hostname",
+    SERVER_PUBLIC_URL: Optional[str] = Field(
+        default=None,
+        title="Public base URL",
         description=(
-            "The external hostname where the app is reached, usually a fully qualified "
-            "domain name in production. Used to build absolute URLs and the allowed CORS "
-            "origin. If left unset it is guessed from the machine hostname, which is rarely "
-            "correct behind a reverse proxy, so set it explicitly when serving a real domain."
+            "The full external base URL where users reach the app, scheme included, e.g. "
+            "`https://checklists.example.com`. This is the single source of truth for every "
+            "absolute URL the server builds (OIDC redirect URIs, the allowed CORS origin) and "
+            "for whether the session cookie is marked Secure. Set it explicitly in production "
+            "— behind a reverse proxy the app cannot reliably infer its own external scheme, "
+            "host or port from forwarded headers. Include a port only if the app is reached on "
+            "a non-standard one (`https://host:8443`); do not include a path. When left unset "
+            "it falls back to a URL built from the bind host/port, which is fine for local "
+            "development only. Supersedes the old SERVER_HOSTNAME + SERVER_PROTOCOL pair."
         ),
-        examples=["checklists.example.com", "localhost"],
+        examples=[
+            "https://checklists.example.com",
+            "http://localhost:8181",
+        ],
     )
-    SERVER_PROTOCOL: Optional[Literal["http", "https"]] = Field(
-        default="http",
-        title="Public protocol",
-        description=(
-            "The scheme (`http` or `https`) used to build absolute URLs. Set this to `https` "
-            "when a reverse proxy terminates TLS in front of the app; automatic detection "
-            "cannot see the original scheme in every proxy setup."
-        ),
-    )
-    SERVER_FORWARDED_ALLOW_IPS: str = Field(
+    SERVER_TRUSTED_PROXIES: str = Field(
         default="*",
         title="Trusted proxy IPs for forwarded headers",
         description=(
             "Comma-separated list of upstream IPs allowed to set `X-Forwarded-*` headers "
-            "(proto/host/for), or `*` to trust every upstream. The app is designed to run "
-            "behind a reverse proxy (e.g. Traefik) that terminates TLS and whose port — not "
-            "the container's — is the one exposed publicly, so this defaults to `*`. Without "
-            "it uvicorn ignores the forwarded scheme and builds absolute URLs (OIDC "
-            "login/redirect) with the internal `http` scheme instead of the external `https`."
+            "(proto/host/for), or `*` to trust every upstream. Controls whose forwarded "
+            "headers uvicorn honours for the client IP and request scheme. The app is designed "
+            "to run behind a reverse proxy (e.g. Traefik) reachable only on an internal "
+            "network, so this defaults to `*`. Security note: the security-critical absolute "
+            "URLs (OIDC redirect) are built from SERVER_PUBLIC_URL, not from these headers, so "
+            "a spoofed header cannot redirect a login elsewhere. Narrow this to your proxy's "
+            "IP if the container is ever reachable directly."
         ),
+        # Backwards compatibility: accept the pre-2.1 name SERVER_FORWARDED_ALLOW_IPS.
+        validation_alias=AliasChoices(
+            "SERVER_TRUSTED_PROXIES", "SERVER_FORWARDED_ALLOW_IPS"
+        ),
+    )
+
+    # Deprecated public-address pair. Kept only so existing deployments keep
+    # working; when SERVER_PUBLIC_URL is unset these synthesize it (see
+    # _resolve_public_address below). Prefer SERVER_PUBLIC_URL for new configs.
+    SERVER_HOSTNAME: Optional[str] = Field(
+        default=None,
+        title="Public hostname (deprecated)",
+        description=(
+            "Deprecated: use SERVER_PUBLIC_URL instead. External hostname where the app is "
+            "reached. When SERVER_PUBLIC_URL is unset it is combined with SERVER_PROTOCOL (and "
+            "the bind port) to build the public URL, preserving pre-2.1 behaviour."
+        ),
+        deprecated=True,
+    )
+    SERVER_PROTOCOL: Optional[Literal["http", "https"]] = Field(
+        default=None,
+        title="Public protocol (deprecated)",
+        description=(
+            "Deprecated: use SERVER_PUBLIC_URL instead. Scheme (`http`/`https`) paired with "
+            "SERVER_HOSTNAME when SERVER_PUBLIC_URL is unset."
+        ),
+        deprecated=True,
     )
 
     # ── Database ──────────────────────────────────────────────────────────────
@@ -436,13 +477,14 @@ class Config(BaseSettings):
     # Everything below has a sensible default that most deployments never touch.
     # These are debugging aids, local-development conveniences, deprecated
     # settings, and internal paths the Docker image manages for you.
-    SET_SESSION_COOKIE_SECURE: bool = Field(
-        default=True,
+    SET_SESSION_COOKIE_SECURE: Optional[bool] = Field(
+        default=None,
         title="Secure session cookie",
         description=(
-            "When true the session cookie is only sent over HTTPS. Set to false for local "
-            "development over plain HTTP, otherwise the browser drops the cookie and login "
-            "appears to do nothing. Keep it true in production."
+            "When true the session cookie is only sent over HTTPS. Leave unset (the default) "
+            "to derive it from SERVER_PUBLIC_URL: Secure on an `https` URL, not Secure on "
+            "`http` (so login works over plain-HTTP localhost without a manual override, and "
+            "is Secure in production). Set it explicitly only to override that."
         ),
     )
     CLIENT_URL: Optional[str] = Field(
@@ -512,18 +554,58 @@ class Config(BaseSettings):
         description="Path to the Alembic configuration used to run database migrations on start. The default resolves next to the source tree; rarely changed.",
     )
 
-    def get_server_url(self) -> str:
-        if self.SERVER_PROTOCOL is not None:
-            proto = self.SERVER_PROTOCOL
-        elif self.SERVER_LISTENING_PORT == 443:
-            proto = "https"
-        else:
-            proto = "http"
+    @model_validator(mode="after")
+    def _resolve_public_address(self) -> "Config":
+        """Resolve SERVER_PUBLIC_URL and the session-cookie Secure flag.
 
-        port = ""
-        if self.SERVER_LISTENING_PORT not in [80, 443]:
-            port = f":{self.SERVER_LISTENING_PORT}"
-        return f"{proto}://{self.SERVER_HOSTNAME}{port}"
+        Priority for the public URL:
+          1. SERVER_PUBLIC_URL, if given (the canonical setting).
+          2. the deprecated SERVER_HOSTNAME/SERVER_PROTOCOL pair, reproducing
+             pre-2.1 behaviour byte-for-byte (bind port appended when not 80/443).
+          3. a URL built from the bind host/port — local development only.
+        The cookie Secure flag, when left unset, follows the resolved scheme.
+        """
+        if self.SERVER_PUBLIC_URL is None:
+            if self.SERVER_HOSTNAME is not None or self.SERVER_PROTOCOL is not None:
+                warnings.warn(
+                    "SERVER_HOSTNAME/SERVER_PROTOCOL are deprecated; set SERVER_PUBLIC_URL "
+                    "(e.g. https://checklists.example.com) instead.",
+                    DeprecationWarning,
+                    stacklevel=2,
+                )
+                host = self.SERVER_HOSTNAME or socket.gethostname()
+                if self.SERVER_PROTOCOL is not None:
+                    proto = self.SERVER_PROTOCOL
+                elif self.SERVER_BIND_PORT == 443:
+                    proto = "https"
+                else:
+                    proto = "http"
+                port = (
+                    "" if self.SERVER_BIND_PORT in (80, 443) else f":{self.SERVER_BIND_PORT}"
+                )
+                self.SERVER_PUBLIC_URL = f"{proto}://{host}{port}"
+            else:
+                # Local-dev fallback: reachable on the bound address.
+                host = (
+                    "localhost"
+                    if self.SERVER_BIND_HOST in ("0.0.0.0", "")
+                    else self.SERVER_BIND_HOST
+                )
+                port = (
+                    "" if self.SERVER_BIND_PORT in (80, 443) else f":{self.SERVER_BIND_PORT}"
+                )
+                proto = "https" if self.SERVER_BIND_PORT == 443 else "http"
+                self.SERVER_PUBLIC_URL = f"{proto}://{host}{port}"
+
+        self.SERVER_PUBLIC_URL = self.SERVER_PUBLIC_URL.rstrip("/")
+
+        if self.SET_SESSION_COOKIE_SECURE is None:
+            self.SET_SESSION_COOKIE_SECURE = self.SERVER_PUBLIC_URL.startswith("https://")
+
+        return self
+
+    def get_server_url(self) -> str:
+        return self.SERVER_PUBLIC_URL
 
     @property
     def db_backend(self) -> DbBackend:

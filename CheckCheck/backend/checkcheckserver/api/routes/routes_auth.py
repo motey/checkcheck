@@ -1,4 +1,5 @@
 import uuid
+from urllib.parse import urlsplit
 from typing import Optional, Union
 from pydantic import BaseModel, Field
 from fastapi import FastAPI, Request, Depends, Response, HTTPException
@@ -280,7 +281,15 @@ async def auth_oidc_login(
     method: Literal["session", "token"] = "session",
 ):
     oauth_client = oauth_clients[provider_slug].client
-    redirect_uri = request.url_for("auth_oidc_callback", provider_slug=provider_slug)
+    # Build the callback URL from the configured public URL rather than from the
+    # incoming request's scheme/host. Those come from X-Forwarded-* headers, which
+    # are only as trustworthy as the proxy chain; pinning to SERVER_PUBLIC_URL keeps
+    # the redirect target stable and unspoofable, and guarantees it matches the URI
+    # registered with the provider.
+    callback_path = urlsplit(
+        str(request.url_for("auth_oidc_callback", provider_slug=provider_slug))
+    ).path
+    redirect_uri = config.get_server_url() + callback_path
     log.debug(f"redirect_uri: {redirect_uri}")
     # Retrieve the original path from session
     request.session["target_path"] = target_path or "/"

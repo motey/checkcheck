@@ -15,7 +15,7 @@ The reference and the example file are generated from it, so they never drift.
 Every setting can be provided three ways. Highest priority wins:
 
 1. **Environment variables** (and a `.env` file). Names match the field names,
-   for example `SERVER_LISTENING_PORT=8080`.
+   for example `SERVER_BIND_PORT=8080`.
 2. **A YAML config file**, `config.yml`. Point at it with `CHECKCHECK_CONFIG_FILE`
    (the Docker image defaults this to `/config/config.yml`). A missing file is
    simply ignored.
@@ -55,19 +55,35 @@ openssl rand -hex 32   # 64 hex characters, run once per secret
 Keep the secrets stable. Changing `SERVER_SESSION_SECRET` logs everyone out;
 changing `AUTH_JWT_SECRET` invalidates existing API tokens.
 
-## HTTPS, hostname, and the session cookie
+## Public URL, binding, and the session cookie
 
-Three settings decide how the app sees its own address. They matter as soon as
-you put it behind a reverse proxy:
+The web-server settings split cleanly into two concerns:
 
-- `SET_SESSION_COOKIE_SECURE` (default `true`) sends the session cookie only
-  over HTTPS. This is correct in production. On plain HTTP (local testing) the
-  browser silently drops the cookie and login appears to do nothing, so set it
-  to `false` there.
-- `SERVER_PROTOCOL` and `SERVER_HOSTNAME` are used to build absolute URLs and
-  the allowed CORS origin. Automatic detection cannot see the original scheme
-  and host through every proxy, so set them explicitly, for example
-  `SERVER_PROTOCOL=https` and `SERVER_HOSTNAME=checklists.example.com`.
+- **Where the process binds** (internal): `SERVER_BIND_HOST` (default
+  `localhost`; `0.0.0.0` in the Docker image) and `SERVER_BIND_PORT` (default
+  `8181`). This is the address your reverse proxy connects to.
+- **Where users reach the app** (external): `SERVER_PUBLIC_URL`, the full base
+  URL including scheme, e.g. `https://checklists.example.com`. It is the single
+  source of truth for every absolute URL the app builds (OIDC redirect URIs, the
+  allowed CORS origin) and for whether the session cookie is Secure. Behind a
+  reverse proxy the app cannot reliably infer its own external scheme/host/port,
+  so **set this explicitly in production.** Include a port only when the app is
+  reached on a non-standard one (`https://host:8443`); never include a path. When
+  unset it is derived from the bind host/port — fine for local development only.
+
+`SET_SESSION_COOKIE_SECURE` (the session cookie's `Secure` flag) is **derived
+from `SERVER_PUBLIC_URL` by default**: Secure on an `https` URL, not Secure on
+`http`. That means it is correct in production and login still works over
+plain-HTTP localhost without any override — set it explicitly only to force a
+value.
+
+> `SERVER_PUBLIC_URL` replaces the older `SERVER_PROTOCOL` + `SERVER_HOSTNAME`
+> pair, and `SERVER_BIND_HOST`/`SERVER_BIND_PORT` replace
+> `SERVER_LISTENING_HOST`/`SERVER_LISTENING_PORT` (as `SERVER_TRUSTED_PROXIES`
+> replaces `SERVER_FORWARDED_ALLOW_IPS`). The old names still work — the legacy
+> port/host names are accepted as aliases, and `SERVER_PROTOCOL`/`SERVER_HOSTNAME`
+> synthesize the public URL — but they are deprecated and log a warning. Prefer
+> the new names.
 
 ## Database
 
@@ -125,19 +141,20 @@ Register this callback URL as an allowed redirect URI in the provider (in
 Authentik it is the application's *Redirect URIs/Origins*):
 
 ```
-<SERVER_PROTOCOL>://<SERVER_HOSTNAME>/api/auth/oidc/callback/<provider-slug>
+<SERVER_PUBLIC_URL>/api/auth/oidc/callback/<provider-slug>
 ```
 
 - `<provider-slug>` is `PROVIDER_DISPLAY_NAME` lowercased with spaces and other
   non-alphanumeric characters replaced by hyphens. `"Company SSO"` →
-  `company-sso`, so the full URI is
+  `company-sso`, so with `SERVER_PUBLIC_URL=https://checkcheck.example.com` the
+  full URI is
   `https://checkcheck.example.com/api/auth/oidc/callback/company-sso`.
-- The scheme and host must match what the app actually serves on. Behind a
-  TLS-terminating reverse proxy that means `https` — set `SERVER_PROTOCOL: https`
-  and `SERVER_HOSTNAME` accordingly, and make sure forwarded headers are trusted
-  (`SERVER_FORWARDED_ALLOW_IPS`, default `*`) so the app builds `https` URLs. A
-  scheme mismatch (registering `https` while the app emits `http://…/callback`)
-  is rejected by the provider as a redirect-URI mismatch.
+- The app builds this redirect URI from `SERVER_PUBLIC_URL` directly (not from
+  the request's forwarded headers), so it is stable and unspoofable — but that
+  also means `SERVER_PUBLIC_URL` **must** match the URL registered with the
+  provider, scheme included. A mismatch (registering `https` while
+  `SERVER_PUBLIC_URL` is `http://…`) is rejected by the provider as a
+  redirect-URI mismatch.
 
 Notes:
 
