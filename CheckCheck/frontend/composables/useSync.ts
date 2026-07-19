@@ -50,14 +50,16 @@ export const useSync = createSharedComposable(() => {
   // disconnected are lost → reconcile the store).
   let hasOpened = false;
 
-  // Manual reconnect on a capped backoff. The browser's own EventSource retry
-  // only covers network-level drops and clean stream ends; when the stream fails
-  // on an HTTP error status — exactly what a down backend behind Traefik returns
-  // (502/503) — the spec requires the browser to fail *permanently*: `onerror`
-  // fires once, `readyState` goes to CLOSED, and it never retries. Without this
-  // the client stays stuck "Offline" after a server-only outage until a reload
-  // (see docs/ISSUES.md). We watch for the CLOSED state and rebuild the stream
-  // ourselves; `onopen` then restores the `setConnectivity(true)` path.
+  // Self-managed reconnect on a capped backoff. The browser's own EventSource
+  // retry only covers network-level drops and clean stream ends; when the stream
+  // fails on an HTTP error status — exactly what a down backend behind Traefik
+  // returns (502/503) — the spec requires the browser to fail *permanently*:
+  // `onerror` fires once, `readyState` goes to CLOSED, and it never retries. Even
+  // in the cases where the browser *does* retry, that retry can stall. Without an
+  // explicit reconnect the client stays stuck "Offline" after a server-only
+  // outage until a reload (see docs/ISSUES.md). So on any `onerror` we schedule a
+  // rebuild ourselves; a successful `onopen` (ours or the browser's own retry)
+  // cancels the pending timer and restores the `setConnectivity(true)` path.
   const RECONNECT_MIN_MS = 1_000;
   const RECONNECT_MAX_MS = 30_000;
   let reconnectDelay = RECONNECT_MIN_MS;
@@ -74,7 +76,7 @@ export const useSync = createSharedComposable(() => {
     if (reconnectTimer !== null) return; // already pending
     const delay = reconnectDelay;
     reconnectDelay = Math.min(reconnectDelay * 2, RECONNECT_MAX_MS);
-    console.warn(`[sync] SSE closed — reconnecting in ${delay}ms`);
+    console.warn(`[sync] SSE error — reconnecting in ${delay}ms`);
     reconnectTimer = setTimeout(() => {
       reconnectTimer = null;
       // Tear down the dead stream and rebuild it. `connect()` no-ops if a stream
@@ -157,17 +159,19 @@ export const useSync = createSharedComposable(() => {
       // flips it back true on reconnect. Gated flag-on like onopen so the legacy
       // path's behaviour is untouched.
       if (isLocalFirstEnabled()) setConnectivity(false);
-      // Two cases behind onerror:
-      //   • readyState === CONNECTING → a transient blip; the browser is already
-      //     auto-retrying, so leave it be (log only).
-      //   • readyState === CLOSED    → a *permanent* failure (HTTP error close,
-      //     e.g. a 502/503 from a bounced backend behind Traefik). The browser
-      //     will never retry on its own, so schedule a manual reconnect.
-      if (es && es.readyState === EventSource.CLOSED) {
-        scheduleReconnect();
-      } else {
-        console.warn("[sync] SSE connection error — browser will retry");
-      }
+      // Always self-manage the reconnect rather than trusting the browser's own
+      // retry. `onerror` fires in two situations and we can't reliably tell them
+      // apart across browsers:
+      //   • readyState === CONNECTING → the browser *intends* to auto-retry (a
+      //     network-level drop / clean stream end), but that retry can itself get
+      //     stuck.
+      //   • readyState === CLOSED    → a *permanent* failure — an HTTP error close
+      //     (a 502/503 from a bounced backend behind Traefik) — which the browser
+      //     will NEVER retry. This is the reported "stuck Offline" case.
+      // So we schedule our own capped-backoff reconnect on every error. If the
+      // browser's native retry beats us to it, its `onopen` calls `clearReconnect`
+      // and cancels our pending timer — cooperative, no double-connect.
+      scheduleReconnect();
     };
   }
 

@@ -156,16 +156,18 @@ still guarded by `item-movement.spec.ts`; keep it green.
 
 **Resolution**
 
-Added a manual, capped-backoff reconnect to the `/api/sync` `EventSource` in
-[useSync.ts](../CheckCheck/frontend/composables/useSync.ts). `onerror` now
-distinguishes the two close states: `readyState === CONNECTING` is a transient
-blip the browser is already retrying (log only, unchanged), while
-`readyState === EventSource.CLOSED` is the *permanent* HTTP-error close (a 502/503
-from a bounced backend behind Traefik) the browser will never retry — that now
-schedules a `disconnect()` + `connect()` rebuild on an exponential backoff
-(`1s → 30s` cap). A successful `onopen` clears the pending timer and resets the
-backoff to its floor, restoring the `setConnectivity(true)` path so the outbox
-resumes draining and the online-only surfaces (WI-12) re-enable without a reload.
+Added a self-managed, capped-backoff reconnect to the `/api/sync` `EventSource`
+in [useSync.ts](../CheckCheck/frontend/composables/useSync.ts). Rather than trust
+the browser's own retry (which fails *permanently* on an HTTP-error close — a
+502/503 from a bounced backend behind Traefik — but can also stall in the cases
+where it does retry, and the two are not reliably distinguishable across
+browsers), **every** `onerror` now schedules a `disconnect()` + `connect()`
+rebuild on an exponential backoff (`1s → 30s` cap). A successful `onopen` — ours
+*or* the browser's own native retry beating us to it — clears the pending timer
+and resets the backoff to its floor, restoring the `setConnectivity(true)` path
+so the outbox resumes draining and the online-only surfaces (WI-12) re-enable
+without a reload. The two reconnect paths are cooperative: whichever opens first
+cancels the other via `clearReconnect`, so there is no double-connect.
 
 The rebuild preserves `hasOpened` across the reconnect (it is otherwise reset by
 `disconnect()`), so the first `onopen` after recovery runs the reconcile
@@ -173,6 +175,15 @@ delta-pull — catching up on everything that changed while the server was down 
 rather than treating the reconnect as a fresh initial load. `disconnect()` also
 clears any pending reconnect timer so an explicit teardown can't leave a rebuild
 in flight.
+
+Regression test: `tests/unit/useSyncReconnect.spec.ts` drives a mock
+`EventSource` through outage → recovery and asserts the real connectivity signal
+flips back online without a reload (plus the cooperative-cancel and
+disconnect-clears-timer cases).
+
+Note: this is frontend code — it only takes effect after a `nuxt build` /
+redeploy of the frontend (or dev HMR); a running old build still needs a manual
+reload.
 
 **Symptom**
 

@@ -77,7 +77,10 @@ RUN mkdir -p /data/db
 WORKDIR /opt/$APPNAME/$MODULENAME
 
 # Runtime configuration.
-ENV SERVER_LISTENING_HOST=0.0.0.0
+# Bind on all interfaces so a reverse proxy on the docker network can reach the
+# app (the in-container healthcheck hits 127.0.0.1, so a localhost bind would
+# still report healthy while Traefik gets a 502).
+ENV SERVER_BIND_HOST=0.0.0.0
 ENV LOG_LEVEL=${LOG_LEVEL}
 ENV APP_PROVISIONING_DATA_YAML_FILES='[]'
 ENV SQL_DATABASE_URL=sqlite+aiosqlite:////data/db/local.sqlite
@@ -93,10 +96,10 @@ LABEL org.opencontainers.image.title="CheckCheck" \
 # performs a real DB round-trip. That endpoint returns HTTP 200 even when the DB
 # is down (with {"healthy": false}), so we parse the body and require healthy ==
 # true — a green status here means "app is up AND the database is reachable".
-# The port is read from SERVER_LISTENING_PORT (default 8181) so the probe follows
+# The port is read from SERVER_BIND_PORT (default 8181) so the probe follows
 # a reconfigured port. Uses stdlib urllib only — no curl dependency. start-period
 # covers first-boot schema creation + migrations; tune it up for slow databases.
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
-    CMD ["python", "-c", "import os,sys,json,urllib.request; p=os.environ.get('SERVER_LISTENING_PORT','8181'); r=urllib.request.urlopen('http://127.0.0.1:%s/api/health' % p, timeout=8); sys.exit(0 if json.load(r).get('healthy') is True else 1)"]
+    CMD ["python", "-c", "import os,sys,json,urllib.request; p=os.environ.get('SERVER_BIND_PORT','8181'); r=urllib.request.urlopen('http://127.0.0.1:%s/api/health' % p, timeout=8); sys.exit(0 if json.load(r).get('healthy') is True else 1)"]
 
 ENTRYPOINT ["python", "./main.py"]
