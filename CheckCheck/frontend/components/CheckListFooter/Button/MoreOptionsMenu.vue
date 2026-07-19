@@ -1,7 +1,12 @@
 <template>
   <UDropdownMenu :items="items" :content="{ align: 'end' }" :ui="{ content: 'min-w-56' }">
     <UTooltip text="Options" @click.stop>
-      <CheckListColoredButton variant="ghost" icon="i-lucide-ellipsis-vertical" :checkListId="checkListId" />
+      <CheckListColoredButton
+        variant="ghost"
+        icon="i-lucide-ellipsis-vertical"
+        :checkListId="checkListId"
+        data-testid="card-options-menu"
+      />
     </UTooltip>
   </UDropdownMenu>
 

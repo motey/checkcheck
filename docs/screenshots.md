@@ -31,8 +31,8 @@ formatting help link right there when you need it.
 
 <table>
 <tr>
-<td width="50%"><a href="screenshots/mobileLightEditor.png"><img src="screenshots/mobileLightEditor.png" alt="The card editor, light theme"></a></td>
-<td width="50%"><a href="screenshots/mobileDarkEditor.png"><img src="screenshots/mobileDarkEditor.png" alt="The card editor, dark theme"></a></td>
+<td width="50%"><a href="screenshots/DesktopLightEditor.png"><img src="screenshots/DesktopLightEditor.png" alt="The card editor on desktop, light theme"></a></td>
+<td width="50%"><a href="screenshots/DesktopDarkEditor.png"><img src="screenshots/DesktopDarkEditor.png" alt="The card editor on desktop, dark theme"></a></td>
 </tr>
 <tr>
 <td align="center"><b>Light</b></td>
@@ -80,3 +80,66 @@ it behaves like a native app. See [pwa-install.md](pwa-install.md) for the how-t
 <td align="center"><b>Dark</b></td>
 </tr>
 </table>
+
+The card editor fills the screen on a phone, so there is room for long items and
+Markdown notes without the list feeling cramped.
+
+<table>
+<tr>
+<td width="50%"><a href="screenshots/mobileLightEditor.png"><img src="screenshots/mobileLightEditor.png" alt="The card editor on mobile, light theme"></a></td>
+<td width="50%"><a href="screenshots/mobileDarkEditor.png"><img src="screenshots/mobileDarkEditor.png" alt="The card editor on mobile, dark theme"></a></td>
+</tr>
+<tr>
+<td align="center"><b>Light</b></td>
+<td align="center"><b>Dark</b></td>
+</tr>
+</table>
+
+## Regenerating these images
+
+Every image on this page is generated from the running app by
+[`gen_screenshots.sh`](../gen_screenshots.sh). Do not replace them by hand.
+
+```bash
+source build_server_dev_env.sh                       # once, for the backend venv
+cd CheckCheck/frontend && bun run test:e2e:install   # once, for the browsers
+cd - && ./gen_screenshots.sh
+```
+
+The script starts a throwaway Postgres container, seeds it with the
+deterministic dev dataset, builds the frontend, boots a backend on port 8183,
+and drives Playwright to write each PNG. Everything is torn down afterwards, and
+nothing touches your dev database.
+
+Useful flags:
+
+| Flag | Effect |
+| --- | --- |
+| `--no-build` | Reuse the existing frontend build (much faster on reruns) |
+| `--only menus` | Regenerate only the specs whose filename matches |
+| `--headed` | Watch the browser work through the shots |
+
+A few things are deliberately pinned, because unpinning them makes every run
+produce a diff even when nothing changed:
+
+- **The dataset.** Seed and profile live in
+  `CheckCheck/backend/screenshots/start_screenshot_server.py`. Changing the
+  seeder changes these images, so regenerate and review when you touch it.
+- **The version stamp.** The sidebar renders the server version, which would
+  otherwise be a setuptools-scm dev string. `gen_screenshots.sh` pins it via
+  `SETUPTOOLS_SCM_PRETEND_VERSION`; bump that at release time.
+- **The viewports.** 1992x1353 desktop and 412x915 mobile, both at DPR 1.
+  Changing them reflows every image on this page.
+
+This is a manual pre-release chore, not a CI job: the output is binary and
+regenerating on every push would bloat the repository history. Run it when the
+UI has visibly changed, then review `git diff --stat docs/screenshots/` before
+committing.
+
+`desktopDarkLightMix.png` is a composite rather than a screenshot: the light and
+dark board shots stacked and split on a diagonal, assembled in
+`compose-mix.spec.ts`. It is regenerated automatically after both board shots.
+
+The editor shots always open the board's most content-rich card, picked by
+measurement rather than by name, so they keep illustrating a real list even if
+the seeder's content pool changes.

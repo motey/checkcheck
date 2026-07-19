@@ -12,7 +12,12 @@
     :filterCheckedItems="false"
   />
   <USeparator v-if="editModeActive" color="neutral" type="dashed" />
-  <div v-if="editModeActive" class="flex items-center" @click="switchCollapseCheckedItems()">
+  <div
+    v-if="editModeActive"
+    data-testid="editor-checked-section"
+    class="flex items-center"
+    @click="switchCollapseCheckedItems()"
+  >
     <UIcon v-if="!checkList?.checked_items_collapsed" name="i-lucide-chevrons-down" class="w-5 h-8" />
     <UIcon v-if="checkList?.checked_items_collapsed" name="i-lucide-chevrons-right" class="w-5 h-8" />
     <span class="ml-2 text-base">{{ String(checkedItemCount) }} checked items</span>
