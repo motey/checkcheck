@@ -141,6 +141,7 @@ async def remove_user_access(
     checklist_collaborator_crud: CheckListCollaboratorCRUD,
     checklist_position_crud: CheckListPositionCRUD,
     sync_crud: SyncNotifiationCRUD,
+    emit_removed_broadcast: bool = True,
 ) -> None:
     """Hard-remove one user's access to a card: drop their collaborator + position
     rows, advance the global seq so offline clients actually pull the removal, and
@@ -153,6 +154,13 @@ async def remove_user_access(
     ``delete_share``: a hard delete leaves no ``server_seq`` trace, so the poke
     below would otherwise not be ahead of a local-first client's cursor and the
     card would linger on their board until a manual reload.
+
+    ``emit_removed_broadcast`` controls the *broadcast* ``share_removed`` poke that
+    fans out to the whole remaining share set. It stays ``True`` for a single
+    removal (the delete route) so the set is told once. A bulk group revoke removes
+    N members from the *same* card, so it passes ``False`` here and emits a single
+    card-scoped ``share_removed`` itself — one poke instead of N. The per-user
+    pinned ``checklist_deleted`` is always emitted; those must stay targeted.
     """
     await checklist_collaborator_crud.delete(
         checklist_id=checklist_id, user_id=user_id
@@ -163,6 +171,7 @@ async def remove_user_access(
         SyncNotification(cl_id=checklist_id, upd_prop="checklist_deleted"),
         target_user_ids=[user_id],
     )
-    await sync_crud.create(
-        SyncNotification(cl_id=checklist_id, upd_prop="share_removed")
-    )
+    if emit_removed_broadcast:
+        await sync_crud.create(
+            SyncNotification(cl_id=checklist_id, upd_prop="share_removed")
+        )

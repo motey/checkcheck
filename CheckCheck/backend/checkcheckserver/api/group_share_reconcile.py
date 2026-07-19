@@ -114,11 +114,16 @@ async def _reconcile_pair(
     checklist_position_crud: CheckListPositionCRUD,
     sync_crud: SyncNotifiationCRUD,
     notification_crud: NotificationCRUD,
+    emit_removed_broadcast: bool = True,
 ) -> str:
     """Make one user's *group-derived* access to one card match the current group
     shares. Returns one of ``"instant"``, ``"invited"``, ``"removed"``,
-    ``"unchanged"`` (the caller aggregates a single ``share_added`` broadcast from
-    the instant/​invited results)."""
+    ``"unchanged"`` (the caller aggregates a single ``share_added``/``share_removed``
+    broadcast from the instant/​invited/​removed results).
+
+    ``emit_removed_broadcast`` is forwarded to ``remove_user_access``: a bulk
+    revoke over one card's members passes ``False`` and emits a single card-scoped
+    ``share_removed`` itself, instead of one per removed member."""
     # The owner is never a collaborator.
     if user.id == checklist.owner_id:
         return "unchanged"
@@ -143,6 +148,7 @@ async def _reconcile_pair(
                 checklist_collaborator_crud=checklist_collaborator_crud,
                 checklist_position_crud=checklist_position_crud,
                 sync_crud=sync_crud,
+                emit_removed_broadcast=emit_removed_broadcast,
             )
             return "removed"
         return "unchanged"
@@ -198,6 +204,7 @@ async def reconcile_group_share(
     added = 0
     skipped = 0
     any_instant = False
+    any_removed = False
     for member in members:
         if member.id == checklist.owner_id:
             continue
@@ -211,16 +218,27 @@ async def reconcile_group_share(
             checklist_position_crud=checklist_position_crud,
             sync_crud=sync_crud,
             notification_crud=notification_crud,
+            # Every removal here is on the *same* card, so suppress the per-member
+            # broadcast and emit a single card-scoped ``share_removed`` below.
+            emit_removed_broadcast=False,
         )
         if outcome in ("instant", "invited"):
             added += 1
             any_instant = any_instant or outcome == "instant"
         else:
+            if outcome == "removed":
+                any_removed = True
             skipped += 1
 
+    # One broadcast per kind of change for the whole batch (the per-user pinned
+    # ``checklist_deleted`` pokes stay targeted, emitted inside remove_user_access).
     if any_instant:
         await sync_crud.create(
             SyncNotification(cl_id=checklist.id, upd_prop="share_added")
+        )
+    if any_removed:
+        await sync_crud.create(
+            SyncNotification(cl_id=checklist.id, upd_prop="share_removed")
         )
     return {"total": total, "added": added, "skipped": skipped}
 

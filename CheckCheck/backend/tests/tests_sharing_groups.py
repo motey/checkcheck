@@ -22,6 +22,7 @@ the run script selected, so the two scripts together exercise both code paths.
 """
 
 import os
+import time
 
 import pytest
 import requests
@@ -32,11 +33,13 @@ from utils import (
     create_test_user,
     authorize_for_access_token,
     oidc_login_get_token,
+    get_access_token,
     dict_must_contain,
     find_first_dict_in_list,
     list_contains_dict_that_must_contain,
 )
 from statics import OIDC_TEST_PROVIDER_SLUG
+from tests_sharing_sync import _SSECollector
 
 INVITE_REQUIRED = server_config.SHARING_REQUIRE_INVITE_ACCEPT
 
@@ -328,6 +331,55 @@ def test_revoke_group_removes_group_only_members_keeps_explicit_and_other_group(
 
     # The group list now shows only the remaining group.
     assert {g["group"] for g in _group_shares(checklist_id)} == {other}
+
+
+@requires_invite_off
+def test_bulk_group_revoke_emits_single_share_removed_broadcast():
+    """A bulk group revoke removes N members from one card. The owner (and any
+    remaining share-set member) must get exactly ONE broadcast ``share_removed``
+    for the card — not one per removed member — while each removed member still
+    gets their own targeted ``checklist_deleted`` so the card leaves their board."""
+    group = "team-bulk-revoke"
+    owner_token = get_access_token()  # default login owns cards created via req()
+    member_tokens = []
+    for i in range(3):
+        tok, uid = _make_user(f"group-bulk-rev-{i}")
+        _set_groups(uid, [group])
+        member_tokens.append(tok)
+
+    checklist_id = _create_checklist("GroupBulkRevoke")
+    dict_must_contain(
+        _share_group(checklist_id, group, "view"),
+        {"added": 3, "total_members": 3},
+    )
+
+    # Watch the owner's broadcast stream and one removed member's targeted stream.
+    with _SSECollector(owner_token) as owner_sse, _SSECollector(
+        member_tokens[0]
+    ) as member_sse:
+        _revoke_group(checklist_id, group, expected_http_code=204)
+
+        # Per-user pinned poke still reaches each removed member (targeted).
+        assert member_sse.received(
+            cl_id=checklist_id, upd_prop="checklist_deleted"
+        ), "removed member was not told to drop the card"
+
+        # The owner is told the share set changed — and only once for the batch.
+        assert owner_sse.received(
+            cl_id=checklist_id, upd_prop="share_removed"
+        ), "owner was not notified the group share was revoked"
+        # Give any extra (pre-fix, per-member) broadcasts time to arrive.
+        time.sleep(2.0)
+        share_removed = [
+            e
+            for e in list(owner_sse.events)
+            if e.get("cl_id") == checklist_id
+            and e.get("upd_prop") == "share_removed"
+        ]
+        assert len(share_removed) == 1, (
+            "expected a single batched 'share_removed' broadcast for a bulk "
+            f"group revoke of 3 members, got {len(share_removed)}"
+        )
 
 
 # ── invite gate (invite-flow pass, flag on) ───────────────────────────────────

@@ -289,10 +289,31 @@ resume without re-deriving context.
   real build (`./run_e2e_tests.sh --grep "share with a group"` → 2 passed). The
   Chromium headless shell runs here; the Playwright OS-deps *installer* errors on
   `libasound2` (renamed on this Debian variant) but that does not block the run.
-- **Left for a follow-up (Phase 3 loose ends):**
-  - Consider a **secondary reconcile hook on OIDC token refresh** if that path
-    also re-reads `oidc_groups` (today only the login callback does) — currently
-    membership changes land on next full login, which is acceptable and
-    documented.
-  - Optional: batch the per-removal `share_removed` broadcast in a bulk group
-    revoke (currently one poke per removed member — correct, just chatty).
+- 2026-07-19: **Phase 3 loose ends resolved.**
+  - **Token-refresh reconcile hook — investigated, nothing to implement.** The
+    OIDC token-refresh path does *not* re-read `oidc_groups`, so there is no
+    membership signal to reconcile off. `security.py::get_current_user_auth`
+    refreshes via `oidc_refresh_access_token` (`auth/utils.py`), which uses only
+    the `refresh_token` grant (`fetch_access_token`): it rewrites the encrypted
+    token blob + expiry on `UserAuth`/`UserSession` and never loads the `User`,
+    never calls `get_userinfo_from_token_or_endpoint`, and never touches
+    `user.oidc_groups`. Group membership therefore only reaches the app in the
+    login callback (`routes_auth.py`, which *does* fetch userinfo and rewrite
+    `oidc_groups`). So the reconcile-on-login granularity is as live as the data
+    source allows; membership changes still land on the next full login (already
+    documented in UPGRADING). No hook added.
+  - **Bulk-revoke poke noise — done.** `share_ops.remove_user_access` gained an
+    `emit_removed_broadcast` flag (default `True`, so the single-user
+    `delete_share` route is unchanged). `group_share_reconcile.reconcile_group_share`
+    now passes `emit_removed_broadcast=False` per member and emits a **single**
+    card-scoped `share_removed` broadcast after the loop when any member was
+    removed — one poke for the whole batch instead of N. The per-user pinned
+    `checklist_deleted` pokes stay targeted (emitted inside `remove_user_access`
+    regardless of the flag). `reconcile_user` (login path) keeps the default,
+    since its removals span distinct cards and each needs its own card-scoped
+    poke. New test
+    `tests_sharing_groups.py::test_bulk_group_revoke_emits_single_share_removed_broadcast`
+    connects an SSE collector (reused from `tests_sharing_sync._SSECollector`) and
+    asserts the owner receives exactly one `share_removed` while a removed member
+    still gets its targeted `checklist_deleted`. Full group suite (10 pass, 1
+    invite-gate skip) + broader sharing/sync suites (58 pass) green on Postgres.
