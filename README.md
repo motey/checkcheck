@@ -141,6 +141,7 @@ Missing features, that i will integrate soon...
 
 * Email notifications
 * "Remind me on date"-feature
+* Subitems/Itemgroups
 
 ### Ideas
 
