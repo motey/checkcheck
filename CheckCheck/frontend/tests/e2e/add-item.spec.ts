@@ -56,12 +56,12 @@ test.describe("add item", () => {
     await expect(dialog).toBeVisible({ timeout: 5_000 });
 
     // Fresh card starts with no items.
-    const items = dialog.locator("li textarea");
+    const items = dialog.locator("[data-testid=item-row]");
     await expect(items).toHaveCount(0);
 
     await dialog.locator("[data-testid=add-item]").click();
 
-    // Clicking the button creates an item; a new editable textarea appears.
+    // Clicking the button creates an item row (auto-focused into its editor).
     await expect(items).toHaveCount(1, { timeout: 5_000 });
   });
 });

@@ -160,6 +160,7 @@ def _make_items(rng: random.Random, count: int, flavor: str, checked_ratio: floa
         "long": content.LONG_ITEMS,
         "multiline": content.MULTILINE_ITEMS,
         "markdown": content.MARKDOWN_ITEMS,
+        "url": content.URL_ITEMS,
         "fancy": content.FANCY_ITEMS,
     }
     items: List[ItemSpec] = []
@@ -168,8 +169,8 @@ def _make_items(rng: random.Random, count: int, flavor: str, checked_ratio: floa
             # Weighted toward short (like a real list) but regularly sprinkling the
             # awkward shapes we actually want to eyeball.
             pick = rng.choices(
-                ["short", "long", "multiline", "markdown", "fancy"],
-                weights=[50, 12, 14, 14, 10],
+                ["short", "long", "multiline", "markdown", "url", "fancy"],
+                weights=[46, 11, 13, 13, 8, 9],
             )[0]
         else:
             pick = flavor
@@ -241,6 +242,10 @@ def _owned_specs(rng: random.Random, profile: Profile, n_labels: int) -> List[Li
     # Markdown heavy, with a Markdown note.
     add(items=_make_items(rng, rng.randint(4, 6), "markdown", 0.4),
         text=rng.choice(content.NOTES_MARKDOWN))
+    # URL heavy — every item carries a link, so the boxed-arrow "open" affordance
+    # (and long-URL truncation) is always visible on a seeded board.
+    add(items=_make_items(rng, rng.randint(4, 6), "url", 0.2),
+        text="Links collected here. Tap the arrow to open one.")
     # Long paragraphs.
     add(items=_make_items(rng, rng.randint(6, 10), "long", 0.25))
     # Emoji / unicode name + items.

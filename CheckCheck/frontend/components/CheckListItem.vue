@@ -1,6 +1,6 @@
 <template>
   <div>
-  <div class="checklist-item-row flex items-start gap-1.5 py-0.5" @mouseover="hover = true" @mouseleave="hover = false">
+  <div class="checklist-item-row flex items-start gap-1.5 py-0.5" data-testid="item-row" @mouseover="hover = true" @mouseleave="hover = false">
     <span
       v-if="parentEditMode && canEdit"
       :class="{ nonActive: !hover }"
@@ -13,31 +13,48 @@
     <div class="flex-none flex items-center self-stretch min-h-5 sm:min-h-6" :title="canCheck ? undefined : 'View only'">
       <UCheckbox v-model="checkListItem!.state.checked" :disabled="!canCheck" @click.stop="toggleCheck()" :size="isMobile ? 'sm' : 'md'" />
     </div>
+    <!-- Rendered (Markdown) view. Shown on the board, and inside the open card
+         whenever this item is not the one being edited — clicking or tabbing in
+         swaps to the raw textarea below so the user edits the source. -->
     <div
-      v-if="!parentEditMode"
-      class="min-w-0 flex-1 pt-0.5 break-words"
+      v-if="showRenderedText"
+      class="md-inline min-w-0 flex-1 pt-0.5 break-words"
       :class="[
         checkListItem?.state.checked ? 'strikethrough' : '',
-        // One-liners: single line truncated at card width (ellipsis, no wrap).
-        // Items with an authored newline: honour the break, up to two lines.
-        previewHasNewline ? 'whitespace-pre-wrap line-clamp-2' : 'line-clamp-1',
+        // Board preview: one-liners truncate at card width; items with an
+        // authored newline get two lines. In the open card show the full text so
+        // the rendered row matches the textarea it swaps with.
+        parentEditMode
+          ? 'whitespace-pre-wrap'
+          : previewHasNewline ? 'whitespace-pre-wrap line-clamp-2' : 'line-clamp-1',
+        parentEditMode && canEdit
+          ? 'cursor-text rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary'
+          : '',
       ]"
-      v-html="highlightText(checkListItem!.text, searchQuery)"
-    />
+      :role="parentEditMode && canEdit ? 'textbox' : undefined"
+      :tabindex="parentEditMode && canEdit ? 0 : undefined"
+      data-testid="item-text-rendered"
+      @click="onItemTextClick"
+      @keydown.enter.prevent="enterEdit()"
+      @keydown.space.prevent="enterEdit()"
+    >
+      <span v-if="localText" v-html="renderMarkdownInline(localText, { search: searchQuery })" />
+      <span v-else-if="parentEditMode" class="text-dimmed">Enter some text...</span>
+    </div>
 
     <UTextarea
       ref="textareaComp"
       placeholder="Enter some text..."
       v-model="localText"
-      v-if="parentEditMode"
+      v-if="parentEditMode && editingText && canEdit"
       variant="none"
       autoresize
       :rows="1"
       :padded="false"
-      :disabled="!canEdit"
       :style="{ color: textColor }"
-      class="min-w-0 flex-1 grow cursor-auto m-0"
+      class="min-w-0 flex-1 grow cursor-auto m-0 pt-0.5"
       :class="{ strikethrough: checkListItem?.state.checked }"
+      data-testid="item-text-editor"
       @focus="onTextFocus"
       @blur="onTextBlur"
       @keydown.enter="onEnter"
@@ -87,7 +104,7 @@ import { useDebounceFn, useMediaQuery } from "@vueuse/core";
 import type { PropType } from "vue";
 import { useCheckListsItemStore } from "@/stores/checklist_item";
 import { useTextareaAutosize } from '@vueuse/core'
-import { highlightText } from "@/utils/highlight";
+import { renderMarkdownInline } from "@/utils/markdown";
 import { markEditing, clearEditing } from "@/utils/editGuard";
 import { findMatchingCheckedItems } from "@/utils/normalizeItemText";
 
@@ -111,6 +128,42 @@ const hover = ref(false);
 const textFocused = ref(false);
 const textareaComp = ref();
 
+// Focus-swap: inside the open card an item shows rendered Markdown until it is
+// actually being edited, mirroring the card-notes field. `editingText` mounts the
+// raw textarea; blur swaps back. View-only collaborators never enter edit state.
+const editingText = ref(false);
+const showRenderedText = computed(
+  () => !props.parentEditMode || !editingText.value || !canEdit.value
+);
+
+function focusTextareaEl() {
+  const el = textareaComp.value?.$el?.querySelector?.("textarea") as HTMLTextAreaElement | null;
+  if (!el) return;
+  el.focus();
+  const end = el.value.length;
+  el.setSelectionRange(end, end);
+}
+
+// Enter edit mode and put the caret in the textarea once it has mounted.
+function enterEdit() {
+  if (!props.parentEditMode || !canEdit.value) return;
+  editingText.value = true;
+  nextTick(focusTextareaEl);
+}
+
+// A URL in item text renders as inert text plus a boxed-arrow icon link (see
+// utils/markdown.ts). The icon opens the link in a new tab on its own; we only
+// stop the click from bubbling — so it never opens the card (board) or drops the
+// row into edit mode (open card). Any other click enters edit inside the card,
+// and on the board falls through to the card's open-editor handler as before.
+function onItemTextClick(e: MouseEvent) {
+  if ((e.target as HTMLElement | null)?.closest?.("a.ext-link")) {
+    e.stopPropagation();
+    return;
+  }
+  enterEdit();
+}
+
 // Keep the local textarea guard AND the WI-10 store-apply guard in sync so an
 // incoming delta never clobbers the item text mid-edit (SYNC §4).
 function onTextFocus() {
@@ -119,6 +172,8 @@ function onTextFocus() {
 }
 function onTextBlur() {
   textFocused.value = false;
+  // Swap back to the rendered Markdown view.
+  editingText.value = false;
   if (props.checkListItem) clearEditing("item", props.checkListItem.id, "text");
 }
 onBeforeUnmount(() => {
@@ -182,13 +237,12 @@ function onDelete(focusPrev: boolean) {
   emit("deleteItem", props.checkListItem!.id, focusPrev);
 }
 
-// Called by the parent collection after it inserts the freshly created item.
+// Called by the parent collection after it inserts the freshly created item (and
+// on add-after / accept-suggestion / backspace-merge). Must open the editor
+// first: with focus-swap the textarea only exists once `editingText` is set.
 function focusTextarea() {
-  const el = textareaComp.value?.$el?.querySelector?.("textarea") as HTMLTextAreaElement | null;
-  if (!el) return;
-  el.focus();
-  const end = el.value.length;
-  el.setSelectionRange(end, end);
+  editingText.value = true;
+  nextTick(focusTextareaEl);
 }
 defineExpose({ focusTextarea });
 

@@ -152,7 +152,7 @@ test.describe("local-first item offline", () => {
     await page.goto("/?localFirst=1");
     await page.waitForSelector("[data-testid=checklist-board]");
     let dialog = await openCard(page, clName);
-    await expect(dialog.locator("li textarea")).toHaveCount(0);
+    await expect(dialog.locator("[data-testid=item-row]")).toHaveCount(0);
 
     // Wait until the snapshot layer has persisted the card, so an offline reload
     // has something to hydrate.
@@ -162,7 +162,7 @@ test.describe("local-first item offline", () => {
     await page.route("**/api/**", (route) => route.abort());
 
     await dialog.locator("[data-testid=add-item]").click();
-    const textarea = dialog.locator("li textarea").first();
+    const textarea = dialog.locator("[data-testid=item-text-editor]").first();
     await expect(textarea).toBeVisible({ timeout: 5_000 });
     await textarea.fill(itemText);
     await expect(textarea).toHaveValue(itemText);
@@ -176,8 +176,8 @@ test.describe("local-first item offline", () => {
     await page.reload();
     await page.waitForSelector("[data-testid=checklist-board]");
     dialog = await openCard(page, clName);
-    const reopened = dialog.locator("li textarea").first();
-    await expect(reopened).toHaveValue(itemText, { timeout: 10_000 });
+    const reopened = dialog.locator("[data-testid=item-text-rendered]").first();
+    await expect(reopened).toContainText(itemText, { timeout: 10_000 });
     // Ops survived the restart, still unsent.
     const opsBeforeCheck = await outboxOpCount(page);
     expect(opsBeforeCheck).toBeGreaterThan(0);

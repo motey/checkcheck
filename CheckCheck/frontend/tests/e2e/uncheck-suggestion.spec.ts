@@ -74,9 +74,9 @@ test.describe("uncheck-existing suggestion", () => {
     // checked section), so there are now two textareas; the new empty one is the
     // unchecked-section entry rendered first.
     await dialog.locator("[data-testid=add-item]").click();
-    const items = dialog.locator("li textarea");
+    const items = dialog.locator("[data-testid=item-row]");
     await expect(items).toHaveCount(2, { timeout: 5_000 });
-    const newItem = items.first();
+    const newItem = dialog.locator("[data-testid=item-text-editor]");
     await expect(newItem).toHaveValue("");
     // Type only a prefix ("mi") to prove suggestions appear live, before the full
     // word is entered — the autocomplete feel, not just an exact-match check.
@@ -92,6 +92,6 @@ test.describe("uncheck-existing suggestion", () => {
     // item is the now-unchecked "Milk" (no duplicate created).
     await expect(dialog.locator("[data-testid=uncheck-suggestions]")).toHaveCount(0);
     await expect(items).toHaveCount(1, { timeout: 5_000 });
-    await expect(items.first()).toHaveValue("Milk");
+    await expect(dialog.locator("[data-testid=item-text-editor]")).toHaveValue("Milk");
   });
 });

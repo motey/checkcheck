@@ -99,7 +99,7 @@ test.describe("F1 permission-aware gating", () => {
     // suspenders against any transient duplicate overlay root.
     const dialog = userPage.locator('[role="dialog"]:has(.checklist)').first();
     await expect(dialog).toBeVisible({ timeout: 5_000 });
-    await expect(dialog.locator("li textarea").first()).toBeVisible({ timeout: 5_000 });
+    await expect(dialog.locator("[data-testid=item-text-rendered]").first()).toBeVisible({ timeout: 5_000 });
     return dialog;
   }
 
@@ -114,8 +114,9 @@ test.describe("F1 permission-aware gating", () => {
     // Checkbox cannot be toggled. (Nuxt UI renders a <button role="checkbox">;
     // Playwright's getByRole misses it, so match the attribute directly.)
     await expect(dialog.locator('[role="checkbox"]').first()).toBeDisabled();
-    // Item text is read-only.
-    await expect(dialog.locator("li textarea").first()).toBeDisabled();
+    // Item text is read-only: clicking a row never opens an editor.
+    await dialog.locator("[data-testid=item-text-rendered]").first().click();
+    await expect(dialog.locator("[data-testid=item-text-editor]")).toHaveCount(0);
     // No "add new item" affordance.
     await expect(dialog.getByText("Add new item")).toHaveCount(0);
 
@@ -137,7 +138,8 @@ test.describe("F1 permission-aware gating", () => {
     // Checkbox IS toggleable at `check`…
     await expect(dialog.locator('[role="checkbox"]').first()).toBeEnabled();
     // …but text editing and add-new are NOT (those require `edit`).
-    await expect(dialog.locator("li textarea").first()).toBeDisabled();
+    await dialog.locator("[data-testid=item-text-rendered]").first().click();
+    await expect(dialog.locator("[data-testid=item-text-editor]")).toHaveCount(0);
     await expect(dialog.getByText("Add new item")).toHaveCount(0);
 
     await userPage.keyboard.press("Escape");
@@ -151,9 +153,10 @@ test.describe("F1 permission-aware gating", () => {
 
     const dialog = await openSharedCard(userPage, title);
 
-    // Full item editing is available.
+    // Full item editing is available: clicking a row opens its editor.
     await expect(dialog.locator('[role="checkbox"]').first()).toBeEnabled();
-    await expect(dialog.locator("li textarea").first()).toBeEnabled();
+    await dialog.locator("[data-testid=item-text-rendered]").first().click();
+    await expect(dialog.locator("[data-testid=item-text-editor]").first()).toBeVisible();
     await expect(dialog.getByText("Add new item")).toBeVisible();
 
     await userPage.keyboard.press("Escape");

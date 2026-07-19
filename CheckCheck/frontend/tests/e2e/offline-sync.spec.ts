@@ -168,7 +168,11 @@ test.describe("offline sync — conflict, no-revert, revocation", () => {
     await page.goto("/?localFirst=1");
     await page.waitForSelector("[data-testid=checklist-board]");
     const dialog = await openCard(page, clName);
-    const textarea = dialog.locator("li textarea").first();
+    // Focus-swap: click the rendered row to open its editor.
+    await expect(dialog.locator("[data-testid=item-text-rendered]").first())
+      .toContainText(`orig-${tag}`, { timeout: 8_000 });
+    await dialog.locator("[data-testid=item-text-rendered]").first().click();
+    const textarea = dialog.locator("[data-testid=item-text-editor]").first();
     await expect(textarea).toHaveValue(`orig-${tag}`, { timeout: 8_000 });
 
     // Block writes (GET/SSE stay live). Edit the item text optimistically — it
@@ -223,7 +227,11 @@ test.describe("offline sync — conflict, no-revert, revocation", () => {
     await page.goto("/?localFirst=1");
     await page.waitForSelector("[data-testid=checklist-board]");
     const dialog = await openCard(page, clName);
-    const textarea = dialog.locator("li textarea").first();
+    // Focus-swap: click the rendered row to open its editor.
+    await expect(dialog.locator("[data-testid=item-text-rendered]").first())
+      .toContainText(`orig1-${tag}`, { timeout: 8_000 });
+    await dialog.locator("[data-testid=item-text-rendered]").first().click();
+    const textarea = dialog.locator("[data-testid=item-text-editor]").first();
     await expect(textarea).toHaveValue(`orig1-${tag}`, { timeout: 8_000 });
 
     // Queue an offline edit to item1.
@@ -236,14 +244,13 @@ test.describe("offline sync — conflict, no-revert, revocation", () => {
     // item into the card via the delta feed.
     await apiPost(req, `/api/checklist/${cl.id}/item`, { text: remoteText });
 
-    // The delta arrives (a second item textarea appears) AND item1's queued local
-    // edit is untouched. In edit mode items render as <textarea>, so match on the
-    // textarea VALUE, not text content.
-    await expect(dialog.locator("li textarea")).toHaveCount(2, { timeout: 15_000 });
-    const values = await dialog
-      .locator("li textarea")
-      .evaluateAll((els) => els.map((e) => (e as HTMLTextAreaElement).value));
-    expect(values).toContain(remoteText);
+    // The delta arrives (a second row appears) AND item1's queued local edit is
+    // untouched. item1 is still focused, so it stays a <textarea> while the new
+    // remote row renders as Markdown.
+    await expect(dialog.locator("[data-testid=item-row]")).toHaveCount(2, { timeout: 15_000 });
+    await expect(
+      dialog.locator("[data-testid=item-text-rendered]").filter({ hasText: remoteText })
+    ).toHaveCount(1, { timeout: 15_000 });
     await expect(textarea).toHaveValue(localText);
 
     // Restore writes + reload → drain → both survive on the server.

@@ -91,7 +91,7 @@ test.describe("bulk item operations", () => {
     await page.goto("/?localFirst=1");
     await page.waitForSelector("[data-testid=checklist-board]");
     const dialog = await openCardByTitle(page, clName);
-    await expect(dialog.locator("li textarea")).toHaveCount(3, { timeout: 5_000 });
+    await expect(dialog.locator("[data-testid=item-row]")).toHaveCount(3, { timeout: 5_000 });
 
     // Check the first two items.
     await dialog.locator("li").nth(0).getByRole("checkbox").click();
@@ -136,7 +136,7 @@ test.describe("bulk item operations", () => {
     await page.goto("/?localFirst=1");
     await page.waitForSelector("[data-testid=checklist-board]");
     const dialog = await openCardByTitle(page, clName);
-    await expect(dialog.locator("li textarea")).toHaveCount(3, { timeout: 5_000 });
+    await expect(dialog.locator("[data-testid=item-row]")).toHaveCount(3, { timeout: 5_000 });
 
     // Kebab → Delete ticked items → confirm.
     await openKebab(page, dialog);
@@ -144,8 +144,8 @@ test.describe("bulk item operations", () => {
     await page.locator("[data-testid=confirm-delete-ticked]").click();
 
     // Only the unchecked item survives in the editor.
-    await expect(dialog.locator("li textarea")).toHaveCount(1, { timeout: 5_000 });
-    await expect(dialog.locator("li textarea").first()).toHaveValue(new RegExp(`keep-${tag}`));
+    await expect(dialog.locator("[data-testid=item-row]")).toHaveCount(1, { timeout: 5_000 });
+    await expect(dialog.locator("[data-testid=item-text-rendered]").first()).toContainText(`keep-${tag}`);
 
     // Server truth: the two checked items are gone, the kept one remains.
     await expect
@@ -176,7 +176,7 @@ test.describe("bulk item operations", () => {
     await page.goto("/?localFirst=1");
     await page.waitForSelector("[data-testid=checklist-board]");
     const dialog = await openCardByTitle(page, clName);
-    await expect(dialog.locator("li textarea")).toHaveCount(2, { timeout: 5_000 });
+    await expect(dialog.locator("[data-testid=item-row]")).toHaveCount(2, { timeout: 5_000 });
 
     // ── Go offline, untick all via the kebab. ──────────────────────────────────
     await page.route("**/api/**", (route) => route.abort());

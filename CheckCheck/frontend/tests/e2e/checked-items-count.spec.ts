@@ -63,7 +63,7 @@ test.describe("checked-items count reactivity", () => {
     await card.locator("[data-testid=card-title]").click();
     const dialog = page.locator('[role="dialog"]:has(.checklist)');
     await expect(dialog).toBeVisible({ timeout: 5_000 });
-    await expect(dialog.locator("li textarea")).toHaveCount(3, { timeout: 5_000 });
+    await expect(dialog.locator("[data-testid=item-row]")).toHaveCount(3, { timeout: 5_000 });
     await expect(dialog).toContainText(/0\s+checked items/);
 
     // Check the first item AFTER mount — the crux of the bug.

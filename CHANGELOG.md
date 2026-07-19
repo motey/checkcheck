@@ -43,6 +43,22 @@ and the app is installable as a PWA.
   fenced code, links, lists, headings, blockquotes, and rules. All output is
   sanitized (images are intentionally not supported in this version). Existing
   plain-text notes render unchanged and no data migration is needed.
+- **Markdown in item text (slim).** Checklist items now render an inline-only
+  subset (bold, italic, strikethrough, inline code) so a single item label can be
+  emphasized. Block syntax (headings, lists, quotes) and links stay plain, since
+  items are single-line labels. Rendering is optimized for the board's hot path:
+  plain items ("Buy milk") take a zero-cost fast path and formatted items are
+  memoized, so search and reordering stay smooth.
+- **Items edit on focus.** Inside an open card an item shows its rendered
+  Markdown until you click or tab into it, at which point it swaps to the raw
+  text so you edit the source, and swaps back on blur. Only the row you are
+  editing is a text field. Adding items, Enter to add the next one, backspace to
+  merge, and the uncheck suggestions all behave as before. View-only
+  collaborators never get an edit surface at all.
+- **Links in item text.** A URL typed into an item is detected and followed by a
+  small boxed-arrow icon that opens it in a new tab. The URL text itself stays
+  plain, so tapping the item still opens the card as before and only the icon
+  opens the link.
 - **Living group shares.** Sharing a card with an OIDC group is now a first-class,
   persistent share: the ShareModal lists the groups a card is shared with (each at
   its own permission), you can share with several groups and remove one as a unit,

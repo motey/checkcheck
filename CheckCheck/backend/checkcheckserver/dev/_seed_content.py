@@ -108,7 +108,8 @@ MULTILINE_ITEMS = [
     "Recipe tweaks:\nless salt\ndouble the garlic\nbake 5 min longer",
 ]
 
-# ── Markdown items (card notes now render Markdown) ────────────────────────────
+# ── Markdown items (item text renders an inline-only subset; notes render full
+#    block Markdown) ──────────────────────────────────────────────────────────
 MARKDOWN_ITEMS = [
     "Buy **oat milk** (not soy this time)",
     "Read the [setup guide](https://example.com/setup) before the call",
@@ -117,6 +118,20 @@ MARKDOWN_ITEMS = [
     "> Remember: the shop closes early on Sundays",
     "`TODO` — split this into two smaller tasks",
     "Compare:\n\n- Option A — cheaper\n- Option B — **faster**",
+]
+
+# ── Items containing bare URLs ────────────────────────────────────────────────
+# In item text a URL renders as inert plain text followed by a small boxed-arrow
+# icon (the only clickable target, opens a new tab). Deliberately covers a URL at
+# the end, at the start, mid-sentence, one with a query string, and a very long
+# one so the line-clamp/truncation behaviour is easy to eyeball.
+URL_ITEMS = [
+    "Order the refill https://example.com/pharmacy/refill",
+    "https://example.org/deals/kitchen-scales — compare before buying",
+    "Recipe we liked https://example.net/recipes/slow-roasted-lamb-with-garlic-rosemary-and-potatoes",
+    "Return window closes Friday https://example.com/orders/1042/returns",
+    "Watch later https://example.org/watch?v=8xLfSMcz9K0&list=PL9tYq3f",
+    "Compare https://example.com/a and https://example.org/b",
 ]
 
 # ── Emoji / non-ASCII items ────────────────────────────────────────────────────
@@ -145,6 +160,7 @@ NOTES_MARKDOWN = [
     "## Ground rules\n\n- one owner per item\n- link the PR when done\n- `blocked` items go to the bottom",
     "Budget: **$400** max.\n\n> Keep receipts for everything over $20.",
     "Split by aisle:\n\n1. produce\n2. dairy\n3. frozen",
+    "Booking reference is in the email.\n\nVenue map: https://example.com/venue/hall-b",
 ]
 
 NOTES_MULTILINE = [

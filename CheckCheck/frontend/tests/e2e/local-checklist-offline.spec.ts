@@ -153,10 +153,11 @@ async function openCardByTitle(page: Page, clName: string) {
 }
 
 async function itemOrder(page: Page): Promise<string[]> {
-  const textareas = page.locator('[role="dialog"] li textarea');
-  const count = await textareas.count();
+  // Items focus-swap: rendered Markdown until focused, so read rendered rows.
+  const rows = page.locator('[role="dialog"] [data-testid=item-text-rendered]');
+  const count = await rows.count();
   const texts: string[] = [];
-  for (let i = 0; i < count; i++) texts.push(await textareas.nth(i).inputValue());
+  for (let i = 0; i < count; i++) texts.push(((await rows.nth(i).textContent()) ?? "").trim());
   return texts;
 }
 
@@ -264,8 +265,8 @@ test.describe("local-first checklist offline", () => {
     await page.goto("/?localFirst=1");
     await page.waitForSelector("[data-testid=checklist-board]");
     const dialog = await openCardByTitle(page, clName);
-    await expect(dialog.locator("li textarea").nth(0)).toHaveValue(new RegExp(alpha), { timeout: 5_000 });
-    await expect(dialog.locator("li textarea").nth(1)).toHaveValue(new RegExp(beta), { timeout: 5_000 });
+    await expect(dialog.locator("[data-testid=item-text-rendered]").nth(0)).toContainText(alpha, { timeout: 5_000 });
+    await expect(dialog.locator("[data-testid=item-text-rendered]").nth(1)).toContainText(beta, { timeout: 5_000 });
     await expect.poll(() => snapshotHasCard(page, cl.id), { timeout: 8_000 }).toBe(true);
 
     // ── 2. Go offline and drag alpha below beta. ───────────────────────────────

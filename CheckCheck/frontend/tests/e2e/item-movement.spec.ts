@@ -3,16 +3,16 @@
  *
  * Opens a checklist in edit mode (the modal), drags one item past another
  * using the drag handle (.list-item-drag-handle), and verifies:
- *   1. The textarea order in the dialog changes immediately.
+ *   1. The item order in the dialog changes immediately.
  *   2. After closing and reopening the modal the new order persists.
  *
  * Items only expose their drag handle when parentEditMode=true, i.e. when
  * the checklist is open in the edit modal.
  *
- * DOM note: in edit mode items render as <textarea> elements (via UTextarea
- * with v-model).  The textarea VALUE is set reactively, not via text content,
- * so page.getByText() / filter({ hasText }) do NOT match item text inside
- * the dialog — always use locator("li").nth(n) or inputValue() instead.
+ * DOM note: items use focus-swap — they render as Markdown
+ * ([data-testid=item-text-rendered]) until focused, and only the row being
+ * edited becomes a <textarea>. So read order/text from the rendered rows, and
+ * count rows with [data-testid=item-row] (stable across edit state).
  */
 import { test, expect, type Locator, type Page } from "@playwright/test";
 
@@ -32,16 +32,17 @@ async function apiDelete(page: Page, path: string) {
 }
 
 /**
- * Return the ordered list of item texts by reading each textarea's value.
+ * Return the ordered list of item texts. Items render as Markdown until focused
+ * (focus-swap), so read the rendered row text rather than a textarea value.
  * Works regardless of hover state or opacity.
  */
 async function itemOrder(page: Page): Promise<string[]> {
   const dialog = page.locator('[role="dialog"]');
-  const textareas = dialog.locator("li textarea");
-  const count = await textareas.count();
+  const rows = dialog.locator("[data-testid=item-text-rendered]");
+  const count = await rows.count();
   const texts: string[] = [];
   for (let i = 0; i < count; i++) {
-    texts.push(await textareas.nth(i).inputValue());
+    texts.push(((await rows.nth(i).textContent()) ?? "").trim());
   }
   return texts;
 }
@@ -120,14 +121,13 @@ test.describe("item movement", () => {
     const dialog = page.locator('[role="dialog"]');
     await expect(dialog).toBeVisible({ timeout: 5_000 });
 
-    // Wait until the two textareas have their values populated.
-    // (getByText / hasText do NOT match textarea values — use inputValue.)
-    await expect(dialog.locator("li textarea").nth(0)).toHaveValue(
-      new RegExp(item1Text),
+    // Wait until both rendered item rows have their text populated.
+    await expect(dialog.locator("[data-testid=item-text-rendered]").nth(0)).toContainText(
+      item1Text,
       { timeout: 5_000 }
     );
-    await expect(dialog.locator("li textarea").nth(1)).toHaveValue(
-      new RegExp(item2Text),
+    await expect(dialog.locator("[data-testid=item-text-rendered]").nth(1)).toContainText(
+      item2Text,
       { timeout: 5_000 }
     );
 
@@ -172,8 +172,8 @@ test.describe("item movement", () => {
     await card.locator("[data-testid=card-title]").click();
     await expect(dialog).toBeVisible({ timeout: 5_000 });
 
-    // Wait for textareas to repopulate, then verify order persisted.
-    await expect(dialog.locator("li textarea").nth(0)).toHaveValue(/.+/, { timeout: 5_000 });
+    // Wait for rendered rows to repopulate, then verify order persisted.
+    await expect(dialog.locator("[data-testid=item-text-rendered]").nth(0)).toHaveText(/.+/, { timeout: 5_000 });
     const orderReloaded = await itemOrder(page);
     const idx1Reloaded = orderReloaded.findIndex((t) => t.includes(item1Text));
     const idx2Reloaded = orderReloaded.findIndex((t) => t.includes(item2Text));

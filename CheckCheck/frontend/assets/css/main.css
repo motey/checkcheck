@@ -140,6 +140,54 @@ mark.search-highlight {
   pointer-events: none;
 }
 
+/* Inline-only Markdown for checklist item text (utils/markdown.ts
+   renderMarkdownInline). Single-line labels, so only emphasis + inline code are
+   styled; no block spacing. Inherits colour like .md-notes. */
+.md-inline {
+  color: inherit;
+}
+.md-inline strong {
+  font-weight: 600;
+}
+.md-inline em {
+  font-style: italic;
+}
+.md-inline s,
+.md-inline del {
+  text-decoration: line-through;
+}
+.md-inline code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.9em;
+  background-color: var(--ui-bg-elevated, rgba(127, 127, 127, 0.15));
+  padding: 0.05em 0.3em;
+  border-radius: 4px;
+}
+
+/* Boxed-arrow "open in a new tab" affordance appended after a URL in item text
+   (utils/markdown.ts linkifyToIcons). The URL itself stays inert text; this small
+   icon is the only clickable target. Inherits the item's colour. */
+.ext-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.15em;
+  height: 1.15em;
+  margin: 0 0.15em;
+  border: 1px solid currentColor;
+  border-radius: 3px;
+  font-size: 0.8em;
+  line-height: 1;
+  text-decoration: none;
+  color: inherit;
+  opacity: 0.6;
+  vertical-align: baseline;
+  transition: opacity 0.12s;
+}
+.ext-link:hover {
+  opacity: 1;
+}
+
 /* Board-preview companion: the rendered block is line-clamped to 2/3 lines, but
    block children (lists, headings, blockquotes) introduce margins that make the
    clamp look ragged. Flatten inter-block spacing so the preview stays tidy. */

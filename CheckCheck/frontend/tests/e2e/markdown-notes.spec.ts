@@ -80,6 +80,80 @@ test.describe("Markdown card notes", () => {
     await expect(dialog.locator("[data-testid=card-notes-rendered] em")).toHaveText("italic");
   });
 
+  test("item text renders inline Markdown on the board (block syntax stays literal)", async ({ page }) => {
+    const { id, title } = await makeCard(page, "notes");
+    // Two items: one with inline markup, one with block markup that must NOT render.
+    for (const text of ["**urgent** call", "# not a heading"]) {
+      await page.request.post(`/api/checklist/${id}/item`, {
+        data: { text },
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+    await page.goto("/");
+
+    const card = page.locator(".checklist", { hasText: title }).first();
+    // Inline markup renders …
+    await expect(card.locator(".md-inline strong")).toHaveText("urgent");
+    await expect(card.locator(".checklist-items-collection")).not.toContainText("**urgent**");
+    // … but block markup is inert (no heading element; the '#' stays as text).
+    await expect(card.locator(".checklist-items-collection h1")).toHaveCount(0);
+    await expect(card.locator(".checklist-items-collection")).toContainText("# not a heading");
+  });
+
+  test("a URL in item text gets a boxed-arrow icon that opens a new tab, not the card", async ({ page }) => {
+    const url = "https://example.com/receipt";
+    const { id, title } = await makeCard(page, "notes");
+    await page.request.post(`/api/checklist/${id}/item`, {
+      data: { text: `pay invoice ${url}` },
+      headers: { "Content-Type": "application/json" },
+    });
+    await page.goto("/");
+
+    const card = page.locator(".checklist", { hasText: title }).first();
+    const item = card.locator(".checklist-items-collection .md-inline", { hasText: "pay invoice" });
+    // URL renders as inert text; the only anchor is the icon affordance.
+    await expect(item).toContainText(url);
+    const icon = item.locator("a.ext-link");
+    await expect(icon).toHaveAttribute("href", url);
+    await expect(icon).toHaveAttribute("target", "_blank");
+    await expect(item.locator("a:not(.ext-link)")).toHaveCount(0);
+
+    // Clicking the icon opens the link in a new tab and must NOT open the card.
+    page.on("popup", (p) => void p.close().catch(() => {}));
+    await icon.click();
+    await expect(page).not.toHaveURL(/\/card\//);
+  });
+
+  test("an item in the open card swaps between rendered Markdown and its source", async ({ page }) => {
+    const { id, title } = await makeCard(page, "notes");
+    await page.request.post(`/api/checklist/${id}/item`, {
+      data: { text: "**urgent** call" },
+      headers: { "Content-Type": "application/json" },
+    });
+    await page.goto("/");
+    await page.locator("[data-testid=card-title]", { hasText: title }).first().click();
+
+    const dialog = editorDialog(page);
+    await expect(dialog).toBeVisible();
+
+    // Open card, not editing → rendered Markdown, no editor mounted.
+    const rendered = dialog.locator("[data-testid=item-text-rendered]").first();
+    await expect(rendered.locator("strong")).toHaveText("urgent");
+    await expect(dialog.locator("[data-testid=item-text-editor]")).toHaveCount(0);
+
+    // Click swaps that row to the raw source, focused.
+    await rendered.click();
+    const editor = dialog.locator("[data-testid=item-text-editor]").first();
+    await expect(editor).toHaveValue("**urgent** call");
+    await expect(editor).toBeFocused();
+
+    // Blur swaps back to rendered Markdown with the edit applied.
+    await editor.fill("**urgent** call ~~later~~");
+    await dialog.locator('textarea[placeholder="Enter a checklist title..."]').click();
+    await expect(dialog.locator("[data-testid=item-text-editor]")).toHaveCount(0);
+    await expect(dialog.locator("[data-testid=item-text-rendered] s").first()).toHaveText("later");
+  });
+
   test("the Formatting help hint opens the cheat-sheet popup", async ({ page }) => {
     const { title } = await makeCard(page, "notes");
     await page.goto("/");
