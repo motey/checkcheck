@@ -6,7 +6,7 @@ organise with labels, and share individual cards with other people. Because it
 is local-first, the app keeps working while you are offline and syncs back up
 when the connection returns, and it installs as a PWA.
 
-**Status: Early Beta.** Usable and self-hostable, but rough edges remain and
+**Status: Beta.** Usable and self-hostable, but edges remain and
 things can still change. See [Limitations](#limitations) before you rely on it.  
 (I just started driving it in real life)
 
@@ -106,7 +106,7 @@ CheckCheck is young. Know these before deploying:
   nothing while disconnected.
 - **The offline snapshot is stored unencrypted on the device.** Treat shared or
   public machines accordingly.
-- **Pre-Alpha stability.** Expect bugs and occasional breaking changes. Read
+- **Beta stability.** Expect bugs and occasional changes. Read
   [docs/UPGRADING.md](docs/UPGRADING.md) before upgrading and keep backups.
 
 ## Documentation
@@ -127,6 +127,20 @@ See [docs/deployment.md](docs/deployment.md) for building the image yourself and
 [CheckCheck/backend/README.md](CheckCheck/backend/README.md) /
 [CheckCheck/frontend/README.md](CheckCheck/frontend/README.md) for the
 component-level developer setup.
+
+
+## Roadmap
+
+Missing features, that i will integrate soon...
+
+* Email notifications
+* "Remind me on date"-feature
+
+### Ideas
+
+Maybe some day...
+
+* Android native client
 
 ## License
 
