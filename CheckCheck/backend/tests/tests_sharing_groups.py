@@ -1,10 +1,15 @@
-"""Integration tests for Phase 10 — org / group (OIDC group) sharing.
+"""Integration tests for org / group (OIDC group) sharing — now *living* shares.
 
-An owner can share a card with everyone in an OIDC group in one call. Membership
-is *snapshotted* at share time (the group is expanded to its current members and
-an ordinary collaborator row is created per member), so the whole flow reuses the
-per-user share machinery: the invite gate (Phase 8) and the in-app notifications
-(Phase 9) apply automatically.
+An owner shares a card with everyone in an OIDC group in one call. The group→level
+intent is persisted as a first-class ``CheckListGroupShare`` (source of truth), and
+access is *materialized* onto the group's current members as ordinary collaborator
+rows — so the whole flow still reuses the per-user share machinery (the invite gate
+and the in-app notifications apply automatically). Because it is living, membership
+is reconciled: lowering a group's level downgrades its group-derived members, new
+members gain access on their next OIDC login, leavers lose it, and revoking the
+group removes members it granted while leaving explicit individual shares intact.
+An explicit individual share always wins (the reconciler never touches a
+``via_group IS NULL`` row).
 
 Most tests run in the default suite (instant-add, invite flag OFF). The single
 invite-on case runs in the dedicated invite-flow pass that boots the server with
@@ -17,6 +22,7 @@ the run script selected, so the two scripts together exercise both code paths.
 """
 
 import os
+import time
 
 import pytest
 import requests
@@ -27,11 +33,13 @@ from utils import (
     create_test_user,
     authorize_for_access_token,
     oidc_login_get_token,
+    get_access_token,
     dict_must_contain,
     find_first_dict_in_list,
     list_contains_dict_that_must_contain,
 )
 from statics import OIDC_TEST_PROVIDER_SLUG
+from tests_sharing_sync import _SSECollector
 
 INVITE_REQUIRED = server_config.SHARING_REQUIRE_INVITE_ACCEPT
 
@@ -89,6 +97,16 @@ def _share_group(checklist_id: str, group: str, permission: str, **kw) -> dict:
 
 def _shares(checklist_id: str) -> list[dict]:
     return req(f"api/checklist/{checklist_id}/shares")
+
+
+def _group_shares(checklist_id: str, **kw) -> list[dict]:
+    return req(f"api/checklist/{checklist_id}/shares/group", **kw)
+
+
+def _revoke_group(checklist_id: str, group: str, **kw):
+    return req(
+        f"api/checklist/{checklist_id}/shares/group/{group}", "delete", **kw
+    )
 
 
 # ── GET /user/me/groups ───────────────────────────────────────────────────────
@@ -171,31 +189,44 @@ def test_group_share_adds_members_skips_owner_and_higher_level():
 
 
 @requires_invite_off
-def test_group_share_is_idempotent_and_does_not_downgrade_on_repeat():
-    """Re-sharing the same group at a lower level skips everyone already at the
-    higher level (no downgrade); re-sharing at the same level is a no-op add=0."""
+def test_group_share_relevels_group_derived_members_but_not_explicit():
+    """Living semantics: re-sharing the same group at the same level is a no-op;
+    re-sharing at a *different* level re-levels the group-derived members (up OR
+    down, since the group share is authoritative for them) — but a member holding
+    an explicit individual share at a higher level is never touched."""
     group = "team-idem"
     _, m1_id = _make_user("group-idem-m1")
     _, m2_id = _make_user("group-idem-m2")
+    _, exp_id = _make_user("group-idem-explicit")
     _set_groups(m1_id, [group])
     _set_groups(m2_id, [group])
+    _set_groups(exp_id, [group])
     checklist_id = _create_checklist("GroupIdem")
+    # An explicit individual share at 'edit' — must survive any group re-level.
+    _share_user(checklist_id, exp_id, "edit")
 
     first = _share_group(checklist_id, group, "edit")
-    dict_must_contain(first, {"added": 2, "skipped": 0, "total_members": 2})
+    # m1 + m2 newly granted; exp_id skipped (explicit share wins).
+    dict_must_contain(first, {"added": 2, "skipped": 1, "total_members": 3})
 
-    # Same level again — already at 'edit', nothing to do.
+    # Same level again — group-derived already at 'edit', explicit still skipped.
     again = _share_group(checklist_id, group, "edit")
-    dict_must_contain(again, {"added": 0, "skipped": 2})
+    dict_must_contain(again, {"added": 0, "skipped": 3})
 
-    # Lower level — must not downgrade anyone.
+    # Lower level — the group is authoritative for its own members: they drop to
+    # 'view'. The explicit 'edit' share is untouched.
     lower = _share_group(checklist_id, group, "view")
-    dict_must_contain(lower, {"added": 0, "skipped": 2})
+    dict_must_contain(lower, {"added": 2, "skipped": 1})
     for uid in (m1_id, m2_id):
         dict_must_contain(
             find_first_dict_in_list(_shares(checklist_id), {"user_id": uid}),
-            {"permission": "edit"},
+            {"permission": "view"},
         )
+    # Explicit share preserved at 'edit'.
+    dict_must_contain(
+        find_first_dict_in_list(_shares(checklist_id), {"user_id": exp_id}),
+        {"permission": "edit"},
+    )
 
 
 def test_group_share_unknown_group_resolves_empty():
@@ -227,6 +258,128 @@ def test_group_share_requires_owner():
         access_token=stranger_token,
         expected_http_code=403,
     )
+
+
+# ── GET / DELETE group shares (the first-class group list) ────────────────────
+
+
+@requires_invite_off
+def test_group_shares_are_listed_and_reflect_level():
+    """The card records which groups it is shared with (GET .../shares/group),
+    each at its own level — the data behind the ShareModal's group list."""
+    checklist_id = _create_checklist("GroupList")
+    assert _group_shares(checklist_id) == []
+
+    _share_group(checklist_id, "team-list-a", "view")
+    _share_group(checklist_id, "team-list-b", "edit")
+
+    listed = _group_shares(checklist_id)
+    assert {g["group"] for g in listed} == {"team-list-a", "team-list-b"}
+    dict_must_contain(
+        find_first_dict_in_list(listed, {"group": "team-list-a"}),
+        {"permission": "view"},
+    )
+    dict_must_contain(
+        find_first_dict_in_list(listed, {"group": "team-list-b"}),
+        {"permission": "edit"},
+    )
+
+    # Non-owner cannot see the group list.
+    stranger_token, _ = _make_user("group-list-stranger")
+    _group_shares(checklist_id, access_token=stranger_token, expected_http_code=403)
+
+
+@requires_invite_off
+def test_revoke_group_removes_group_only_members_keeps_explicit_and_other_group():
+    """Revoking a group share removes members who had access only via that group,
+    but leaves an explicit individual share intact and keeps a member who is still
+    covered by another group share (dropped to that group's level)."""
+    group = "team-rev"
+    other = "team-rev-other"
+    alice_token, alice_id = _make_user("group-rev-alice")   # group-only
+    bob_token, bob_id = _make_user("group-rev-bob")     # group + explicit edit
+    carol_token, carol_id = _make_user("group-rev-carol")  # in both groups
+    _set_groups(alice_id, [group])
+    _set_groups(bob_id, [group])
+    _set_groups(carol_id, [group, other])
+
+    checklist_id = _create_checklist("GroupRevoke")
+    _share_user(checklist_id, bob_id, "edit")  # explicit, must survive
+    _share_group(checklist_id, group, "view")
+    _share_group(checklist_id, other, "check")
+
+    # Everyone can see the card before the revoke.
+    for tok in (alice_token, bob_token, carol_token):
+        req(f"api/checklist/{checklist_id}", access_token=tok, expected_http_code=200)
+
+    _revoke_group(checklist_id, group, expected_http_code=204)
+
+    # Alice had access only via `group` → removed.
+    req(f"api/checklist/{checklist_id}", access_token=alice_token, expected_http_code=403)
+    # Bob keeps his explicit 'edit' share.
+    req(f"api/checklist/{checklist_id}", access_token=bob_token, expected_http_code=200)
+    dict_must_contain(
+        find_first_dict_in_list(_shares(checklist_id), {"user_id": bob_id}),
+        {"permission": "edit"},
+    )
+    # Carol stays (still in `other`), dropped to that group's 'check' level.
+    req(f"api/checklist/{checklist_id}", access_token=carol_token, expected_http_code=200)
+    dict_must_contain(
+        find_first_dict_in_list(_shares(checklist_id), {"user_id": carol_id}),
+        {"permission": "check"},
+    )
+
+    # The group list now shows only the remaining group.
+    assert {g["group"] for g in _group_shares(checklist_id)} == {other}
+
+
+@requires_invite_off
+def test_bulk_group_revoke_emits_single_share_removed_broadcast():
+    """A bulk group revoke removes N members from one card. The owner (and any
+    remaining share-set member) must get exactly ONE broadcast ``share_removed``
+    for the card — not one per removed member — while each removed member still
+    gets their own targeted ``checklist_deleted`` so the card leaves their board."""
+    group = "team-bulk-revoke"
+    owner_token = get_access_token()  # default login owns cards created via req()
+    member_tokens = []
+    for i in range(3):
+        tok, uid = _make_user(f"group-bulk-rev-{i}")
+        _set_groups(uid, [group])
+        member_tokens.append(tok)
+
+    checklist_id = _create_checklist("GroupBulkRevoke")
+    dict_must_contain(
+        _share_group(checklist_id, group, "view"),
+        {"added": 3, "total_members": 3},
+    )
+
+    # Watch the owner's broadcast stream and one removed member's targeted stream.
+    with _SSECollector(owner_token) as owner_sse, _SSECollector(
+        member_tokens[0]
+    ) as member_sse:
+        _revoke_group(checklist_id, group, expected_http_code=204)
+
+        # Per-user pinned poke still reaches each removed member (targeted).
+        assert member_sse.received(
+            cl_id=checklist_id, upd_prop="checklist_deleted"
+        ), "removed member was not told to drop the card"
+
+        # The owner is told the share set changed — and only once for the batch.
+        assert owner_sse.received(
+            cl_id=checklist_id, upd_prop="share_removed"
+        ), "owner was not notified the group share was revoked"
+        # Give any extra (pre-fix, per-member) broadcasts time to arrive.
+        time.sleep(2.0)
+        share_removed = [
+            e
+            for e in list(owner_sse.events)
+            if e.get("cl_id") == checklist_id
+            and e.get("upd_prop") == "share_removed"
+        ]
+        assert len(share_removed) == 1, (
+            "expected a single batched 'share_removed' broadcast for a bulk "
+            f"group revoke of 3 members, got {len(share_removed)}"
+        )
 
 
 # ── invite gate (invite-flow pass, flag on) ───────────────────────────────────
@@ -321,5 +474,45 @@ def test_restrict_caller_can_share_own_group_but_not_a_foreign_one():
         "some-foreign-group",
         "view",
         access_token=owner_token,
+        expected_http_code=403,
+    )
+
+
+# ── reconcile on OIDC login (the "living" part) ───────────────────────────────
+
+
+@requires_invite_off
+def test_reconcile_on_login_grants_new_member_and_revokes_leaver():
+    """Living membership across logins: a card shared with a group is gained by a
+    user who logs in already in that group — even though the share predates their
+    account — and lost when they next log in no longer in that group. This is the
+    reconcile-on-login path (the only moment a user's OIDC group set is re-read)."""
+    _require_oidc()
+    group = "team-login-live"
+
+    # A local owner shares a card with the group *before* the member exists.
+    owner_token, _ = _make_user("group-login-owner")
+    checklist_id = req(
+        "api/checklist",
+        "post",
+        b={"name": "GroupLoginLive", "color_id": "yellow"},
+        access_token=owner_token,
+    )["id"]
+    _share_group(checklist_id, group, "view", access_token=owner_token)
+
+    # The member's first OIDC login (already in the group) materializes access.
+    sub = "group-login-live-member"
+    member_token = _oidc_login_with_groups(sub, [group])
+    req(
+        f"api/checklist/{checklist_id}",
+        access_token=member_token,
+        expected_http_code=200,
+    )
+
+    # Logging in again, no longer in the group, removes the group-derived access.
+    member_token_after = _oidc_login_with_groups(sub, [])
+    req(
+        f"api/checklist/{checklist_id}",
+        access_token=member_token_after,
         expected_http_code=403,
     )

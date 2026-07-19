@@ -7,6 +7,7 @@ from checkcheckserver.model.user_session import UserSession
 from checkcheckserver.model.sync_notifications import SyncNotification
 from checkcheckserver.model.checklist import CheckList
 from checkcheckserver.model.checklist_collaborator import CheckListCollaborator
+from checkcheckserver.model.checklist_group_share import CheckListGroupShare
 from checkcheckserver.model.checklist_public_share import CheckListPublicShare
 from checkcheckserver.model.notification import Notification
 from checkcheckserver.model.checklist_color_scheme import ChecklistColorScheme

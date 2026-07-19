@@ -66,6 +66,7 @@ declare global {
     type UnlockRequestType = components["schemas"]["UnlockRequest"]          // {password}
     type UnlockResultType = components["schemas"]["UnlockResult"]            // {grant, expires_in}
     type GroupShareResult = components["schemas"]["GroupShareResult"]
+    type GroupShareReadType = components["schemas"]["GroupShareRead"]
     type TransferOwnershipResultType = components["schemas"]["TransferOwnershipResult"]
     type InviteReadType = components["schemas"]["InviteRead"]
     type NotificationReadType = components["schemas"]["NotificationRead"]

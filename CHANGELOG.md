@@ -29,6 +29,13 @@ and the app is installable as a PWA.
   bounce you to `/login`.
 - **Soft delete (tombstones)** for checklists, items, and labels so deletions
   propagate correctly through the delta feed.
+- **Living group shares.** Sharing a card with an OIDC group is now a first-class,
+  persistent share: the ShareModal lists the groups a card is shared with (each at
+  its own permission), you can share with several groups and remove one as a unit,
+  and membership is *living* — people who join a shared group gain access on their
+  next sign-in, and leavers lose it. Revoking a group removes the access it
+  granted while leaving individual shares intact; an explicit individual share
+  always takes precedence over a group's level. (Migration `0012`.)
 
 ### Changed
 

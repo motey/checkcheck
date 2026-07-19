@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "CheckCheck REST API",
-    "version": "0.0.8.dev6+g2941c84.d20260718"
+    "version": "0.0.9.dev2+g60a11c7.d20260719"
   },
   "paths": {
     "/api/health": {
@@ -2161,13 +2161,66 @@
         ]
       }
     },
+    "/api/checklist/{checklist_id}/shares/group": {
+      "get": {
+        "tags": [
+          "Checklist Sharing"
+        ],
+        "summary": "List Group Shares",
+        "description": "List the OIDC groups this checklist is shared with. Owner only.",
+        "operationId": "list_group_shares_api_checklist__checklist_id__shares_group_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "checklist_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Checklist Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/GroupShareRead"
+                  },
+                  "title": "Response List Group Shares Api Checklist  Checklist Id  Shares Group Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/checklist/{checklist_id}/shares/group/{group}": {
       "put": {
         "tags": [
           "Checklist Sharing"
         ],
         "summary": "Share With Group",
-        "description": "Share the checklist with every member of an OIDC group at the given permission. Snapshots membership now (later joiners are not auto-added). Skips the owner and anyone already at an equal or higher level (never downgrades). Honours the invite gate. Owner only.",
+        "description": "Share the checklist with an OIDC group at the given permission \u2014 a first-class, *living* share: the group is recorded, and current members are granted access now while future joiners gain it on their next login (and leavers lose it). Skips the owner and anyone holding an explicit individual share (explicit wins). Honours the invite gate. Owner only.",
         "operationId": "share_with_group_api_checklist__checklist_id__shares_group__group__put",
         "security": [
           {
@@ -2215,6 +2268,55 @@
                 }
               }
             }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Checklist Sharing"
+        ],
+        "summary": "Revoke Group Share",
+        "description": "Stop sharing the checklist with an OIDC group. Members who had access only via this group lose it; anyone holding an explicit individual share keeps it. Owner only.",
+        "operationId": "revoke_group_share_api_checklist__checklist_id__shares_group__group__delete",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "group",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Group"
+            }
+          },
+          {
+            "name": "checklist_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Checklist Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
           },
           "422": {
             "description": "Validation Error",
@@ -6624,6 +6726,30 @@
           "accentcolor_light_hex"
         ],
         "title": "ChecklistColorScheme"
+      },
+      "GroupShareRead": {
+        "properties": {
+          "group": {
+            "type": "string",
+            "title": "Group"
+          },
+          "permission": {
+            "$ref": "#/components/schemas/SharePermission"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "group",
+          "permission",
+          "created_at"
+        ],
+        "title": "GroupShareRead",
+        "description": "One group a checklist is shared with, for the ShareModal's group list."
       },
       "GroupShareRequest": {
         "properties": {

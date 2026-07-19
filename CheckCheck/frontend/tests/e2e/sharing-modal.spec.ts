@@ -120,6 +120,57 @@ test.describe("F2 share-management dialog", () => {
     await page.keyboard.press("Escape");
   });
 
+  test("owner can share with a group and remove it via the dialog", async ({ page }) => {
+    // Give the owner (admin) an OIDC group so the group picker is populated, then
+    // clean it up afterwards so it doesn't leak into other specs.
+    const me = await (await page.request.get("/api/user/me")).json();
+    const group = `e2e-grp-${Date.now()}`;
+    const setGroups = async (groups: string[]) => {
+      const res = await page.request.patch(`/api/user/${me.id}`, {
+        data: { oidc_groups: groups },
+        headers: { "Content-Type": "application/json" },
+      });
+      expect(res.ok()).toBeTruthy();
+    };
+    await setGroups([group]);
+
+    try {
+      const { id, title } = await createCard(page);
+      await page.goto("/");
+      await openShareModal(page, title);
+
+      const dialog = page.locator('[role="dialog"]').filter({ hasText: "Share this list" });
+      await expect(dialog).toBeVisible({ timeout: 5_000 });
+
+      // Pick the group in the add-box and share it.
+      await dialog.locator("[data-testid=share-group-select]").click();
+      await page.getByRole("option", { name: group }).click();
+      await dialog.locator("[data-testid=share-group-add]").click();
+
+      // It now shows in the group list.
+      const row = dialog
+        .locator("[data-testid=share-group-row]")
+        .filter({ hasText: group });
+      await expect(row, "group row should appear").toBeVisible({ timeout: 5_000 });
+
+      // Backend recorded it.
+      const listed = await (
+        await page.request.get(`/api/checklist/${id}/shares/group`)
+      ).json();
+      expect(listed.some((g: any) => g.group === group)).toBeTruthy();
+
+      // Remove it again.
+      await row.locator("[data-testid=share-group-remove]").click();
+      await expect(row, "group row should disappear after revoke").toHaveCount(0, {
+        timeout: 5_000,
+      });
+
+      await page.keyboard.press("Escape");
+    } finally {
+      await setGroups([]);
+    }
+  });
+
   test("owner can transfer ownership and is demoted to a collaborator", async ({ page }) => {
     const { id, title } = await createCard(page);
     // testuser01 must be an accepted collaborator before they can become owner.

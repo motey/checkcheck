@@ -34,6 +34,10 @@ export type ShareState = {
   // The current user's OIDC groups (empty for local users → hide group UI).
   // null = not fetched yet.
   myGroups: string[] | null;
+  // The OIDC groups each checklist is shared with, keyed by checklist id. These
+  // are first-class, living group shares (see backend group_share_reconcile):
+  // members gain/lose access as the group changes.
+  groupShares: Record<string, GroupShareReadType[]>;
 };
 
 export const useShareStore = defineStore("share", {
@@ -44,6 +48,7 @@ export const useShareStore = defineStore("share", {
       linkTokens: {},
       openForChecklistId: null,
       myGroups: null,
+      groupShares: {},
     } as ShareState),
   getters: {
     // The cached collaborator list for a checklist (empty until listShares runs).
@@ -57,6 +62,11 @@ export const useShareStore = defineStore("share", {
     // The token captured for a link at creation (this session only), or null.
     tokenFor: (state) => {
       return (linkId: string): string | null => state.linkTokens[linkId] ?? null;
+    },
+    // The cached group-share list for a checklist (empty until listGroupShares runs).
+    groupSharesFor: (state) => {
+      return (checkListId: string): GroupShareReadType[] =>
+        state.groupShares[checkListId] ?? [];
     },
   },
   actions: {
@@ -175,7 +185,28 @@ export const useShareStore = defineStore("share", {
       return this.myGroups ?? [];
     },
 
-    async shareWithGroup(
+    // The groups a checklist is shared with (owner-only; 403 otherwise).
+    async listGroupShares(checkListId: string): Promise<GroupShareReadType[]> {
+      const { $checkapi } = useNuxtApp();
+      let res: GroupShareReadType[];
+      try {
+        res = await $checkapi("/api/checklist/{checklist_id}/shares/group", {
+          path: { checklist_id: checkListId },
+          method: "get",
+          skipErrorToast: true,
+        });
+      } catch (error) {
+        console.error("Could not list group shares 'GET .../shares/group'", error);
+        throw error;
+      }
+      this.groupShares[checkListId] = res;
+      return res;
+    },
+
+    // Share with (or re-level) an OIDC group. Living: current members are granted
+    // now, future joiners on their next login. Re-reads the group + collaborator
+    // lists so the modal reflects the change immediately.
+    async upsertGroupShare(
       checkListId: string,
       group: string,
       permission: SharePermission
@@ -194,10 +225,35 @@ export const useShareStore = defineStore("share", {
         console.error("Could not share with group 'PUT .../shares/group/" + group + "'", error);
         throw error;
       }
-      // The new/raised members are now collaborators — re-read the list so the
-      // modal reflects them immediately.
-      await this.listShares(checkListId).catch(() => {});
+      await Promise.all([
+        this.listGroupShares(checkListId).catch(() => {}),
+        this.listShares(checkListId).catch(() => {}),
+      ]);
       return res;
+    },
+
+    // Stop sharing with a group. Members who only had access via the group lose
+    // it; explicit individual shares are kept (handled server-side).
+    async revokeGroupShare(checkListId: string, group: string): Promise<void> {
+      assertOnline("Removing access isn't available offline.");
+      const { $checkapi } = useNuxtApp();
+      try {
+        await $checkapi("/api/checklist/{checklist_id}/shares/group/{group}", {
+          path: { checklist_id: checkListId, group },
+          method: "delete",
+          skipErrorToast: true,
+        });
+      } catch (error) {
+        console.error("Could not revoke group share 'DELETE .../shares/group/" + group + "'", error);
+        throw error;
+      }
+      const list = this.groupShares[checkListId];
+      if (list) {
+        const idx = list.findIndex((g) => g.group === group);
+        if (idx !== -1) list.splice(idx, 1);
+      }
+      // Members may have been removed — refresh the collaborator list too.
+      await this.listShares(checkListId).catch(() => {});
     },
 
     // ── Public (anonymous URL) links — owner-only, F3 ───────────────────────

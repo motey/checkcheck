@@ -45,8 +45,8 @@ from checkcheckserver.api.share_password import (
 )
 from checkcheckserver.api.routes.routes_checklist_share import (
     require_public_links_enabled,
-    _ensure_position,
 )
+from checkcheckserver.api.share_ops import ensure_position
 from checkcheckserver.model.checklist import CheckListApiWithSubObj
 from checkcheckserver.db.checklist import CheckListCRUD
 from checkcheckserver.db.checklist_label import ChecklistLabelCRUD
@@ -264,7 +264,7 @@ async def join_public_checklist(
             user_id=current_user.id,
             permission=link.permission,
         )
-        await _ensure_position(
+        await ensure_position(
             checklist_id, current_user.id, checklist_position_crud
         )
         # owner + collaborators (now including the joiner) see the share set grow.
