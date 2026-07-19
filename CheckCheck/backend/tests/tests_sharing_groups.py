@@ -227,6 +227,11 @@ def test_group_share_relevels_group_derived_members_but_not_explicit():
         find_first_dict_in_list(_shares(checklist_id), {"user_id": exp_id}),
         {"permission": "edit"},
     )
+    # Provenance is exposed so the people-list UI can hide group-derived rows:
+    # group members carry via_group; the explicit share does not.
+    shares = _shares(checklist_id)
+    assert find_first_dict_in_list(shares, {"user_id": m1_id})["via_group"] == group
+    assert find_first_dict_in_list(shares, {"user_id": exp_id})["via_group"] is None
 
 
 def test_group_share_unknown_group_resolves_empty():

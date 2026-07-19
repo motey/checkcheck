@@ -121,18 +121,25 @@ test.describe("F2 share-management dialog", () => {
   });
 
   test("owner can share with a group and remove it via the dialog", async ({ page }) => {
-    // Give the owner (admin) an OIDC group so the group picker is populated, then
-    // clean it up afterwards so it doesn't leak into other specs.
+    // Give the owner (admin) an OIDC group so the group picker is populated, and
+    // put testuser01 in the same group so the share materializes a member — used
+    // to assert group members do NOT clutter the "Share with user" list. All group
+    // assignments are reset afterwards so they don't leak into other specs.
     const me = await (await page.request.get("/api/user/me")).json();
+    const member = (
+      await (await page.request.get("/api/user/search", { params: { q: TEST_USER.username } })).json()
+    ).find((u: any) => u.user_name === TEST_USER.username);
+    expect(member, "testuser01 should be findable").toBeTruthy();
     const group = `e2e-grp-${Date.now()}`;
-    const setGroups = async (groups: string[]) => {
-      const res = await page.request.patch(`/api/user/${me.id}`, {
+    const setGroups = async (userId: string, groups: string[]) => {
+      const res = await page.request.patch(`/api/user/${userId}`, {
         data: { oidc_groups: groups },
         headers: { "Content-Type": "application/json" },
       });
       expect(res.ok()).toBeTruthy();
     };
-    await setGroups([group]);
+    await setGroups(me.id, [group]);
+    await setGroups(member.id, [group]);
 
     try {
       const { id, title } = await createCard(page);
@@ -153,13 +160,26 @@ test.describe("F2 share-management dialog", () => {
         .filter({ hasText: group });
       await expect(row, "group row should appear").toBeVisible({ timeout: 5_000 });
 
-      // Backend recorded it.
-      const listed = await (
+      // Backend recorded the group, and testuser01 has access *via* it …
+      const listedGroups = await (
         await page.request.get(`/api/checklist/${id}/shares/group`)
       ).json();
-      expect(listed.some((g: any) => g.group === group)).toBeTruthy();
+      expect(listedGroups.some((g: any) => g.group === group)).toBeTruthy();
+      const shares = await (await page.request.get(`/api/checklist/${id}/shares`)).json();
+      const memberShare = shares.find((s: any) => s.user_id === member.id);
+      expect(memberShare, "group member should have a collaborator row").toBeTruthy();
+      expect(memberShare.via_group).toBe(group);
 
-      // Remove it again.
+      // … but that group-derived member is NOT shown in "Share with user":
+      // group access is represented by the group row above, not per-member rows.
+      await expect(
+        dialog
+          .locator("[data-testid=share-collaborator-row]")
+          .filter({ hasText: TEST_USER_DISPLAY }),
+        "group member must not clutter the people list",
+      ).toHaveCount(0);
+
+      // Remove the group again.
       await row.locator("[data-testid=share-group-remove]").click();
       await expect(row, "group row should disappear after revoke").toHaveCount(0, {
         timeout: 5_000,
@@ -167,7 +187,8 @@ test.describe("F2 share-management dialog", () => {
 
       await page.keyboard.press("Escape");
     } finally {
-      await setGroups([]);
+      await setGroups(me.id, []);
+      await setGroups(member.id, []);
     }
   });
 

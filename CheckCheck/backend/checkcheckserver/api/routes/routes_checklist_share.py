@@ -113,6 +113,15 @@ class ShareRead(BaseModel):
         default=ShareStatus.accepted,
         description="Whether the share is live ('accepted'), an unaccepted invite ('pending'), or declined.",
     )
+    via_group: Optional[str] = Field(
+        default=None,
+        description=(
+            "Set to the OIDC group name when this collaborator's access was "
+            "materialized from a group share (rather than an explicit individual "
+            "share). The people-list UI hides these rows — they are represented by "
+            "the group in the group-share list — so only explicit shares are shown."
+        ),
+    )
 
 
 class TransferOwnershipRequest(BaseModel):
@@ -168,6 +177,7 @@ async def list_shares(
                 display_name=user.display_name if user else None,
                 permission=collab.permission,
                 status=collab.status,
+                via_group=collab.via_group,
             )
         )
     return result
@@ -253,6 +263,7 @@ async def upsert_share(
         display_name=target.display_name,
         permission=collab.permission,
         status=collab.status,
+        via_group=collab.via_group,
     )
 
 

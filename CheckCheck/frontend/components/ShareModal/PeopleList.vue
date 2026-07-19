@@ -9,7 +9,10 @@
         class="flex items-center justify-between px-3 py-2 gap-2"
       >
         <span class="text-sm">
-          {{ ownerLabel }}
+          {{ ownerName
+          }}<span v-if="ownerHasName" class="ml-1 text-xs font-bold text-muted"
+            >(you)</span
+          >
         </span>
         <UBadge color="primary" variant="subtle" size="sm">Owner</UBadge>
       </li>
@@ -100,15 +103,26 @@ const checkListsStore = useCheckListsStore();
 const toast = useToast();
 const { isOwner } = usePermissions();
 
-const collaborators = computed(() => shareStore.sharesFor(props.checkListId));
+// Only explicit individual shares are listed here. Collaborators materialized
+// from a group share (via_group set) are represented by the group in the
+// group-share list, not shown per-member — otherwise a large group floods this
+// list, and removing such a row wouldn't stick (the reconciler re-adds them).
+const collaborators = computed(() =>
+  shareStore.sharesFor(props.checkListId).filter((s) => !s.via_group)
+);
 
 const card = computed(() => checkListsStore.get(props.checkListId));
 // Editable view is owner-only, so when editable the current user is the owner.
 const showSelfOwnerRow = computed(() => props.editable && isOwner(card.value));
-const ownerLabel = computed(() => {
+// Split the name from the "(you)" marker so the template can style the marker
+// (smaller + bold) distinctly, making clear it isn't part of the name.
+const ownerName = computed(() => {
   const me = userStore.me;
-  const name = me?.display_name || me?.user_name;
-  return name ? `${name} (you)` : "You";
+  return me?.display_name || me?.user_name || "You";
+});
+const ownerHasName = computed(() => {
+  const me = userStore.me;
+  return Boolean(me?.display_name || me?.user_name);
 });
 
 const busyId = ref<string | null>(null);
