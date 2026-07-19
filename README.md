@@ -113,6 +113,14 @@ CheckCheck is young. Know these before deploying:
   public machines accordingly.
 - **Beta stability.** Expect bugs and occasional changes. Read
   [docs/UPGRADING.md](docs/UPGRADING.md) before upgrading and keep backups.
+- **LLMs.** For finishing the project I made heavy usage of Claude code. The core, base design and first prototypes are handwritten. Later stuff is mostly LLM generated. Do whatever you want with this information.
+
+> [!IMPORTANT]  
+> CheckCheck is a personal and opionated hobby project maintained by a solo developer with limited time and resources. I originally built this app to meet my own needs.
+>
+> If you find a bug or have an idea for an improvement, I'd appreciate it if you opened an issue or even submitted a pull request. That said, please don't expect quick support or assume that every suggestion will be implemented.
+>
+> I also don't expect to have the time to build or manage a community around the project in the future. However, if a group of volunteers ever forms around the project, I'd certainly consider handing it over to the community.
 
 ## Documentation
 
