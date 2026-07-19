@@ -1,6 +1,13 @@
 
 # Run the MedLog Backend Server with a OIDC Mockup server
 # This mainly intended for Frontend OIDC Development
+#
+# Usage: ./run_dev_backend_server_with_oidc.sh [--seed-data [--profile NAME] [--wipe]]
+#   --seed-data   Fill the DB with diverse random dev data (owner = the OIDC 'admin' user) before the
+#                 server boots. Idempotent: re-runs skip unless you also pass --wipe. See
+#                 CheckCheck/backend/checkcheckserver/dev/seed_dev_data.py for all knobs.
+#   --profile     small | medium | large — how much data to generate (default: medium). Implies --seed-data.
+#   --wipe        Regenerate the seed's data from scratch (only meaningful with --seed-data).
 
 #exit on error
 set -e
@@ -10,6 +17,22 @@ set -e
 # Otherwise pdm may run against an interpreter that lacks the installed deps
 # (e.g. oidc_provider_mock), which surfaces as a ModuleNotFoundError on boot.
 export PDM_IGNORE_ACTIVE_VENV=1
+
+#######################################
+# Parse arguments
+#######################################
+SEED_DATA=false
+SEED_PROFILE=medium
+SEED_WIPE=false
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --seed-data) SEED_DATA=true ;;
+        --wipe) SEED_DATA=true; SEED_WIPE=true ;;
+        --profile) SEED_DATA=true; SEED_PROFILE="$2"; shift ;;
+        --profile=*) SEED_DATA=true; SEED_PROFILE="${1#*=}" ;;
+    esac
+    shift
+done
 
 # Store process IDs
 PIDS=()
@@ -115,8 +138,19 @@ for i in {1..3}; do
 done
 echo "OIDC mockup server seemed to have booted."
 PIDS+=($mock_server_PID)  # Store PID
-# Boot CheckCheck Backend
 
-setsid bash -c "cd CheckCheck/backend && pdm run ./checkcheckserver/main.py $1" &
+# Seed diverse dev data (optional) before the server boots. The seeder runs the
+# same idempotent schema/migrations + init the server does, so there is no race.
+if [[ "$SEED_DATA" == "true" ]]; then
+    echo ""
+    echo "# SEEDING DEV DATA (profile=$SEED_PROFILE)"
+    SEED_ARGS=(--profile "$SEED_PROFILE")
+    [[ "$SEED_WIPE" == "true" ]] && SEED_ARGS+=(--wipe)
+    ( cd CheckCheck/backend && pdm run python -m checkcheckserver.dev.seed_dev_data "${SEED_ARGS[@]}" )
+    echo ""
+fi
+
+# Boot CheckCheck Backend
+setsid bash -c "cd CheckCheck/backend && pdm run ./checkcheckserver/main.py" &
 PIDS+=($!)  # Store PID of last background process (== its process-group leader)
 wait

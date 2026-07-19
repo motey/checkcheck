@@ -2,8 +2,13 @@
 # Run the CheckCheck Backend Server with an OIDC Mockup server and a PostgreSQL database
 # Mainly intended for Development
 #
-# Usage: ./run_dev_backend_server_with_oidc_on_postgres.sh [--reset]
-#   --reset  Stop and remove the existing PostgreSQL container (wiping all data), then start fresh
+# Usage: ./run_dev_backend_server_with_oidc_on_postgres.sh [--reset] [--seed-data [--profile NAME] [--wipe]]
+#   --reset       Stop and remove the existing PostgreSQL container (wiping all data), then start fresh
+#   --seed-data   Fill the DB with diverse random dev data (owner = the OIDC 'admin' user) before the
+#                 server boots. Idempotent: re-runs skip unless you also pass --wipe. See
+#                 CheckCheck/backend/checkcheckserver/dev/seed_dev_data.py for all knobs.
+#   --profile     small | medium | large — how much data to generate (default: medium). Implies --seed-data.
+#   --wipe        Regenerate the seed's data from scratch (only meaningful with --seed-data).
 
 set -e
 
@@ -18,10 +23,18 @@ export PDM_IGNORE_ACTIVE_VENV=1
 # Parse arguments
 #######################################
 RESET_DB=false
-for arg in "$@"; do
-    case "$arg" in
+SEED_DATA=false
+SEED_PROFILE=medium
+SEED_WIPE=false
+while [[ $# -gt 0 ]]; do
+    case "$1" in
         --reset) RESET_DB=true ;;
+        --seed-data) SEED_DATA=true ;;
+        --wipe) SEED_DATA=true; SEED_WIPE=true ;;
+        --profile) SEED_DATA=true; SEED_PROFILE="$2"; shift ;;
+        --profile=*) SEED_DATA=true; SEED_PROFILE="${1#*=}" ;;
     esac
+    shift
 done
 
 
@@ -203,9 +216,24 @@ PIDS+=($mock_server_PID)
 
 
 #######################################
+# Seed diverse dev data (optional)
+#######################################
+# Runs before the server: performs the same idempotent schema/migrations + init
+# the server does, then writes data, so there is no race against a live server.
+if [[ "$SEED_DATA" == "true" ]]; then
+    echo ""
+    echo "# SEEDING DEV DATA (profile=$SEED_PROFILE)"
+    SEED_ARGS=(--profile "$SEED_PROFILE")
+    [[ "$SEED_WIPE" == "true" ]] && SEED_ARGS+=(--wipe)
+    ( cd CheckCheck/backend && pdm run python -m checkcheckserver.dev.seed_dev_data "${SEED_ARGS[@]}" )
+    echo ""
+fi
+
+
+#######################################
 # Start CheckCheck Backend
 #######################################
-setsid bash -c "cd CheckCheck/backend && pdm run ./checkcheckserver/main.py $1" &
+setsid bash -c "cd CheckCheck/backend && pdm run ./checkcheckserver/main.py" &
 PIDS+=($!)
 
 wait

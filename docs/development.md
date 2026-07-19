@@ -87,6 +87,34 @@ bind-port fallback), so login works with no extra config. If you override
 `SET_SESSION_COOKIE_SECURE=false` or the browser drops the cookie (see
 [configuration.md](configuration.md#public-url-binding-and-the-session-cookie)).
 
+### Prefill the DB with diverse test data
+
+Both backend scripts take `--seed-data`, which fills the database with a diverse,
+generated board before the server boots: long and short lists, every colour,
+every settings combination, items that are one word / a paragraph / multi-line /
+Markdown / emoji, lists you have shared out, lists shared *to* you (including a
+still-pending invite), a living group share, and public links. Everything "you"
+own is owned by the OIDC mock user **`admin`**, so log in as `admin` to see it.
+
+```bash
+./run_dev_backend_server_with_oidc.sh --seed-data                    # medium volume (default)
+./run_dev_backend_server_with_oidc.sh --seed-data --profile large    # small | medium | large
+./run_dev_backend_server_with_oidc_on_postgres.sh --reset --seed-data # fresh Postgres, then seed
+./run_dev_backend_server_with_oidc.sh --seed-data --wipe             # regenerate the seed's data
+```
+
+Seeding is deterministic (a fixed `--seed`) and idempotent: a re-run without
+`--wipe` detects its own data and does nothing, so leaving `--seed-data` on your
+usual command is safe. The generator is a standalone, parameterizable helper
+([`checkcheckserver/dev/seed_dev_data.py`](../CheckCheck/backend/checkcheckserver/dev/seed_dev_data.py)) —
+run it directly for more knobs (`--seed`, `--owned-lists`, `--shared-with-me`,
+`--max-items`, …):
+
+```bash
+cd CheckCheck/backend
+pdm run python -m checkcheckserver.dev.seed_dev_data --help
+```
+
 ## How a request flows
 
 Keep this as a map, not a deep dive. Read the four files in order when you need
