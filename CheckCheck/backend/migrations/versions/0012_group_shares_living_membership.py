@@ -26,6 +26,18 @@ their access "living" going forward. Non-destructive.
 On a fresh database ``create_all`` builds both objects from the models and head is
 stamped, so this revision is a no-op there; on a carried-over DB it creates the
 table and adds the column.
+
+**Idempotency (important).** This server runs ``SQLModel.metadata.create_all``
+(with ``checkfirst``) on *every* boot **before** Alembic (see
+``db/_init_db.py``). On an existing database being upgraded, that step has already
+created any brand-new *table* the models define — here ``checklist_group_share``
+and its ``server_seq`` index — because ``create_all`` creates missing tables (it
+only cannot ALTER an existing table to add a column). So this revision must treat
+the table and index as *may-already-exist* and only add what ``create_all`` cannot:
+the ``via_group`` column on the pre-existing ``checklist_collaborator``. Every DDL
+step is therefore guarded against the current DB state — which also makes the
+revision safe to re-run after the earlier (unguarded) attempt that failed on the
+duplicate ``checklist_group_share`` table.
 """
 
 from typing import Sequence, Union
@@ -39,39 +51,74 @@ down_revision: Union[str, None] = "0011"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
+_INDEX_NAME = op.f("ix_checklist_group_share_server_seq")
+
 
 def upgrade() -> None:
-    op.create_table(
-        "checklist_group_share",
-        sa.Column("checklist_id", sa.Uuid(), nullable=False),
-        sa.Column("group", sa.String(), nullable=False),
-        sa.Column("permission", sa.String(), nullable=False),
-        sa.Column("created_by", sa.Uuid(), nullable=False),
-        sa.Column("created_at", sa.DateTime(), nullable=False),
-        sa.Column("updated_at", sa.DateTime(), nullable=False),
-        sa.Column("server_seq", sa.Integer(), nullable=True),
-        sa.ForeignKeyConstraint(
-            ["checklist_id"], ["checklist.id"], ondelete="CASCADE"
-        ),
-        sa.ForeignKeyConstraint(["created_by"], ["user.id"]),
-        sa.PrimaryKeyConstraint("checklist_id", "group"),
+    bind = op.get_bind()
+    insp = sa.inspect(bind)
+
+    # `create_all` (run before Alembic on boot) has already made this table on an
+    # existing-DB upgrade; only create it when genuinely absent.
+    had_table = insp.has_table("checklist_group_share")
+    if not had_table:
+        op.create_table(
+            "checklist_group_share",
+            sa.Column("checklist_id", sa.Uuid(), nullable=False),
+            sa.Column("group", sa.String(), nullable=False),
+            sa.Column("permission", sa.String(), nullable=False),
+            sa.Column("created_by", sa.Uuid(), nullable=False),
+            sa.Column("created_at", sa.DateTime(), nullable=False),
+            sa.Column("updated_at", sa.DateTime(), nullable=False),
+            sa.Column("server_seq", sa.Integer(), nullable=True),
+            sa.ForeignKeyConstraint(
+                ["checklist_id"], ["checklist.id"], ondelete="CASCADE"
+            ),
+            sa.ForeignKeyConstraint(["created_by"], ["user.id"]),
+            sa.PrimaryKeyConstraint("checklist_id", "group"),
+        )
+
+    # If the table pre-existed, `create_all` also built the model's `server_seq`
+    # index (index=True on TimestampedModel); reflect and skip when present. When we
+    # just created the table ourselves the separate index still needs creating.
+    existing_indexes = (
+        {ix["name"] for ix in insp.get_indexes("checklist_group_share")}
+        if had_table
+        else set()
     )
-    op.create_index(
-        op.f("ix_checklist_group_share_server_seq"),
-        "checklist_group_share",
-        ["server_seq"],
-        unique=False,
-    )
-    op.add_column(
-        "checklist_collaborator",
-        sa.Column("via_group", sa.String(), nullable=True),
-    )
+    if _INDEX_NAME not in existing_indexes:
+        op.create_index(
+            _INDEX_NAME,
+            "checklist_group_share",
+            ["server_seq"],
+            unique=False,
+        )
+
+    # The one thing `create_all` cannot do on an existing table: add the column.
+    collaborator_columns = {
+        c["name"] for c in insp.get_columns("checklist_collaborator")
+    }
+    if "via_group" not in collaborator_columns:
+        op.add_column(
+            "checklist_collaborator",
+            sa.Column("via_group", sa.String(), nullable=True),
+        )
 
 
 def downgrade() -> None:
-    op.drop_column("checklist_collaborator", "via_group")
-    op.drop_index(
-        op.f("ix_checklist_group_share_server_seq"),
-        table_name="checklist_group_share",
-    )
-    op.drop_table("checklist_group_share")
+    bind = op.get_bind()
+    insp = sa.inspect(bind)
+
+    collaborator_columns = {
+        c["name"] for c in insp.get_columns("checklist_collaborator")
+    }
+    if "via_group" in collaborator_columns:
+        op.drop_column("checklist_collaborator", "via_group")
+
+    if insp.has_table("checklist_group_share"):
+        existing_indexes = {
+            ix["name"] for ix in insp.get_indexes("checklist_group_share")
+        }
+        if _INDEX_NAME in existing_indexes:
+            op.drop_index(_INDEX_NAME, table_name="checklist_group_share")
+        op.drop_table("checklist_group_share")

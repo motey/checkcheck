@@ -289,6 +289,25 @@ resume without re-deriving context.
   real build (`./run_e2e_tests.sh --grep "share with a group"` → 2 passed). The
   Chromium headless shell runs here; the Playwright OS-deps *installer* errors on
   `libasound2` (renamed on this Debian variant) but that does not block the run.
+- 2026-07-19: **Migration `0012` idempotency fix (productive upgrade crash).** A
+  0.0.9→0.0.10 upgrade crash-looped with `DuplicateTableError: relation
+  "checklist_group_share" already exists`. Root cause: boot runs
+  `SQLModel.metadata.create_all` (checkfirst) **before** Alembic (`db/_init_db.py`).
+  On an existing DB, create_all creates any brand-new *table* the models define —
+  `checklist_group_share` **and** its `server_seq` index (index=True on
+  `TimestampedModel`) — so the original unguarded `op.create_table` / `op.create_index`
+  in `0012` then collided. (`0011` was unaffected: create_all cannot ALTER an
+  existing table to add a column, so its `add_column` was the only thing creating
+  the column.) Fix: `0012.upgrade`/`downgrade` now inspect DB state and guard every
+  DDL step — skip the table/index when present, only ever add the `via_group`
+  column create_all can't. **Rule going forward: any table-creating migration in
+  this codebase must be idempotent** (create_all pre-creates the table on
+  existing-DB upgrades). Verified on Postgres by reproducing the exact stuck state
+  (table+index present, `via_group` absent, alembic at `0011`) → `upgrade head`
+  now succeeds and self-heals; also verified idempotent re-run, full downgrade, and
+  a truly-absent-table upgrade. The broken instance self-heals on the next boot of
+  the fixed build — no manual DB surgery (alembic is still at `0011` because the
+  failed upgrade's transaction rolled back).
 - 2026-07-19: **Phase 3 loose ends resolved.**
   - **Token-refresh reconcile hook — investigated, nothing to implement.** The
     OIDC token-refresh path does *not* re-read `oidc_groups`, so there is no
