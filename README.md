@@ -116,7 +116,7 @@ CheckCheck is young. Know these before deploying:
 - **LLMs.** For finishing the project I made heavy usage of Claude code. The core, base design and first prototypes are handwritten. Later stuff is mostly LLM generated. Do whatever you want with this information.
 
 > [!IMPORTANT]  
-> CheckCheck is a personal and opionated hobby project maintained by a solo developer with limited time and resources. I originally built this app to meet my own needs.
+> CheckCheck is a personal and opinionated hobby project maintained by a solo developer with limited time and resources. I built this app to meet my own needs.
 >
 > If you find a bug or have an idea for an improvement, I'd appreciate it if you opened an issue or even submitted a pull request. That said, please don't expect quick support or assume that every suggestion will be implemented.
 >
