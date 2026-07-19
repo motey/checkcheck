@@ -23,7 +23,8 @@ things can still change. See [Limitations](#limitations) before you rely on it.
   passphrase-protected) — viewers need no account.
 - **Offline-capable.** Local-first, so it keeps working while you are offline
   and syncs back up when the connection returns.
-- **Installable PWA.** Add it to your device like a native app.
+- **Installable PWA.** Add it to your device like a native app. See
+  [docs/pwa-install.md](docs/pwa-install.md).
 - **SSO / OpenID Connect.** Bring your own identity provider (Authentik,
   Keycloak, …).
 - **Light & dark themes.** Follows your system, or pick one.
@@ -117,6 +118,7 @@ CheckCheck is young. Know these before deploying:
 | [docs/CONFIG_REFERENCE.md](docs/CONFIG_REFERENCE.md) | Generated reference for every config field (type, default, env var, description). |
 | [docs/deployment.md](docs/deployment.md) | Running with Docker and compose, PostgreSQL vs SQLite, reverse proxies, backups. |
 | [docs/administration.md](docs/administration.md) | Day-to-day admin: the first admin, roles, adding users, sharing switches, the offline kill switch. |
+| [docs/pwa-install.md](docs/pwa-install.md) | Installing CheckCheck as an app: per-platform user steps and the HTTPS/serving requirements admins must meet. |
 | [docs/UPGRADING.md](docs/UPGRADING.md) | Per-release upgrade notes; pairs with [CHANGELOG.md](CHANGELOG.md). |
 | [docs/SYNC_PROTOCOL.md](docs/SYNC_PROTOCOL.md) | The local-first delta-sync contract, for developers and integrators. |
 | [docs/](docs/) | Everything else: testing guides, the known-issues log, and historical plans. |

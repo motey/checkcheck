@@ -13,6 +13,7 @@ historical notes.
 | [CONFIG_REFERENCE.md](CONFIG_REFERENCE.md) | Generated reference for every config field. Do not hand-edit; regenerate with `./gen_config_docs.sh`. |
 | [deployment.md](deployment.md) | Running with Docker and compose, PostgreSQL, reverse proxies, backups, building the image. |
 | [administration.md](administration.md) | First admin, roles, adding users, sharing switches, the offline kill switch. |
+| [pwa-install.md](pwa-install.md) | Installing the app on each platform, and the HTTPS/serving requirements that make an instance installable. |
 | [UPGRADING.md](UPGRADING.md) | Per-release upgrade notes; pairs with the root [CHANGELOG.md](../CHANGELOG.md). |
 
 ## For developers and integrators
