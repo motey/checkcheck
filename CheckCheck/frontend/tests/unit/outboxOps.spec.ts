@@ -17,6 +17,8 @@ import {
   itemPositionOp,
   itemStateOp,
   itemUpdateOp,
+  itemsDeleteCheckedOp,
+  itemsUncheckAllOp,
   nextItemIndex,
 } from "@/utils/outboxOps";
 
@@ -249,5 +251,42 @@ describe("checklist⇄label association ops", () => {
   it("keeps associations on different cards independent", () => {
     const other = "44444444-4444-4444-4444-444444444444";
     expect(checklistLabelKey(CL, LABEL)).not.toBe(checklistLabelKey(other, LABEL));
+  });
+});
+
+describe("bulk item operation ops", () => {
+  it("uncheck-all targets the card via checklist_id and is keyed by the card id", () => {
+    const op = itemsUncheckAllOp(CL);
+    // entityType is "item" so isChecklistChild / pendingChecklistIds work via
+    // pathParams with no engine edits; entityId is the CARD id so partitionResync
+    // keeps the op while the card exists.
+    expect(op.entityType).toBe("item");
+    expect(op.entityId).toBe(CL);
+    expect(op.kind).toBe("bulk_uncheck");
+    expect(op.request.method).toBe("post");
+    expect(op.request.path).toBe("/api/checklist/{checklist_id}/items/uncheck-all");
+    expect(op.request.pathParams).toEqual({ checklist_id: CL });
+    // No body — the server operates on the card's current item set.
+    expect(op.request.body).toBeUndefined();
+  });
+
+  it("delete-checked targets the card via checklist_id and is keyed by the card id", () => {
+    const op = itemsDeleteCheckedOp(CL);
+    expect(op.entityType).toBe("item");
+    expect(op.entityId).toBe(CL);
+    expect(op.kind).toBe("bulk_delete_checked");
+    expect(op.request.method).toBe("post");
+    expect(op.request.path).toBe("/api/checklist/{checklist_id}/items/delete-checked");
+    expect(op.request.pathParams).toEqual({ checklist_id: CL });
+    expect(op.request.body).toBeUndefined();
+  });
+
+  it("uses distinct, non-delete/create kinds so they never coalesce or cancel each other", () => {
+    // Guards the order-dependence bug: these must not reuse the `delete` kind
+    // (which would cancel a queued create) nor be COALESCABLE.
+    expect(itemsUncheckAllOp(CL).kind).not.toBe(itemsDeleteCheckedOp(CL).kind);
+    for (const kind of [itemsUncheckAllOp(CL).kind, itemsDeleteCheckedOp(CL).kind]) {
+      expect(["create", "update", "delete", "state", "position"]).not.toContain(kind);
+    }
   });
 });

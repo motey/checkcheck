@@ -9,6 +9,8 @@ import {
   itemPositionOp,
   itemStateOp,
   itemUpdateOp,
+  itemsDeleteCheckedOp,
+  itemsUncheckAllOp,
   nextItemIndex,
 } from "@/utils/outboxOps";
 
@@ -261,6 +263,47 @@ export const useCheckListsItemStore = defineStore("checkListitem", {
         throw error;
       }
     },
+    /**
+     * Bulk "untick all items": uncheck every item of the card. Local-first
+     * (offline-safe) — one outbox op, reconciled by the delta pull's
+     * preview-count refresh. Legacy path hits the endpoint then re-reads the
+     * authoritative counts/items.
+     */
+    async uncheckAllItems(checkListId: string) {
+      if (!checkListId) throw new Error("checkListId empty");
+      if (isLocalFirstEnabled()) return this._localUncheckAll(checkListId);
+      const { $checkapi } = useNuxtApp();
+      try {
+        await $checkapi("/api/checklist/{checklist_id}/items/uncheck-all", {
+          method: "post",
+          path: { checklist_id: checkListId },
+        });
+      } catch (error) {
+        console.error("Could not untick all items 'POST /checklist/" + checkListId + "/items/uncheck-all'", error);
+        throw error;
+      }
+      await this.fetchMultipleChecklistsItemsPreview([checkListId], null, true);
+    },
+    /**
+     * Bulk "delete ticked items": soft-delete every checked item of the card.
+     * Local-first (offline-safe) — one outbox op, reconciled by the delta pull.
+     * Legacy path hits the endpoint then re-reads the authoritative counts/items.
+     */
+    async deleteCheckedItems(checkListId: string) {
+      if (!checkListId) throw new Error("checkListId empty");
+      if (isLocalFirstEnabled()) return this._localDeleteChecked(checkListId);
+      const { $checkapi } = useNuxtApp();
+      try {
+        await $checkapi("/api/checklist/{checklist_id}/items/delete-checked", {
+          method: "post",
+          path: { checklist_id: checkListId },
+        });
+      } catch (error) {
+        console.error("Could not delete ticked items 'POST /checklist/" + checkListId + "/items/delete-checked'", error);
+        throw error;
+      }
+      await this.fetchMultipleChecklistsItemsPreview([checkListId], null, true);
+    },
     async refreshState(checkListId: string, checklistidItemId: string) {
       const { $checkapi } = useNuxtApp();
       try {
@@ -433,6 +476,39 @@ export const useCheckListsItemStore = defineStore("checkListitem", {
       }
       useOutbox().enqueue(itemStateOp(checkListId, checklistidItemId, { checked: state.checked }));
       return newState;
+    },
+    /**
+     * Optimistic "untick all": flip every loaded item to unchecked and set the
+     * count maps directly (all unchecked, total unchanged), then enqueue the
+     * single bulk op. For a preview card only the loaded slice is flipped, but
+     * the count maps are set from the authoritative total; the delta pull +
+     * `schedulePreviewCountsRefresh` converges the rest to server truth.
+     */
+    _localUncheckAll(checkListId: string) {
+      const list = this.checkListsItems[checkListId] ?? [];
+      const now = new Date().toISOString();
+      for (const it of list) {
+        it.state = { ...it.state, checked: false, updated_at: now };
+      }
+      const total = this.total_backend_count_per_checklist[checkListId] ?? list.length;
+      this.total_backend_count_checked_per_checklist[checkListId] = 0;
+      this.total_backend_count_unchecked_per_checklist[checkListId] = total;
+      useOutbox().enqueue(itemsUncheckAllOp(checkListId));
+    },
+    /**
+     * Optimistic "delete ticked": drop every checked item from the loaded slice
+     * and adjust the count maps (total shrinks by the checked count, checked→0),
+     * then enqueue the single bulk op. Preview cards reconcile via the delta pull.
+     */
+    _localDeleteChecked(checkListId: string) {
+      const list = this.checkListsItems[checkListId] ?? [];
+      this.checkListsItems[checkListId] = list.filter((it) => !it.state.checked);
+      const checked = this.total_backend_count_checked_per_checklist[checkListId] ?? 0;
+      const total = this.total_backend_count_per_checklist[checkListId] ?? 0;
+      this.total_backend_count_per_checklist[checkListId] = Math.max(0, total - checked);
+      this.total_backend_count_checked_per_checklist[checkListId] = 0;
+      // unchecked count is unchanged.
+      useOutbox().enqueue(itemsDeleteCheckedOp(checkListId));
     },
     /**
      * Optimistic position write (index and/or indentation). Mutates the cached

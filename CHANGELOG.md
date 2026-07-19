@@ -29,6 +29,11 @@ and the app is installable as a PWA.
   bounce you to `/login`.
 - **Soft delete (tombstones)** for checklists, items, and labels so deletions
   propagate correctly through the delta feed.
+- **Bulk item actions** in a card's ⋮ menu — **Untick all items** and **Delete
+  ticked items** — each a single offline-safe operation (one dedicated endpoint,
+  one outbox op) rather than a per-item fan-out, so they work on the whole card
+  even when only a preview is loaded and reach collaborators through the normal
+  delta feed. Deleting ticked items asks for confirmation.
 - **Living group shares.** Sharing a card with an OIDC group is now a first-class,
   persistent share: the ShareModal lists the groups a card is shared with (each at
   its own permission), you can share with several groups and remove one as a unit,

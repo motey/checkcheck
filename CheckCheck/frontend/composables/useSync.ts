@@ -243,8 +243,12 @@ export const useSync = createSharedComposable(() => {
       // ── Item-level ─────────────────────────────────────────────────────
 
       case "item_state":
-        // Only refresh state if we already have this checklist's items loaded.
-        if (cliId && checkListItemStore.checkListsItems[clId]) {
+        if (!cliId) {
+          // Bulk "untick all" (cli_id=null): a single item refresh can't cover it,
+          // so refetch the whole card's items (debounced, and only if loaded).
+          scheduleItemRefresh(clId);
+        } else if (checkListItemStore.checkListsItems[clId]) {
+          // Only refresh state if we already have this checklist's items loaded.
           checkListItemStore.refreshState(clId, cliId);
         }
         break;
@@ -266,7 +270,11 @@ export const useSync = createSharedComposable(() => {
         break;
 
       case "item_deleted":
-        if (cliId) {
+        if (!cliId) {
+          // Bulk "delete ticked" (cli_id=null): refetch the whole card's items
+          // (debounced) rather than splicing a single known id.
+          scheduleItemRefresh(clId);
+        } else {
           const items = checkListItemStore.checkListsItems[clId];
           if (items) {
             const idx = items.findIndex((i) => i.id === cliId);

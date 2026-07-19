@@ -178,6 +178,33 @@ function checklistPosition(id: string, body: Record<string, unknown>): OutboxOpI
   };
 }
 
+/** A bulk "untick all" op: entity is the CARD, kind is append-only. */
+function bulkUncheck(clId: string): OutboxOpInput {
+  return {
+    entityType: "item",
+    entityId: clId,
+    kind: "bulk_uncheck",
+    request: {
+      method: "post",
+      path: "/api/checklist/{checklist_id}/items/uncheck-all",
+      pathParams: { checklist_id: clId },
+    },
+  };
+}
+/** A bulk "delete ticked" op: entity is the CARD, kind is append-only. */
+function bulkDeleteChecked(clId: string): OutboxOpInput {
+  return {
+    entityType: "item",
+    entityId: clId,
+    kind: "bulk_delete_checked",
+    request: {
+      method: "post",
+      path: "/api/checklist/{checklist_id}/items/delete-checked",
+      pathParams: { checklist_id: clId },
+    },
+  };
+}
+
 /** Materialise an OutboxOp (with seq) from an input — for pure coalesce tests. */
 function op(seq: number, input: OutboxOpInput): OutboxOp {
   return { ...input, seq, opId: `op${seq}`, enqueuedAt: seq, attempts: 0 };
@@ -1032,5 +1059,58 @@ describe("OutboxEngine drain-window race", () => {
     // client thinks was never made.
     expect(sent).toEqual(["cl1:create", "cl1:delete"]);
     expect(engine.pending).toBe(0);
+  });
+});
+
+// ── Bulk item ops: append-only, order-dependent, card-scoped ─────────────────
+
+describe("bulk item ops (coalesce / resync / pending)", () => {
+  it("appends both bulk kinds in order — never merges across kinds", () => {
+    // "untick all" then "delete ticked" are distinct, order-dependent ops; if
+    // they coalesced (or a delete cancelled the uncheck) the replay would diverge
+    // from what the user did. Both must survive, in enqueue order.
+    let q = coalesce([], op(1, bulkUncheck("cl1")));
+    q = coalesce(q, op(2, bulkDeleteChecked("cl1")));
+    expect(q.map((o) => o.kind)).toEqual(["bulk_uncheck", "bulk_delete_checked"]);
+  });
+
+  it("does not let a later bulk op cancel an earlier queued bulk op", () => {
+    let q = coalesce([], op(1, bulkDeleteChecked("cl1")));
+    q = coalesce(q, op(2, bulkUncheck("cl1")));
+    expect(q).toHaveLength(2);
+  });
+
+  it("a real item delete does NOT cancel a queued bulk op (different entityId)", () => {
+    // The bulk op is keyed by the CARD id; an item delete is keyed by the ITEM id,
+    // so rule 2 (delete-cancels-create) never matches it.
+    let q = coalesce([], op(1, bulkUncheck("cl1")));
+    q = coalesce(q, op(2, itemDelete("i1", "cl1")));
+    expect(q.some((o) => o.kind === "bulk_uncheck")).toBe(true);
+  });
+
+  it("cancelling a never-sent card create drops its queued bulk child op", () => {
+    // isChecklistChild reads pathParams.checklist_id, so a card-create cancel
+    // cascades to a queued bulk op targeting that card.
+    let q = coalesce([], op(1, checklistCreate("cl1")));
+    q = coalesce(q, op(2, bulkUncheck("cl1")));
+    q = coalesce(q, op(3, checklistDelete("cl1")));
+    expect(q).toHaveLength(0);
+  });
+
+  it("pendingChecklistIds includes the card of a queued bulk op (badge)", () => {
+    const q = [op(1, bulkUncheck("cl1")), op(2, bulkDeleteChecked("cl2"))];
+    expect(pendingChecklistIds(q)).toEqual(new Set(["cl1", "cl2"]));
+  });
+
+  it("partitionResync keeps a bulk op while its card exists, drops it when gone", () => {
+    const q = [op(1, bulkUncheck("cl-live")), op(2, bulkDeleteChecked("cl-gone"))];
+    const { kept, dropped } = partitionResync(q, new Set(["cl-live"]));
+    expect(kept.map((o) => o.entityId)).toEqual(["cl-live"]);
+    expect(dropped.map((o) => o.entityId)).toEqual(["cl-gone"]);
+  });
+
+  it("does not move the sidebar card-count badges (item counts, not card counts)", () => {
+    expect(affectsSidebarCounts(op(1, bulkUncheck("cl1")))).toBe(false);
+    expect(affectsSidebarCounts(op(2, bulkDeleteChecked("cl1")))).toBe(false);
   });
 });

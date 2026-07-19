@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "CheckCheck REST API",
-    "version": "0.0.11.dev0+g0a8a54f.d20260719"
+    "version": "0.0.12.dev1+gcb3b35df8.d20260719"
   },
   "paths": {
     "/api/health": {
@@ -4152,6 +4152,55 @@
         }
       }
     },
+    "/api/checklist/{checklist_id}/items/delete-checked": {
+      "post": {
+        "tags": [
+          "Checklist Items"
+        ],
+        "summary": "Delete Checked Items",
+        "description": "Soft-delete every currently-checked item of a checklist in a single operation. Requires 'edit'. Offline-safe (one outbox op); idempotent on replay (already-tombstoned items are skipped).",
+        "operationId": "delete_checked_items_api_checklist__checklist_id__items_delete_checked_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "checklist_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Checklist Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BulkItemOpResult"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/checklist/{checklist_id}/item/{checklist_item_id}/position": {
       "get": {
         "tags": [
@@ -4642,6 +4691,55 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/CheckListItemStateWithoutChecklistID"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/checklist/{checklist_id}/items/uncheck-all": {
+      "post": {
+        "tags": [
+          "Checklist Items State"
+        ],
+        "summary": "Uncheck All Items",
+        "description": "Uncheck every currently-checked item of a checklist in a single operation. Requires 'check'. Offline-safe (one outbox op) and trivially idempotent on replay.",
+        "operationId": "uncheck_all_items_api_checklist__checklist_id__items_uncheck_all_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "checklist_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Checklist Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BulkItemOpResult"
                 }
               }
             }
@@ -5639,6 +5737,37 @@
           "new_password_repeated"
         ],
         "title": "Body_set_user_password_api_user__user_id__password_put"
+      },
+      "BulkItemOpResult": {
+        "properties": {
+          "affected": {
+            "type": "integer",
+            "title": "Affected",
+            "description": "Number of items changed by the operation.",
+            "default": 0
+          },
+          "item_count": {
+            "type": "integer",
+            "title": "Item Count",
+            "description": "Total count of live checklist items after the op.",
+            "default": 0
+          },
+          "item_checked_count": {
+            "type": "integer",
+            "title": "Item Checked Count",
+            "description": "Total count of checked items after the op.",
+            "default": 0
+          },
+          "item_unchecked_count": {
+            "type": "integer",
+            "title": "Item Unchecked Count",
+            "description": "Total count of unchecked items after the op.",
+            "default": 0
+          }
+        },
+        "type": "object",
+        "title": "BulkItemOpResult",
+        "description": "Result of a bulk item operation (uncheck-all / delete-checked).\n\nCarries the fresh authoritative item counts so an online caller can reconcile\nimmediately; an offline caller ignores the body and reconciles via the delta\npull's preview-count refresh."
       },
       "ChangesResponse": {
         "properties": {

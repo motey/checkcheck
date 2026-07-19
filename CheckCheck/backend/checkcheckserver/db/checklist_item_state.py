@@ -110,6 +110,42 @@ class CheckListItemStateCRUD(
             await self.session.commit()
         return all_states
 
+    async def uncheck_all_items(self, checklist_id: uuid.UUID) -> int:
+        """Bulk "untick all": flip every checked, live item of this checklist to
+        unchecked in a single transaction.
+
+        MUST mutate ORM objects in a loop (not a Core ``UPDATE ... SET``): the
+        global ``server_seq`` cursor is stamped by the ``before_update`` mapper
+        event, which fires only for dirtied ORM instances during a flush — never
+        for a bulk statement. A Core update would flip the values but leave
+        ``server_seq`` stale, so the change would never surface in the delta feed
+        and offline collaborators would never converge (see the bulk-op plan
+        §1.2). Idempotent: a replay finds nothing checked and flips 0 rows.
+
+        Returns the number of rows flipped.
+        """
+        query = (
+            select(CheckListItemState)
+            .select_from(CheckListItem)
+            .join(
+                CheckListItemState,
+                CheckListItemState.checklist_item_id == CheckListItem.id,
+            )
+            .where(CheckListItem.checklist_id == checklist_id)
+            .where(col(CheckListItem.deleted_at).is_(None))
+            .where(CheckListItemState.checked == True)  # noqa: E712
+        )
+        result = await self.session.exec(query)
+        states = result.all()
+        for state in states:
+            state.checked = False
+            self.session.add(state)
+        if states:
+            # One commit for the whole batch: a single transaction, and the
+            # server_seq allocator lock is held once.
+            await self.session.commit()
+        return len(states)
+
     async def get(
         self, checklist_item_id: uuid.UUID, raise_exception_if_none: Exception
     ) -> CheckListItemState:

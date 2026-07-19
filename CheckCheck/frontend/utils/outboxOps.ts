@@ -20,6 +20,8 @@ const ITEM_COLLECTION_PATH = "/api/checklist/{checklist_id}/item";
 const ITEM_PATH = "/api/checklist/{checklist_id}/item/{checklist_item_id}";
 const ITEM_STATE_PATH = "/api/checklist/{checklist_id}/item/{checklist_item_id}/state";
 const ITEM_POSITION_PATH = "/api/checklist/{checklist_id}/item/{checklist_item_id}/position";
+const ITEMS_UNCHECK_ALL_PATH = "/api/checklist/{checklist_id}/items/uncheck-all";
+const ITEMS_DELETE_CHECKED_PATH = "/api/checklist/{checklist_id}/items/delete-checked";
 
 const CHECKLIST_COLLECTION_PATH = "/api/checklist";
 const CHECKLIST_PATH = "/api/checklist/{checklist_id}";
@@ -200,6 +202,60 @@ export function itemPositionOp(
       path: ITEM_POSITION_PATH,
       pathParams: { checklist_id: checkListId, checklist_item_id: itemId },
       body: { ...body },
+    },
+  };
+}
+
+// ── Bulk item-operation builders ─────────────────────────────────────────────
+//
+// Card-level bulk operations — "untick all items" and "delete ticked items" —
+// each modelled as ONE outbox op replayed against a dedicated server endpoint
+// (the server operates on its current item set, so the client never has to hold
+// all items). `entityType: "item"` reuses the existing item plumbing with no
+// engine edits:
+//   • `isChecklistChild` / `pendingChecklistIds` read `pathParams.checklist_id`,
+//     so the per-card "unsynced" badge lights up and a card-create cancel drops
+//     a queued bulk op — no change needed.
+//   • `partitionResync` keeps the op while its card exists (`entityId =
+//     checkListId`) — no change needed.
+//   • `coalesce` never merges these kinds (not COALESCABLE, not create/delete),
+//     so they append in order — REQUIRED, since the two ops are order-dependent.
+// `entityId` is the CARD id (not an item id): the op targets the whole card, and
+// partitionResync's `existsAfterResync(entityId)` then holds while the card lives.
+
+/**
+ * `POST /api/checklist/{id}/items/uncheck-all` — untick every checked item of the
+ * card in one server-side operation. Idempotent on replay (nothing left to
+ * uncheck). Append-only in the outbox (see `OutboxOpKind`).
+ */
+export function itemsUncheckAllOp(checkListId: string): OutboxOpInput {
+  return {
+    entityType: "item",
+    entityId: checkListId,
+    kind: "bulk_uncheck",
+    request: {
+      method: "post",
+      path: ITEMS_UNCHECK_ALL_PATH,
+      pathParams: { checklist_id: checkListId },
+    },
+  };
+}
+
+/**
+ * `POST /api/checklist/{id}/items/delete-checked` — soft-delete every checked item
+ * of the card in one server-side operation. Idempotent on replay
+ * (already-tombstoned items are skipped; "delete whatever is checked now"
+ * semantics). Append-only in the outbox (see `OutboxOpKind`).
+ */
+export function itemsDeleteCheckedOp(checkListId: string): OutboxOpInput {
+  return {
+    entityType: "item",
+    entityId: checkListId,
+    kind: "bulk_delete_checked",
+    request: {
+      method: "post",
+      path: ITEMS_DELETE_CHECKED_PATH,
+      pathParams: { checklist_id: checkListId },
     },
   };
 }

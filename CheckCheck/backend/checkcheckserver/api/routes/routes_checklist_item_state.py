@@ -60,6 +60,8 @@ from checkcheckserver.model.checklist_item import (
     CheckListItemRead,
 )
 
+from checkcheckserver.api.routes.routes_checklist_item import BulkItemOpResult
+
 from checkcheckserver.config import Config
 from checkcheckserver.api.auth.security import (
     user_is_admin,
@@ -138,3 +140,45 @@ async def set_checklist_item_checked_state(
         upd_prop="item_state",
     ))
     return result
+
+
+@fast_api_checklist_item_state_router.post(
+    "/checklist/{checklist_id}/items/uncheck-all",
+    response_model=BulkItemOpResult,
+    description=(
+        "Uncheck every currently-checked item of a checklist in a single "
+        "operation. Requires 'check'. Offline-safe (one outbox op) and trivially "
+        "idempotent on replay."
+    ),
+)
+async def uncheck_all_items(
+    checklist_access: UserChecklistAccess = Security(
+        require_checklist_permission(ChecklistAccessLevel.check)
+    ),
+    checklist_item_state_crud: CheckListItemStateCRUD = Depends(
+        CheckListItemStateCRUD.get_crud
+    ),
+    checklist_item_crud: CheckListItemCRUD = Depends(CheckListItemCRUD.get_crud),
+    sync_crud: SyncNotifiationCRUD = Depends(SyncNotifiationCRUD.get_crud),
+) -> BulkItemOpResult:
+    checklist_id = checklist_access.checklist.id
+    affected = await checklist_item_state_crud.uncheck_all_items(
+        checklist_id=checklist_id
+    )
+    if affected:
+        # One poke for the whole batch; the auto-appended `changes_available`
+        # frame carries the current server_seq for local-first clients. `cli_id`
+        # is None (card-level, not one item).
+        await sync_crud.create(SyncNotification(
+            cl_id=checklist_id, cli_id=None, upd_prop="item_state"
+        ))
+    return BulkItemOpResult(
+        affected=affected,
+        item_count=await checklist_item_crud.count(checklist_id),
+        item_checked_count=await checklist_item_crud.count(
+            checklist_id, checked=True
+        ),
+        item_unchecked_count=await checklist_item_crud.count(
+            checklist_id, checked=False
+        ),
+    )

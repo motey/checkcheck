@@ -23,8 +23,21 @@ export type OutboxEntityType = "checklist" | "item" | "label";
  * coalescable — a later op of the same kind for the same entity collapses into
  * the earlier queued one (see `coalesce`). `create` / `delete` are not merged
  * (but a `delete` cancels a still-queued `create`).
+ *
+ * `bulk_uncheck` / `bulk_delete_checked` are card-level bulk item operations
+ * (one op per click, replayed against a dedicated server endpoint). They are
+ * deliberately NOT coalescable and NOT `delete`/`create`: they are distinct,
+ * order-dependent operations ("untick all" then "delete ticked" must replay in
+ * that order), so they always append and never merge across kinds.
  */
-export type OutboxOpKind = "create" | "update" | "delete" | "state" | "position";
+export type OutboxOpKind =
+  | "create"
+  | "update"
+  | "delete"
+  | "state"
+  | "position"
+  | "bulk_uncheck"
+  | "bulk_delete_checked";
 
 /**
  * A self-contained description of one REST call, in the shape the generated

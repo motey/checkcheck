@@ -61,6 +61,7 @@ from checkcheckserver.model.checklist import CheckList
 from checkcheckserver.model.checklist_position import CheckListPosition
 
 from checkcheckserver.db._base_crud import create_crud_base
+from checkcheckserver.model._base_model import naive_utc_now
 from checkcheckserver.api.paginator import QueryParamsInterface
 
 
@@ -143,6 +144,46 @@ class CheckListItemCRUD(
         if raise_exception_if_none and obj is None:
             raise raise_exception_if_none
         return obj
+
+    async def delete_checked_items(self, checklist_id: uuid.UUID) -> int:
+        """Bulk "delete ticked": soft-delete (tombstone) every checked, live item
+        of this checklist in a single transaction.
+
+        MUST mutate ORM objects in a loop (not a Core ``DELETE`` / bulk
+        ``UPDATE``): ``server_seq`` is stamped by the ``before_update`` mapper
+        event, which fires only for dirtied ORM instances at flush — a bulk
+        statement would tombstone the rows without bumping ``server_seq``, so the
+        removals would never reach offline clients through the delta feed (see the
+        bulk-op plan §1.2).
+
+        Only the parent ``CheckListItem`` row is tombstoned; its state/position
+        children are left in place and masked by the tombstone — hard-deleting a
+        child in the same session would trip the cascade crash (see the
+        tombstone-cascade gotcha). Idempotent: already-tombstoned items are
+        excluded by the ``deleted_at IS NULL`` filter, so a replay only tombstones
+        whatever is checked *now*.
+
+        Returns the number of items tombstoned.
+        """
+        query = (
+            select(CheckListItem)
+            .join(
+                CheckListItemState,
+                CheckListItemState.checklist_item_id == CheckListItem.id,
+            )
+            .where(CheckListItem.checklist_id == checklist_id)
+            .where(col(CheckListItem.deleted_at).is_(None))
+            .where(CheckListItemState.checked == True)  # noqa: E712
+        )
+        result = await self.session.exec(query)
+        items = result.unique().all()
+        now = naive_utc_now()
+        for item in items:
+            item.deleted_at = now
+            self.session.add(item)
+        if items:
+            await self.session.commit()
+        return len(items)
 
     async def list_changed_items(
         self,

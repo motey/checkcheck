@@ -115,6 +115,28 @@ class CheckListsItemPreview(BaseModel):
     )
 
 
+class BulkItemOpResult(BaseModel):
+    """Result of a bulk item operation (uncheck-all / delete-checked).
+
+    Carries the fresh authoritative item counts so an online caller can reconcile
+    immediately; an offline caller ignores the body and reconciles via the delta
+    pull's preview-count refresh.
+    """
+
+    affected: int = Field(
+        default=0, description="Number of items changed by the operation."
+    )
+    item_count: int = Field(
+        default=0, description="Total count of live checklist items after the op."
+    )
+    item_checked_count: int = Field(
+        default=0, description="Total count of checked items after the op."
+    )
+    item_unchecked_count: int = Field(
+        default=0, description="Total count of unchecked items after the op."
+    )
+
+
 @fast_api_checklist_item_router.get(
     "/item",
     response_model=Dict[uuid.UUID, CheckListsItemPreview],
@@ -400,3 +422,42 @@ async def delete_checklist_item(
         cl_id=checklist_id, cli_id=checklist_item_id, upd_prop="item_deleted"
     ))
     return True
+
+
+@fast_api_checklist_item_router.post(
+    "/checklist/{checklist_id}/items/delete-checked",
+    response_model=BulkItemOpResult,
+    description=(
+        "Soft-delete every currently-checked item of a checklist in a single "
+        "operation. Requires 'edit'. Offline-safe (one outbox op); idempotent on "
+        "replay (already-tombstoned items are skipped)."
+    ),
+)
+async def delete_checked_items(
+    checklist_access: UserChecklistAccess = Security(
+        require_checklist_permission(ChecklistAccessLevel.edit)
+    ),
+    checklist_item_crud: CheckListItemCRUD = Depends(CheckListItemCRUD.get_crud),
+    sync_crud: SyncNotifiationCRUD = Depends(SyncNotifiationCRUD.get_crud),
+) -> BulkItemOpResult:
+    checklist_id = checklist_access.checklist.id
+    affected = await checklist_item_crud.delete_checked_items(
+        checklist_id=checklist_id
+    )
+    if affected:
+        # One poke for the whole batch; the auto-appended `changes_available`
+        # frame carries the current server_seq for local-first clients. `cli_id`
+        # is None (card-level, not one item).
+        await sync_crud.create(SyncNotification(
+            cl_id=checklist_id, cli_id=None, upd_prop="item_deleted"
+        ))
+    return BulkItemOpResult(
+        affected=affected,
+        item_count=await checklist_item_crud.count(checklist_id),
+        item_checked_count=await checklist_item_crud.count(
+            checklist_id, checked=True
+        ),
+        item_unchecked_count=await checklist_item_crud.count(
+            checklist_id, checked=False
+        ),
+    )
