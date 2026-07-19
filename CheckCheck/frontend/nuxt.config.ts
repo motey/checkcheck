@@ -114,6 +114,10 @@ export default defineNuxtConfig({
       description: "Shared checklists that work offline.",
       lang: "en",
       display: "standalone",
+      // Stable app identity, independent of start_url. Without `id` the browser
+      // derives it from start_url, so a future start_url change would look like a
+      // brand-new app (duplicate install). Pinning it keeps the install stable.
+      id: "/",
       start_url: "/",
       scope: "/",
       theme_color: "#FBBF24",

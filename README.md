@@ -135,6 +135,7 @@ Missing features, that i will integrate soon...
 
 * Email notifications
 * "Remind me on date"-feature
+* Markdown support for notes field
 
 ### Ideas
 

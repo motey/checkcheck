@@ -106,8 +106,23 @@
 
     </div>
 
-    <!-- Footer: Edit Labels -->
+    <!-- Footer: Install app + Edit Labels -->
     <div class="p-2 border-t">
+      <!-- Install app: only rendered when the browser offers a real PWA install
+           (Chromium `beforeinstallprompt`). Hidden on iOS/DuckDuckGo/Firefox and
+           when already installed. See composables/usePwaInstall.ts. -->
+      <UTooltip v-if="canInstall" text="Install app" :disabled="!collapsed" side="right">
+        <button
+          type="button"
+          data-testid="sidebar-install-app"
+          class="w-full flex items-center gap-3 px-2 py-1.5 rounded-lg text-sm transition-colors hover:bg-elevated text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-default"
+          @click="promptInstall()"
+        >
+          <UIcon name="i-lucide-download" class="shrink-0 size-5" />
+          <span v-if="!collapsed" class="truncate">Install app</span>
+        </button>
+      </UTooltip>
+
       <UTooltip text="Edit Labels" :disabled="!collapsed" side="right">
         <NuxtLink
           :to="{ path: '/', query: { ...route.query, editlabels: 'true' } }"
@@ -205,6 +220,10 @@ const labelStore = useCheckListsLabelStore();
 const colorStore = useCheckListsColorSchemeStore();
 const checkListStore = useCheckListsStore();
 const publicConfig = usePublicConfigStore();
+
+// PWA install affordance — surfaces a native "Install app" prompt on Chromium
+// browsers (hidden everywhere the browser can't install; see usePwaInstall).
+const { canInstall, promptInstall } = usePwaInstall();
 
 // Running server version, shown in the sidebar footer (null until config loads).
 const serverVersion = computed(() => publicConfig.serverVersion);
