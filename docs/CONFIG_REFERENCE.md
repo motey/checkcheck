@@ -113,7 +113,7 @@ SERVER_BIND_PORT: 80
 
 *Public base URL*
 
-The full external base URL where users reach the app, scheme included, e.g. `https://checklists.example.com`. This is the single source of truth for every absolute URL the server builds (OIDC redirect URIs, the allowed CORS origin) and for whether the session cookie is marked Secure. Set it explicitly in production - behind a reverse proxy the app cannot reliably infer its own external scheme, host or port from forwarded headers. Include a port only if the app is reached on a non-standard one (`https://host:8443`); do not include a path. When left unset it falls back to a URL built from the bind host/port, which is fine for local development only. Supersedes the old SERVER_HOSTNAME + SERVER_PROTOCOL pair.
+The full external base URL where users reach the app, scheme included, e.g. `https://checklists.example.com`. This is the single source of truth for every absolute URL the server builds (OIDC redirect URIs, the allowed CORS origin) and for whether the session cookie is marked Secure. Set it explicitly in production - behind a reverse proxy the app cannot reliably infer its own external scheme, host or port from forwarded headers. Include a port only if the app is reached on a non-standard one (`https://host:8443`); do not include a path. When left unset it falls back to a URL built from the bind host/port, which is fine for local development only.
 
 | Property | Value |
 |---|---|
@@ -150,37 +150,6 @@ Comma-separated list of upstream IPs allowed to set `X-Forwarded-*` headers (pro
 | Required | No |
 | Default | `"*"` |
 | Environment variable | `SERVER_TRUSTED_PROXIES` |
-
----
-
-## `SERVER_HOSTNAME`
-
-*Public hostname (deprecated)*
-
-Deprecated: use SERVER_PUBLIC_URL instead. External hostname where the app is reached. When SERVER_PUBLIC_URL is unset it is combined with SERVER_PROTOCOL (and the bind port) to build the public URL, preserving pre-2.1 behaviour.
-
-| Property | Value |
-|---|---|
-| Type | str |
-| Required | No |
-| Default | `null` |
-| Environment variable | `SERVER_HOSTNAME` |
-
----
-
-## `SERVER_PROTOCOL`
-
-*Public protocol (deprecated)*
-
-Deprecated: use SERVER_PUBLIC_URL instead. Scheme (`http`/`https`) paired with SERVER_HOSTNAME when SERVER_PUBLIC_URL is unset.
-
-| Property | Value |
-|---|---|
-| Type | Enum |
-| Required | No |
-| Default | `null` |
-| Allowed values | `http` · `https` |
-| Environment variable | `SERVER_PROTOCOL` |
 
 ---
 

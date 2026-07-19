@@ -55,7 +55,7 @@ SERVER_BIND_PORT: 8181
 # Required:    False
 # Default:     null
 # Env-var:     'SERVER_PUBLIC_URL'
-# Description: The full external base URL where users reach the app, scheme included, e.g. `https://checklists.example.com`. This is the single source of truth for every absolute URL the server builds (OIDC redirect URIs, the allowed CORS origin) and for whether the session cookie is marked Secure. Set it explicitly in production - behind a reverse proxy the app cannot reliably infer its own external scheme, host or port from forwarded headers. Include a port only if the app is reached on a non-standard one (`https://host:8443`); do not include a path. When left unset it falls back to a URL built from the bind host/port, which is fine for local development only. Supersedes the old SERVER_HOSTNAME + SERVER_PROTOCOL pair.
+# Description: The full external base URL where users reach the app, scheme included, e.g. `https://checklists.example.com`. This is the single source of truth for every absolute URL the server builds (OIDC redirect URIs, the allowed CORS origin) and for whether the session cookie is marked Secure. Set it explicitly in production - behind a reverse proxy the app cannot reliably infer its own external scheme, host or port from forwarded headers. Include a port only if the app is reached on a non-standard one (`https://host:8443`); do not include a path. When left unset it falls back to a URL built from the bind host/port, which is fine for local development only.
 # Example No. 1:
 #  >SERVER_PUBLIC_URL: https://checklists.example.com
 # Example No. 2:
@@ -69,23 +69,6 @@ SERVER_PUBLIC_URL: http://localhost:8181
 # Env-var:     'SERVER_TRUSTED_PROXIES'
 # Description: Comma-separated list of upstream IPs allowed to set `X-Forwarded-*` headers (proto/host/for), or `*` to trust every upstream. Controls whose forwarded headers uvicorn honours for the client IP and request scheme. The app is designed to run behind a reverse proxy (e.g. Traefik) reachable only on an internal network, so this defaults to `*`. Security note: the security-critical absolute URLs (OIDC redirect) are built from SERVER_PUBLIC_URL, not from these headers, so a spoofed header cannot redirect a login elsewhere. Narrow this to your proxy's IP if the container is ever reachable directly.
 SERVER_TRUSTED_PROXIES: '*'
-
-# ## SERVER_HOSTNAME - Public hostname (deprecated) ###
-# Type:        str
-# Required:    False
-# Default:     null
-# Env-var:     'SERVER_HOSTNAME'
-# Description: Deprecated: use SERVER_PUBLIC_URL instead. External hostname where the app is reached. When SERVER_PUBLIC_URL is unset it is combined with SERVER_PROTOCOL (and the bind port) to build the public URL, preserving pre-2.1 behaviour.
-SERVER_HOSTNAME:
-
-# ## SERVER_PROTOCOL - Public protocol (deprecated) ###
-# Type:         Enum
-# Required:     False
-# Default:      null
-# Allowed vals: ['http', 'https']
-# Env-var:      'SERVER_PROTOCOL'
-# Description:  Deprecated: use SERVER_PUBLIC_URL instead. Scheme (`http`/`https`) paired with SERVER_HOSTNAME when SERVER_PUBLIC_URL is unset.
-SERVER_PROTOCOL:
 
 # ## SQL_DATABASE_URL - Database URL ###
 # Type:        str

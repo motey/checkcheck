@@ -1,12 +1,9 @@
 import os
-import socket
-import warnings
 from enum import Enum
 from pathlib import Path
 from typing import Dict, List, Literal, Optional, Tuple, Type
 
 from pydantic import (
-    AliasChoices,
     Field,
     SecretStr,
     model_validator,
@@ -93,16 +90,12 @@ class Config(BaseSettings):
             "container connects to it. `localhost` accepts local connections only."
         ),
         examples=["0.0.0.0", "localhost", "127.0.0.1"],
-        # Backwards compatibility: accept the pre-2.1 name SERVER_LISTENING_HOST.
-        validation_alias=AliasChoices("SERVER_BIND_HOST", "SERVER_LISTENING_HOST"),
     )
     SERVER_BIND_PORT: int = Field(
         default=8181,
         title="Bind port",
         description="The TCP port the server process binds to (internal).",
         examples=[8181, 8080, 80],
-        # Backwards compatibility: accept the pre-2.1 name SERVER_LISTENING_PORT.
-        validation_alias=AliasChoices("SERVER_BIND_PORT", "SERVER_LISTENING_PORT"),
     )
     SERVER_PUBLIC_URL: Optional[str] = Field(
         default=None,
@@ -116,7 +109,7 @@ class Config(BaseSettings):
             "host or port from forwarded headers. Include a port only if the app is reached on "
             "a non-standard one (`https://host:8443`); do not include a path. When left unset "
             "it falls back to a URL built from the bind host/port, which is fine for local "
-            "development only. Supersedes the old SERVER_HOSTNAME + SERVER_PROTOCOL pair."
+            "development only."
         ),
         examples=[
             "https://checklists.example.com",
@@ -136,33 +129,6 @@ class Config(BaseSettings):
             "a spoofed header cannot redirect a login elsewhere. Narrow this to your proxy's "
             "IP if the container is ever reachable directly."
         ),
-        # Backwards compatibility: accept the pre-2.1 name SERVER_FORWARDED_ALLOW_IPS.
-        validation_alias=AliasChoices(
-            "SERVER_TRUSTED_PROXIES", "SERVER_FORWARDED_ALLOW_IPS"
-        ),
-    )
-
-    # Deprecated public-address pair. Kept only so existing deployments keep
-    # working; when SERVER_PUBLIC_URL is unset these synthesize it (see
-    # _resolve_public_address below). Prefer SERVER_PUBLIC_URL for new configs.
-    SERVER_HOSTNAME: Optional[str] = Field(
-        default=None,
-        title="Public hostname (deprecated)",
-        description=(
-            "Deprecated: use SERVER_PUBLIC_URL instead. External hostname where the app is "
-            "reached. When SERVER_PUBLIC_URL is unset it is combined with SERVER_PROTOCOL (and "
-            "the bind port) to build the public URL, preserving pre-2.1 behaviour."
-        ),
-        deprecated=True,
-    )
-    SERVER_PROTOCOL: Optional[Literal["http", "https"]] = Field(
-        default=None,
-        title="Public protocol (deprecated)",
-        description=(
-            "Deprecated: use SERVER_PUBLIC_URL instead. Scheme (`http`/`https`) paired with "
-            "SERVER_HOSTNAME when SERVER_PUBLIC_URL is unset."
-        ),
-        deprecated=True,
     )
 
     # ── Database ──────────────────────────────────────────────────────────────
@@ -558,44 +524,22 @@ class Config(BaseSettings):
     def _resolve_public_address(self) -> "Config":
         """Resolve SERVER_PUBLIC_URL and the session-cookie Secure flag.
 
-        Priority for the public URL:
-          1. SERVER_PUBLIC_URL, if given (the canonical setting).
-          2. the deprecated SERVER_HOSTNAME/SERVER_PROTOCOL pair, reproducing
-             pre-2.1 behaviour byte-for-byte (bind port appended when not 80/443).
-          3. a URL built from the bind host/port — local development only.
-        The cookie Secure flag, when left unset, follows the resolved scheme.
+        When SERVER_PUBLIC_URL is not set explicitly it falls back to a URL built
+        from the bind host/port — local development only. The cookie Secure flag,
+        when left unset, follows the resolved scheme.
         """
         if self.SERVER_PUBLIC_URL is None:
-            if self.SERVER_HOSTNAME is not None or self.SERVER_PROTOCOL is not None:
-                warnings.warn(
-                    "SERVER_HOSTNAME/SERVER_PROTOCOL are deprecated; set SERVER_PUBLIC_URL "
-                    "(e.g. https://checklists.example.com) instead.",
-                    DeprecationWarning,
-                    stacklevel=2,
-                )
-                host = self.SERVER_HOSTNAME or socket.gethostname()
-                if self.SERVER_PROTOCOL is not None:
-                    proto = self.SERVER_PROTOCOL
-                elif self.SERVER_BIND_PORT == 443:
-                    proto = "https"
-                else:
-                    proto = "http"
-                port = (
-                    "" if self.SERVER_BIND_PORT in (80, 443) else f":{self.SERVER_BIND_PORT}"
-                )
-                self.SERVER_PUBLIC_URL = f"{proto}://{host}{port}"
-            else:
-                # Local-dev fallback: reachable on the bound address.
-                host = (
-                    "localhost"
-                    if self.SERVER_BIND_HOST in ("0.0.0.0", "")
-                    else self.SERVER_BIND_HOST
-                )
-                port = (
-                    "" if self.SERVER_BIND_PORT in (80, 443) else f":{self.SERVER_BIND_PORT}"
-                )
-                proto = "https" if self.SERVER_BIND_PORT == 443 else "http"
-                self.SERVER_PUBLIC_URL = f"{proto}://{host}{port}"
+            # Local-dev fallback: reachable on the bound address.
+            host = (
+                "localhost"
+                if self.SERVER_BIND_HOST in ("0.0.0.0", "")
+                else self.SERVER_BIND_HOST
+            )
+            port = (
+                "" if self.SERVER_BIND_PORT in (80, 443) else f":{self.SERVER_BIND_PORT}"
+            )
+            proto = "https" if self.SERVER_BIND_PORT == 443 else "http"
+            self.SERVER_PUBLIC_URL = f"{proto}://{host}{port}"
 
         self.SERVER_PUBLIC_URL = self.SERVER_PUBLIC_URL.rstrip("/")
 

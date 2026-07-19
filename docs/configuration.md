@@ -77,13 +77,11 @@ from `SERVER_PUBLIC_URL` by default**: Secure on an `https` URL, not Secure on
 plain-HTTP localhost without any override — set it explicitly only to force a
 value.
 
-> `SERVER_PUBLIC_URL` replaces the older `SERVER_PROTOCOL` + `SERVER_HOSTNAME`
-> pair, and `SERVER_BIND_HOST`/`SERVER_BIND_PORT` replace
-> `SERVER_LISTENING_HOST`/`SERVER_LISTENING_PORT` (as `SERVER_TRUSTED_PROXIES`
-> replaces `SERVER_FORWARDED_ALLOW_IPS`). The old names still work — the legacy
-> port/host names are accepted as aliases, and `SERVER_PROTOCOL`/`SERVER_HOSTNAME`
-> synthesize the public URL — but they are deprecated and log a warning. Prefer
-> the new names.
+> These names are new in 2.1. `SERVER_PUBLIC_URL` replaces the old
+> `SERVER_PROTOCOL` + `SERVER_HOSTNAME` pair, `SERVER_BIND_HOST`/`SERVER_BIND_PORT`
+> replace `SERVER_LISTENING_HOST`/`SERVER_LISTENING_PORT`, and
+> `SERVER_TRUSTED_PROXIES` replaces `SERVER_FORWARDED_ALLOW_IPS`. The old names
+> have been removed — update any config that still uses them.
 
 ## Database
 
