@@ -75,11 +75,13 @@
               <div class="flex flex-col">
                 <h3 class="text-sm font-semibold">Share with a group</h3>
                 <p class="text-xs text-muted">
-                  Grant every member of one of your groups access at once.
+                  Share with one of your groups — everyone in it gets access, and
+                  people who join the group later get it on their next sign-in.
                 </p>
               </div>
             </div>
             <ShareModalShareWithGroup :check-list-id="checkListId" />
+            <ShareModalGroupShareList :check-list-id="checkListId" />
           </div>
 
           <!-- Create a public link -->
@@ -195,7 +197,14 @@ const description = computed(() =>
     : "People with access to this list."
 );
 
-const hasGroups = computed(() => (shareStore.myGroups?.length ?? 0) > 0);
+// Show the group section when the owner has groups to share with, or the card is
+// already shared with groups (so those stay listed/revocable even if the owner
+// has since left all their groups).
+const hasGroups = computed(
+  () =>
+    (shareStore.myGroups?.length ?? 0) > 0 ||
+    shareStore.groupSharesFor(props.checkListId).length > 0
+);
 
 onMounted(() => {
   // Record the open checklist so useSync can refresh this list on share SSE.
@@ -205,6 +214,7 @@ onMounted(() => {
   if (isOwner.value) {
     shareStore.listShares(props.checkListId).catch(() => {});
     shareStore.listMyGroups().catch(() => {});
+    shareStore.listGroupShares(props.checkListId).catch(() => {});
   }
 });
 

@@ -5,6 +5,28 @@ changes see [`../CHANGELOG.md`](../CHANGELOG.md).
 
 ---
 
+## Living group shares (migration `0012`)
+
+"Share with a group" became a first-class, living share. This ships as Alembic
+revision `0012` (applied automatically on server start), which adds a
+`checklist_group_share` table and a nullable `checklist_collaborator.via_group`
+column.
+
+- **The migration is non-destructive.** Members previously added via the old
+  one-shot group expansion keep their access unchanged: their collaborator rows
+  get `via_group = NULL`, which the app treats as an *explicit* individual share.
+- **They are not retroactively "living."** Those old expansions were not recorded
+  as group shares, so they do not appear in the ShareModal's group list and their
+  members are not auto-reconciled. To make a group living again, just re-share it
+  from the ShareModal — that records the group and takes over membership.
+- **Living membership reconciles at OIDC login.** A user gains access to cards
+  shared with a group when they next sign in as a member of it (and loses
+  group-derived access when they sign in no longer in it). This is the only point
+  the app re-reads a user's OIDC groups, so changes propagate on next login — not
+  instantly mid-session. Local (non-OIDC) users have no groups.
+
+---
+
 ## To 2.0.0 (offline / local-first)
 
 ### Database

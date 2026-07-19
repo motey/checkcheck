@@ -65,6 +65,20 @@ class CheckListCollaboratorCreate(TimestampedModel, table=False):
         sa_type=String,
         description="Whether this share is a live grant ('accepted'), an unaccepted invite ('pending'), or was turned down ('declined'). Defaults to 'accepted' so shares created when SHARING_REQUIRE_INVITE_ACCEPT is off — and pre-existing rows — grant access immediately.",
     )
+    via_group: Optional[str] = Field(
+        default=None,
+        sa_type=String,
+        description=(
+            "Provenance marker for living group shares. NULL means this is an "
+            "explicit individual share (the historical behavior, and every "
+            "pre-existing row) — the group-share reconciler never touches it. A "
+            "non-NULL value means the row was materialized from that OIDC group "
+            "share; the reconciler owns such rows (recomputing the level across "
+            "all matching group shares, and removing the row when the user no "
+            "longer qualifies). Explicit shares always win: a member holding an "
+            "explicit row is skipped by group materialization."
+        ),
+    )
 
 
 class CheckListCollaborator(CheckListCollaboratorCreate, table=True):

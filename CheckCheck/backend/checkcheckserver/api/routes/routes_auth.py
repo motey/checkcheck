@@ -53,6 +53,13 @@ from checkcheckserver.api.auth.security import (
     get_current_user_auth,
 )
 from checkcheckserver.model.user import User
+from checkcheckserver.db.checklist import CheckListCRUD
+from checkcheckserver.db.checklist_group_share import CheckListGroupShareCRUD
+from checkcheckserver.db.checklist_collaborator import CheckListCollaboratorCRUD
+from checkcheckserver.db.checklist_position import CheckListPositionCRUD
+from checkcheckserver.db.sync_notification import SyncNotifiationCRUD
+from checkcheckserver.db.notification import NotificationCRUD
+from checkcheckserver.api.group_share_reconcile import reconcile_user
 from checkcheckserver.model.user_session import UserSession, UserSessionCreate
 from checkcheckserver.api.auth.utils import (
     get_userinfo_from_token_or_endpoint,
@@ -333,6 +340,18 @@ async def auth_oidc_callback(
     user_crud: UserCRUD = Depends(UserCRUD.get_crud),
     user_session_crud: UserSessionCRUD = Depends(UserSessionCRUD.get_crud),
     user_auth_crud: UserAuthCRUD = Depends(UserAuthCRUD.get_crud),
+    checklist_crud: CheckListCRUD = Depends(CheckListCRUD.get_crud),
+    checklist_group_share_crud: CheckListGroupShareCRUD = Depends(
+        CheckListGroupShareCRUD.get_crud
+    ),
+    checklist_collaborator_crud: CheckListCollaboratorCRUD = Depends(
+        CheckListCollaboratorCRUD.get_crud
+    ),
+    checklist_position_crud: CheckListPositionCRUD = Depends(
+        CheckListPositionCRUD.get_crud
+    ),
+    sync_crud: SyncNotifiationCRUD = Depends(SyncNotifiationCRUD.get_crud),
+    notification_crud: NotificationCRUD = Depends(NotificationCRUD.get_crud),
 ):
     # Retrieve the original path from session
     target_path = request.session.pop("target_path", "/")
@@ -370,12 +389,16 @@ async def auth_oidc_callback(
                 detail=f"Can not validate user data: {e}",
             )
         user: User = await user_crud.create(user_create)
+        # A brand-new account: any group they arrived with is "new", so reconcile
+        # so cards already shared with those groups appear on their first login.
+        groups_changed = bool(user.oidc_groups)
     elif user is None:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED)
     else:
         # Sync display_name, email and roles from the OIDC provider on every login
         from checkcheckserver.db.user import UserUpdateByAdmin
 
+        old_groups = set(user.oidc_groups or [])
         synced = UserCreate.from_oidc_userinfo(userinfo)
         update = UserUpdateByAdmin(
             display_name=synced.display_name,
@@ -384,6 +407,27 @@ async def auth_oidc_callback(
             oidc_groups=synced.oidc_groups,
         )
         user = await user_crud.update(user_update=update, user_id=user.id)
+        # Living group shares: only reconcile when the OIDC group set actually
+        # changed (joined/left a group) — the common no-change login stays cheap.
+        groups_changed = set(user.oidc_groups or []) != old_groups
+
+    if groups_changed:
+        # Grant cards shared with groups the user is now in, and drop group-derived
+        # access to groups they left. Never let a reconcile hiccup block the login
+        # itself — access self-heals on the next reconcile.
+        try:
+            await reconcile_user(
+                user=user,
+                checklist_crud=checklist_crud,
+                checklist_group_share_crud=checklist_group_share_crud,
+                checklist_collaborator_crud=checklist_collaborator_crud,
+                checklist_position_crud=checklist_position_crud,
+                sync_crud=sync_crud,
+                notification_crud=notification_crud,
+                user_crud=user_crud,
+            )
+        except Exception as e:  # noqa: BLE001
+            log.error(f"Group-share reconcile on login failed for {user.id}: {e}", exc_info=True)
     user_auth = await user_auth_crud.create(
         UserAuthCreate(
             user_id=user.id,

@@ -92,6 +92,7 @@ class CheckListCollaboratorCRUD(
         user_id: uuid.UUID,
         permission,
         status: ShareStatus = ShareStatus.accepted,
+        via_group: Optional[str] = None,
     ) -> CheckListCollaborator:
         """Create the collaborator or, if it already exists, update its permission
         and status.
@@ -99,11 +100,18 @@ class CheckListCollaboratorCRUD(
         ``status`` defaults to ``accepted`` so every existing caller (instant-add
         sharing, public-link join, ownership-transfer demotion) keeps granting
         access immediately. The invite flow passes ``pending`` explicitly to arm an
-        unaccepted invite (and to re-arm a previously ``declined``/``pending`` row)."""
+        unaccepted invite (and to re-arm a previously ``declined``/``pending`` row).
+
+        ``via_group`` is the living-group-share provenance marker: an explicit
+        individual share leaves it ``None`` (and an explicit re-share of a user who
+        currently has group-derived access resets it to ``None`` — explicit wins);
+        the group-share reconciler passes the contributing group name so it can
+        later recompute or remove the row."""
         existing = await self.get_one(checklist_id=checklist_id, user_id=user_id)
         if existing is not None:
             existing.permission = permission
             existing.status = status
+            existing.via_group = via_group
             self.session.add(existing)
             await self.session.commit()
             await self.session.refresh(existing)
@@ -114,8 +122,23 @@ class CheckListCollaboratorCRUD(
                 user_id=user_id,
                 permission=permission,
                 status=status,
+                via_group=via_group,
             )
         )
+
+    async def list_group_derived_for_user(
+        self,
+        user_id: uuid.UUID,
+    ) -> List[CheckListCollaborator]:
+        """Every collaborator row for this user that was materialized from a group
+        share (``via_group`` not NULL). The reconciler uses this to find rows that
+        may now be stale (the user left the group, or the group share was revoked)."""
+        query = select(CheckListCollaborator).where(
+            CheckListCollaborator.user_id == user_id,
+            col(CheckListCollaborator.via_group).is_not(None),
+        )
+        results = await self.session.exec(statement=query)
+        return results.all()
 
     async def set_status(
         self,

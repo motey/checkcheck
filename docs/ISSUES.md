@@ -5,6 +5,29 @@ that discovered them. Newest first.
 
 ---
 
+## "Share with a group" is a one-shot snapshot, not a first-class living share
+
+**Status:** planned (phased) · **Severity:** medium (feature gap) · **Discovered:** 2026-07-19
+
+The ShareModal's group sharing lets the owner pick **one** OIDC group + **one**
+level and fire it once; the backend expands the group to its current members as
+individual collaborator rows (a snapshot) and records nothing. So there is no
+list of shared groups, no revoke-as-a-unit, no way to share several groups, and
+new group members never gain access.
+
+The agreed fix makes group shares **first-class and living** (a member has access
+while the share exists and they are in the group; revoke removes group-only
+members but keeps individual shares), mirroring the per-user "Invite specific
+people" add-box + list. It touches the core access model and ships a migration
+onto the running productive instance, so it is planned as a multi-session,
+phased change.
+
+**Full plan:** [plans/GROUP_SHARE_LIVING_MEMBERSHIP.md](plans/GROUP_SHARE_LIVING_MEMBERSHIP.md)
+(Phase 1 = backend foundation + API + migration + backend tests; Phase 2 =
+frontend; Phase 3 = docs/polish).
+
+---
+
 ## Checklist ITEMS won't reorder via touch drag (cards work) — synthetic drag inside the editor UModal
 
 **Status:** fix applied, awaiting on-device verification · **Severity:** medium · **Discovered:** 2026-07-18
