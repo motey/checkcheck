@@ -19,7 +19,7 @@
     <div v-if="!editModeActive" data-testid="card-title" class="flex-none pr-8 text-base font-semibold leading-snug break-words line-clamp-2" v-html="highlightText(checkList!.name, searchQuery)" />
     <UTextarea
       v-if="editModeActive"
-      :autofocus="true"
+      :autofocus="autofocusTitle"
       autoresize
       variant="none"
       :rows="0"
@@ -108,6 +108,7 @@ import { useCheckListsItemStore } from "@/stores/checklist_item";
 import { highlightText } from "@/utils/highlight";
 import { isLocalFirstEnabled } from "@/utils/localFirst";
 import { markEditing, clearEditing } from "@/utils/editGuard";
+import { useCreateCheckList } from "~/composables/useCreateCheckList";
 const colorMode = useColorMode();
 
 const checkListsStore = useCheckListsStore();
@@ -123,6 +124,17 @@ const props = defineProps({
   editModeActive: { type: Boolean, default: false },
   previewModeActive: { type: Boolean, default: false },
 });
+
+// Autofocus the title only when this editor is opening a card that was JUST
+// created (empty list → cursor ready to type). Reopening an existing card must
+// leave every field unfocused so mobile keyboards don't pop up unprompted.
+// Captured once at setup and cleared immediately so a later reopen of the same
+// card doesn't re-trigger it. The modal keys CheckList by id, so setup re-runs
+// on every open.
+const { newlyCreatedCardId } = useCreateCheckList();
+const autofocusTitle =
+  props.editModeActive && newlyCreatedCardId.value === props.checkListId;
+if (autofocusTitle) newlyCreatedCardId.value = null;
 
 // Phones show fewer preview items so a long list stays short in the denser
 // two-column grid; the existing "+N items" hint still surfaces the remainder.

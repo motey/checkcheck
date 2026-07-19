@@ -155,12 +155,27 @@ export default defineNuxtConfig({
 
   app: {
     head: {
-      meta: [{ name: "theme-color", content: "#FBBF24" }],
+      meta: [
+        { name: "theme-color", content: "#FBBF24" },
+        // Standalone launch hints. `@vite-pwa/nuxt` only adds the manifest link
+        // client-side (after hydration) because we render as an SPA (ssr:false),
+        // which is too late/unreliable for Chrome to mint a real installed app
+        // (WebAPK) — it falls back to a bookmark shortcut that opens in a tab and
+        // piles up. Baking these into the static shell makes the app installable
+        // on first paint. Android/Chromium reads `mobile-web-app-capable`; iOS
+        // Safari (which has no beforeinstallprompt) reads the apple-* trio.
+        { name: "mobile-web-app-capable", content: "yes" },
+        { name: "apple-mobile-web-app-capable", content: "yes" },
+        { name: "apple-mobile-web-app-status-bar-style", content: "default" },
+        { name: "apple-mobile-web-app-title", content: "CheckCheck" },
+      ],
       link: [
         // SVG favicon (crisp at every size) with an .ico fallback for legacy browsers.
         { rel: "icon", type: "image/svg+xml", href: "/favicon.svg" },
         { rel: "icon", type: "image/x-icon", href: "/favicon.ico" },
         { rel: "apple-touch-icon", href: "/icons/apple-touch-icon-180x180.png" },
+        // The manifest, linked statically so it's discoverable before JS runs.
+        { rel: "manifest", href: "/manifest.webmanifest" },
       ],
     },
   },

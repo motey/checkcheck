@@ -1,5 +1,13 @@
+import { ref } from "vue";
 import { useAppRoute } from "~/composables/useAppRoute";
 import { useCheckListsStore } from "@/stores/checklist";
+
+// Module-scoped so the id of a just-created card is visible to the card editor
+// that opens next. The editor autofocuses the title only for this card (a new,
+// empty list wants the cursor ready); reopening an existing card must NOT focus
+// a field, otherwise mobile keyboards pop up unprompted. Consumed (cleared) by
+// CheckList on mount.
+const newlyCreatedCardId = ref<string | null>(null);
 
 /**
  * Shared "new list" flow. Creates an empty checklist on the server and opens it
@@ -13,8 +21,9 @@ export function useCreateCheckList() {
 
   async function createAndOpen() {
     const checkList = await checkListsStore.create({} as CheckListCreateType);
+    newlyCreatedCardId.value = checkList.id;
     openCard(checkList.id);
   }
 
-  return { createAndOpen };
+  return { createAndOpen, newlyCreatedCardId };
 }
