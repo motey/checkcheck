@@ -34,6 +34,15 @@ and the app is installable as a PWA.
   one outbox op) rather than a per-item fan-out, so they work on the whole card
   even when only a preview is loaded and reach collaborators through the normal
   delta feed. Deleting ticked items asks for confirmation.
+- **Markdown card notes.** The card description (the "notes" field) now renders
+  as Markdown on the board preview, in the open card when you are not editing, on
+  the public share page, and for view-only collaborators. Inside an open card the
+  notes swap to a plain text editor on focus so you edit the raw source, and back
+  to the rendered view on blur. A small "Markdown supported" hint opens a
+  formatting cheat-sheet. Supported: bold, italic, strikethrough, inline and
+  fenced code, links, lists, headings, blockquotes, and rules. All output is
+  sanitized (images are intentionally not supported in this version). Existing
+  plain-text notes render unchanged and no data migration is needed.
 - **Living group shares.** Sharing a card with an OIDC group is now a first-class,
   persistent share: the ShareModal lists the groups a card is shared with (each at
   its own permission), you can share with several groups and remove one as a unit,

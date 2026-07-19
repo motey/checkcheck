@@ -69,9 +69,11 @@
             <h1 class="text-xl font-semibold break-words" data-testid="public-card-name">
               {{ card.name || "Untitled list" }}
             </h1>
-            <p v-if="card.text" class="mt-1 text-sm text-muted whitespace-pre-wrap break-words">
-              {{ card.text }}
-            </p>
+            <div
+              v-if="card.text"
+              class="md-notes mt-1 text-sm text-muted break-words"
+              v-html="renderMarkdown(card.text)"
+            />
           </template>
 
           <div class="flex flex-col" data-testid="public-items">
@@ -132,6 +134,7 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from "vue";
 import { usePublicCard } from "~/composables/usePublicCard";
+import { renderMarkdown } from "@/utils/markdown";
 
 // Standalone, fully public viewer — no auth required. The `/p/<token>` route is a
 // capability URL; the page owns all 4xx handling (plugins/api.ts skips the global

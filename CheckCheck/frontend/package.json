@@ -32,7 +32,9 @@
     "@vueuse/core": "^13.9.0",
     "colord": "^2.9.3",
     "decimal.js": "^10.6.0",
+    "dompurify": "^3.4.12",
     "idb": "^8.0.3",
+    "markdown-it": "^14.3.0",
     "nuxt": "^4.2.1",
     "pinia": "^3.0.4",
     "tailwindcss": "^4.1.17",
@@ -42,9 +44,11 @@
   },
   "devDependencies": {
     "@playwright/test": "^1.60.0",
+    "@types/markdown-it": "^14.1.2",
     "@types/node": "^25.9.1",
     "@vite-pwa/nuxt": "^1.1.1",
     "fake-indexeddb": "^6",
+    "jsdom": "^29.1.1",
     "nuxt-open-fetch": "^0.13.6",
     "vitest": "^2"
   },

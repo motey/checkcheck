@@ -35,21 +35,60 @@
          footer below stay pinned within the modal viewport. In preview/board
          mode it uses display:contents and behaves as if it weren't here. -->
     <div :class="editModeActive ? 'flex-1 min-h-0 overflow-y-auto overscroll-contain -mx-1 px-1' : 'contents'">
-      <p v-if="!editModeActive && checkList!.text" class="flex-none line-clamp-2 sm:line-clamp-3 text-sm opacity-80 whitespace-pre-wrap break-words" v-html="highlightText(checkList!.text, searchQuery)" />
-      <UTextarea
-        v-if="editModeActive"
-        ref="notesTextField"
-        autoresize
-        variant="none"
-        :rows="0"
-        :padded="false"
-        :disabled="!canEdit"
-        placeholder="Enter some notes..."
-        v-model="localText"
-        class="w-full flex-none text-sm opacity-90"
-        @focus="onFieldFocus('text')"
-        @blur="onFieldBlur('text')"
+      <!-- Board preview: rendered Markdown, read-only, line-clamped. -->
+      <div
+        v-if="!editModeActive && checkList!.text"
+        class="md-notes md-clamp flex-none text-sm opacity-80 break-words"
+        v-html="renderMarkdown(checkList!.text, { search: searchQuery })"
       />
+      <!-- Open card notes: focus-swap edit surface. Rendered Markdown when the
+           field is not being edited (and always, for view-only collaborators);
+           clicking/tabbing in swaps to the raw textarea to edit the source. -->
+      <template v-if="editModeActive">
+        <div
+          v-if="!editingNotes || !canEdit"
+          :class="[
+            'md-notes w-full flex-none text-sm opacity-90 break-words',
+            canEdit ? 'md-notes-editable cursor-text rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary' : '',
+          ]"
+          :role="canEdit ? 'textbox' : undefined"
+          :tabindex="canEdit ? 0 : undefined"
+          :aria-label="canEdit ? 'Notes' : undefined"
+          data-testid="card-notes-rendered"
+          @click="canEdit && enterNotesEdit()"
+          @keydown.enter.prevent="canEdit && enterNotesEdit()"
+          @keydown.space.prevent="canEdit && enterNotesEdit()"
+        >
+          <div v-if="localText" v-html="renderMarkdown(localText)" />
+          <span v-else class="text-dimmed">Enter some notes...</span>
+        </div>
+        <UTextarea
+          v-else
+          ref="notesTextField"
+          autoresize
+          variant="none"
+          :rows="0"
+          :padded="false"
+          placeholder="Enter some notes..."
+          v-model="localText"
+          class="w-full flex-none text-sm opacity-90"
+          data-testid="card-notes-textarea"
+          @focus="onFieldFocus('text')"
+          @blur="onNotesBlur"
+        />
+        <!-- Unobtrusive hint + Markdown cheat-sheet popup (editable notes only). -->
+        <div v-if="canEdit" class="flex-none mt-0.5 text-xs text-dimmed">
+          Markdown supported ·
+          <UPopover mode="click" :content="{ side: 'top', align: 'start' }">
+            <button type="button" class="underline hover:text-muted cursor-pointer" data-testid="markdown-help-trigger">
+              Formatting help
+            </button>
+            <template #content>
+              <MarkdownHelp />
+            </template>
+          </UPopover>
+        </div>
+      </template>
       <div class="checklist-items-collection mt-1">
         <CheckListItemCollectionSeperated
           v-if="checkList?.checked_items_seperated"
@@ -106,6 +145,7 @@ import { useDebounceFn, useMediaQuery } from "@vueuse/core";
 import { useCheckListsStore } from "@/stores/checklist";
 import { useCheckListsItemStore } from "@/stores/checklist_item";
 import { highlightText } from "@/utils/highlight";
+import { renderMarkdown } from "@/utils/markdown";
 import { isLocalFirstEnabled } from "@/utils/localFirst";
 import { markEditing, clearEditing } from "@/utils/editGuard";
 import { useCreateCheckList } from "~/composables/useCreateCheckList";
@@ -185,6 +225,20 @@ const cardStyle = computed(() => {
 const notesTextField = ref();
 const nameFocused = ref(false);
 const textFocused = ref(false);
+
+// Focus-swap: the notes region shows rendered Markdown until the user edits it.
+// `editingNotes` mounts the raw textarea; we focus it on the next tick so the
+// caret lands there. Blur (onNotesBlur) swaps back to the rendered view.
+const editingNotes = ref(false);
+function enterNotesEdit() {
+  if (!canEdit.value) return;
+  editingNotes.value = true;
+  nextTick(() => notesTextField.value?.textareaRef?.focus?.());
+}
+function onNotesBlur() {
+  onFieldBlur("text");
+  editingNotes.value = false;
+}
 
 // Focus/blur handlers keep the local textarea guard AND the WI-10 store-apply
 // guard in sync, so a remote delta never clobbers the field mid-edit (SYNC §4).

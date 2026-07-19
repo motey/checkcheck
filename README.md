@@ -15,12 +15,14 @@ things can still change. See [Limitations](#limitations) before you rely on it.
 ## Features
 
 - **Checklists.** Make lists and check things off.
+- **Drag and Drop**. Sort you cards and the items by drag and drop.
+- **Markdown**. Card notes support Markdown.
 - **Labels.** Organise cards with labels.
 - **Sharing.** Share individual cards with other people and collaborate.
 - **Real-time collaboration.** Shared cards update live across devices as
   people edit them.
 - **Public share links.** Publish a card to a link (optionally
-  passphrase-protected) — viewers need no account.
+  passphrase-protected). Viewers need no account.
 - **Offline-capable.** Local-first, so it keeps working while you are offline
   and syncs back up when the connection returns.
 - **Installable PWA.** Add it to your device like a native app. See
@@ -137,7 +139,6 @@ Missing features, that i will integrate soon...
 
 * Email notifications
 * "Remind me on date"-feature
-* Markdown support for notes field
 
 ### Ideas
 

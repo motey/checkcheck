@@ -26,6 +26,147 @@ mark.search-highlight {
   padding: 0 1px;
 }
 
+/* Markdown card notes (the `text` field). A small, hand-rolled stylesheet for
+   the trusted subset rendered by utils/markdown.ts — there is no Tailwind
+   Typography (`prose`) plugin installed, and the subset is tiny. Everything is
+   styled at *card scale* (a level-1 heading must not dominate a small card) and
+   inherits `color` so a colour-themed card keeps its text colour across every
+   rendered tag, matching the .textareas-inherit-color treatment for the editor.
+   Dark mode falls out of inherited colour + Nuxt UI CSS variables. */
+.md-notes {
+  color: inherit;
+}
+.md-notes > :first-child {
+  margin-top: 0;
+}
+.md-notes > :last-child {
+  margin-bottom: 0;
+}
+.md-notes p {
+  margin: 0.4em 0;
+}
+.md-notes strong {
+  font-weight: 600;
+}
+.md-notes em {
+  font-style: italic;
+}
+.md-notes s,
+.md-notes del {
+  text-decoration: line-through;
+}
+/* Tailwind's preflight resets list styles, so re-assert them here. */
+.md-notes ul,
+.md-notes ol {
+  margin: 0.4em 0;
+  padding-left: 1.4em;
+}
+.md-notes ul {
+  list-style: disc;
+}
+.md-notes ol {
+  list-style: decimal;
+}
+.md-notes li {
+  margin: 0.15em 0;
+}
+/* Clamp headings to a modest size ladder so they never dominate the card. */
+.md-notes h1,
+.md-notes h2,
+.md-notes h3,
+.md-notes h4,
+.md-notes h5,
+.md-notes h6 {
+  font-weight: 600;
+  line-height: 1.3;
+  margin: 0.5em 0 0.3em;
+}
+.md-notes h1 {
+  font-size: 1.05em;
+}
+.md-notes h2 {
+  font-size: 1em;
+}
+.md-notes h3,
+.md-notes h4,
+.md-notes h5,
+.md-notes h6 {
+  font-size: 0.95em;
+}
+.md-notes code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.9em;
+  background-color: var(--ui-bg-elevated, rgba(127, 127, 127, 0.15));
+  padding: 0.1em 0.3em;
+  border-radius: 4px;
+}
+.md-notes pre {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.9em;
+  background-color: var(--ui-bg-elevated, rgba(127, 127, 127, 0.15));
+  padding: 0.6em 0.8em;
+  border-radius: 6px;
+  margin: 0.4em 0;
+  overflow-x: auto; /* long code scrolls inside its box, never widens the card */
+}
+.md-notes pre code {
+  background: transparent;
+  padding: 0;
+  border-radius: 0;
+}
+.md-notes blockquote {
+  border-left: 3px solid currentColor;
+  opacity: 0.85;
+  padding-left: 0.8em;
+  margin: 0.4em 0;
+}
+.md-notes hr {
+  border: 0;
+  border-top: 1px solid currentColor;
+  opacity: 0.25;
+  margin: 0.6em 0;
+}
+.md-notes a {
+  color: var(--ui-primary);
+  text-decoration: none;
+}
+.md-notes a:hover {
+  text-decoration: underline;
+}
+/* In the editable open card the rendered block is a click-to-edit target, so its
+   links must be inert — a click focuses the editor instead of opening the link.
+   The real URL is visible once the user focuses into the source. */
+.md-notes-editable a {
+  pointer-events: none;
+}
+
+/* Board-preview companion: the rendered block is line-clamped to 2/3 lines, but
+   block children (lists, headings, blockquotes) introduce margins that make the
+   clamp look ragged. Flatten inter-block spacing so the preview stays tidy. */
+.md-clamp {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+}
+@media (min-width: 640px) {
+  .md-clamp {
+    -webkit-line-clamp: 3;
+    line-clamp: 3;
+  }
+}
+.md-clamp :is(p, ul, ol, h1, h2, h3, h4, h5, h6, blockquote, pre, hr) {
+  margin: 0;
+  padding-left: 0;
+}
+.md-clamp :is(ul, ol) {
+  padding-left: 1.2em;
+}
+.md-clamp br {
+  display: none;
+}
+
 /* Phase 6 — Reduced motion.
    Honour prefers-reduced-motion: reduce by neutralising the card hover-lift
    (CheckListBoard.vue) and the FormKit drag reflow animations (@formkit/
