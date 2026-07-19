@@ -35,7 +35,9 @@ and the app is installable as a PWA.
   and membership is *living* — people who join a shared group gain access on their
   next sign-in, and leavers lose it. Revoking a group removes the access it
   granted while leaving individual shares intact; an explicit individual share
-  always takes precedence over a group's level. (Migration `0012`.)
+  always takes precedence over a group's level. Group members are represented by
+  the group itself, not listed one-by-one under "Share with people", so the
+  people list stays uncluttered. (Migration `0012`.)
 
 ### Changed
 

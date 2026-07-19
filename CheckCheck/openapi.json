@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "CheckCheck REST API",
-    "version": "0.0.9.dev2+g60a11c7.d20260719"
+    "version": "0.0.10.dev2+gea3b609ac.d20260719"
   },
   "paths": {
     "/api/health": {
@@ -7715,6 +7715,18 @@
             "$ref": "#/components/schemas/ShareStatus",
             "description": "Whether the share is live ('accepted'), an unaccepted invite ('pending'), or declined.",
             "default": "accepted"
+          },
+          "via_group": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Via Group",
+            "description": "Set to the OIDC group name when this collaborator's access was materialized from a group share (rather than an explicit individual share). The people-list UI hides these rows \u2014 they are represented by the group in the group-share list \u2014 so only explicit shares are shown."
           }
         },
         "type": "object",
