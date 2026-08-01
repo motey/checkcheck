@@ -137,10 +137,22 @@ For local development `EMAIL_TRANSPORT` can avoid a mail server entirely:
 
 The `NOTIFY_*` settings decide which notifications turn into mail, how much a
 message may reveal (`NOTIFY_EMAIL_CONTENT_MODE`) and how the background sender
-behaves. See the full list in
-[CONFIG_REFERENCE.md](CONFIG_REFERENCE.md). Note that notifications do not
-produce mail yet: the transports and their configuration are in place, the
-delivery path is being built (see `docs/plans/EMAIL_NOTIFICATIONS.md`).
+behaves. See the full list in [CONFIG_REFERENCE.md](CONFIG_REFERENCE.md).
+
+Queued messages are sent by a background task inside the server process, so
+there is nothing extra to deploy. It looks for due messages every
+`NOTIFY_DISPATCH_TICK_SECONDS` and immediately when something is queued, retries
+a mail server that is temporarily unreachable with a growing delay, gives up
+after `NOTIFY_MAX_ATTEMPTS` and keeps those failures for
+inspection. `NOTIFY_DISPATCH_IN_PROCESS: false` switches the task off, for the
+rare case that something else drains the queue.
+
+To check a fresh setup, use the "send test email" endpoint
+(`POST /api/user/me/notification-settings/test-email`), which mails the signed-in
+user's own address, at most once a minute. Note that notifications themselves do
+not produce mail yet: transports, the queue and the sender are in place, the
+per-user preferences and the message templates are being built (see
+`docs/plans/EMAIL_NOTIFICATIONS.md`).
 
 ## Logging in with an external provider (OIDC)
 

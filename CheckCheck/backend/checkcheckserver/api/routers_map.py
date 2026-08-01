@@ -50,6 +50,16 @@ def mount_fast_api_routers(fastapi_app: FastAPI):
         fast_api_notification_router, tags=["Notifications"], prefix="/api"
     )
 
+    ### USER NOTIFICATION SETTINGS (self-service /user/me/notification-settings;
+    ### this router also carries the notification dispatcher's lifespan)
+    from checkcheckserver.api.routes.routes_notification_settings import (
+        fast_api_notification_settings_router,
+    )
+
+    fastapi_app.include_router(
+        fast_api_notification_settings_router, tags=["Notifications"], prefix="/api"
+    )
+
     ### USER MANAGEMENT
     from checkcheckserver.api.routes.routes_user_management import (
         fast_api_user_manage_router,

@@ -831,6 +831,21 @@ NOTIFY_DISABLED_TYPES:
 
 ---
 
+## `NOTIFY_DISPATCH_IN_PROCESS`
+
+*Send queued messages from the server process*
+
+When true the server itself drains the queue of pending messages in a background task, which is what a normal single-container deployment wants. Turn it off only if something else drains the queue, so that queued messages are not delivered twice.
+
+| Property | Value |
+|---|---|
+| Type | bool |
+| Required | No |
+| Default | `true` |
+| Environment variable | `NOTIFY_DISPATCH_IN_PROCESS` |
+
+---
+
 ## `NOTIFY_DISPATCH_TICK_SECONDS`
 
 *Dispatcher tick (seconds)*

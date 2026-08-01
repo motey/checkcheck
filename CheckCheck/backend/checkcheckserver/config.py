@@ -442,6 +442,16 @@ class Config(BaseSettings):
         ),
         examples=[["public_link_opened"]],
     )
+    NOTIFY_DISPATCH_IN_PROCESS: bool = Field(
+        default=True,
+        title="Send queued messages from the server process",
+        description=(
+            "When true the server itself drains the queue of pending messages in a "
+            "background task, which is what a normal single-container deployment wants. "
+            "Turn it off only if something else drains the queue, so that queued messages "
+            "are not delivered twice."
+        ),
+    )
     NOTIFY_DISPATCH_TICK_SECONDS: int = Field(
         default=30,
         title="Dispatcher tick (seconds)",

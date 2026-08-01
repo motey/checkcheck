@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "CheckCheck REST API",
-    "version": "0.3.2.dev3+g9f54542.d20260801"
+    "version": "0.3.2.dev4+gc05b8ee.d20260801"
   },
   "paths": {
     "/api/health": {
@@ -1036,6 +1036,33 @@
             }
           }
         }
+      }
+    },
+    "/api/user/me/notification-settings/test-email": {
+      "post": {
+        "tags": [
+          "Notifications"
+        ],
+        "summary": "Send Test Email",
+        "description": "Queue a test message to the current user's own email address, to check that the instance's mail setup works. The message is sent by the background dispatcher, so a 202 means queued, not delivered. Returns 409 when the instance has email switched off or the account has no address, and 429 at most once a minute.",
+        "operationId": "send_test_email_api_user_me_notification_settings_test_email_post",
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TestEmailResult"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
       }
     },
     "/api/user": {
@@ -8017,6 +8044,34 @@
           "cl_id"
         ],
         "title": "SyncNotification"
+      },
+      "TestEmailResult": {
+        "properties": {
+          "queued_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Queued Id",
+            "description": "Id of the queued delivery, for support and log correlation."
+          },
+          "to": {
+            "type": "string",
+            "title": "To",
+            "description": "The address it was queued for (the caller's own)."
+          },
+          "queued_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Queued At",
+            "description": "Naive UTC time the message entered the queue."
+          }
+        },
+        "type": "object",
+        "required": [
+          "queued_id",
+          "to",
+          "queued_at"
+        ],
+        "title": "TestEmailResult"
       },
       "TransferOwnershipRequest": {
         "properties": {
