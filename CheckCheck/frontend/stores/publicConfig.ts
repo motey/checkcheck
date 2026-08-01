@@ -38,6 +38,11 @@ export const usePublicConfigStore = defineStore("publicConfig", {
     // The running server's version string, surfaced in the UI. Null until the
     // config resolves.
     serverVersion: (state): string | null => state.config?.server_version ?? null,
+    // Whether the instance can send email at all. False hides the email column
+    // of the notification settings: there is nothing to configure.
+    emailEnabled: (state): boolean => state.config?.email_enabled ?? false,
+    // Whether per-user notification webhooks are allowed (hides that column too).
+    webhookEnabled: (state): boolean => state.config?.webhook_enabled ?? false,
   },
   actions: {
     async fetch(): Promise<PublicConfigType | null> {

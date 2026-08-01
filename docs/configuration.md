@@ -98,7 +98,7 @@ on it. See [deployment.md](deployment.md).
 
 ## Sharing switches
 
-Sharing is on by default. Four switches let an operator narrow it:
+Sharing is on by default. A few switches let an operator narrow it:
 
 - `SHARING_ENABLED` turns the whole feature off.
 - `SHARING_PUBLIC_LINKS_ENABLED` controls anonymous public share links.
@@ -106,6 +106,41 @@ Sharing is on by default. Four switches let an operator narrow it:
   by name when picking who to share with.
 - `SHARING_REQUIRE_INVITE_ACCEPT` makes a shared card wait for the recipient to
   accept before it appears for them.
+- `SHARING_PUBLIC_LINK_EMAIL_ENABLED` allows sending an existing public link to
+  an email address from inside the app. Off by default, and it needs email
+  configured (see below).
+
+## Email
+
+Email is off by default and nothing is sent while `EMAIL_ENABLED` is false. To
+switch it on, set the master switch, a sender address, and a mail server:
+
+```yaml
+EMAIL_ENABLED: true
+EMAIL_FROM_ADDRESS: checkcheck@example.com
+EMAIL_SMTP_HOST: smtp.example.com
+EMAIL_SMTP_PORT: 587
+EMAIL_SMTP_SECURITY: starttls   # starttls (587), ssl (465), none (localhost)
+EMAIL_SMTP_USER: checkcheck
+EMAIL_SMTP_PASSWORD: the-smtp-password
+```
+
+The settings are checked when the server starts: with `EMAIL_ENABLED` on, a
+missing `EMAIL_FROM_ADDRESS`, or a missing `EMAIL_SMTP_HOST` for the `smtp`
+transport, stops the boot with an explicit message. That is deliberate, a
+half-configured mailer would otherwise fail once per message inside a background
+task where nobody notices.
+
+For local development `EMAIL_TRANSPORT` can avoid a mail server entirely:
+`console` logs each message, `file` writes it as an `.eml` file into
+`EMAIL_FILE_TRANSPORT_DIR` (open it in any mail client), and `null` discards it.
+
+The `NOTIFY_*` settings decide which notifications turn into mail, how much a
+message may reveal (`NOTIFY_EMAIL_CONTENT_MODE`) and how the background sender
+behaves. See the full list in
+[CONFIG_REFERENCE.md](CONFIG_REFERENCE.md). Note that notifications do not
+produce mail yet: the transports and their configuration are in place, the
+delivery path is being built (see `docs/plans/EMAIL_NOTIFICATIONS.md`).
 
 ## Logging in with an external provider (OIDC)
 

@@ -395,6 +395,547 @@ When true, sharing a card creates a pending invite that the recipient must accep
 
 ---
 
+## `SHARING_PUBLIC_LINK_EMAIL_ENABLED`
+
+*Allow mailing a public link*
+
+Allow a card owner to send an existing public share link to an arbitrary email address from inside the app. Off by default: it lets signed-in users make the server send mail to addresses of their choosing. Requires EMAIL_ENABLED and SHARING_PUBLIC_LINKS_ENABLED as well.
+
+| Property | Value |
+|---|---|
+| Type | bool |
+| Required | No |
+| Default | `false` |
+| Environment variable | `SHARING_PUBLIC_LINK_EMAIL_ENABLED` |
+
+---
+
+## `EMAIL_ENABLED`
+
+*Enable email sending*
+
+Master switch for outgoing email. When false the server never sends a message and the email column of the notification settings is hidden in the UI. When true, EMAIL_FROM_ADDRESS is required (and EMAIL_SMTP_HOST for the `smtp` transport), checked at startup.
+
+| Property | Value |
+|---|---|
+| Type | bool |
+| Required | No |
+| Default | `false` |
+| Environment variable | `EMAIL_ENABLED` |
+
+---
+
+## `EMAIL_TRANSPORT`
+
+*Email transport*
+
+How messages leave the server. `smtp` talks to a real mail server and is the only production choice. `console` writes the whole message to the log, `file` drops it as an `.eml` file into EMAIL_FILE_TRANSPORT_DIR (open it with any mail client), and `null` discards it. The last three exist so local development and automated tests never need a mail server.
+
+| Property | Value |
+|---|---|
+| Type | Enum |
+| Required | No |
+| Default | `"smtp"` |
+| Allowed values | `smtp` · `console` · `file` · `null` |
+| Environment variable | `EMAIL_TRANSPORT` |
+
+**Examples:**
+
+*Example 1:*
+
+```yaml
+EMAIL_TRANSPORT: smtp
+```
+
+*Example 2:*
+
+```yaml
+EMAIL_TRANSPORT: console
+```
+
+*Example 3:*
+
+```yaml
+EMAIL_TRANSPORT: file
+```
+
+*Example 4:*
+
+```yaml
+EMAIL_TRANSPORT: 'null'
+```
+
+---
+
+## `EMAIL_SMTP_HOST`
+
+*SMTP host*
+
+Hostname of the mail server to hand messages to. Required when EMAIL_ENABLED is true and EMAIL_TRANSPORT is `smtp`.
+
+| Property | Value |
+|---|---|
+| Type | str |
+| Required | No |
+| Default | `null` |
+| Environment variable | `EMAIL_SMTP_HOST` |
+
+**Examples:**
+
+*Example 1:*
+
+```yaml
+EMAIL_SMTP_HOST: smtp.example.com
+```
+
+*Example 2:*
+
+```yaml
+EMAIL_SMTP_HOST: localhost
+```
+
+---
+
+## `EMAIL_SMTP_PORT`
+
+*SMTP port*
+
+Port of the mail server. 587 is the usual submission port (with STARTTLS), 465 the implicit-TLS one (use EMAIL_SMTP_SECURITY `ssl`), 25 plain relay on a trusted network.
+
+| Property | Value |
+|---|---|
+| Type | int |
+| Required | No |
+| Default | `587` |
+| Environment variable | `EMAIL_SMTP_PORT` |
+
+**Examples:**
+
+*Example 1:*
+
+```yaml
+EMAIL_SMTP_PORT: 587
+```
+
+*Example 2:*
+
+```yaml
+EMAIL_SMTP_PORT: 465
+```
+
+*Example 3:*
+
+```yaml
+EMAIL_SMTP_PORT: 25
+```
+
+---
+
+## `EMAIL_SMTP_USER`
+
+*SMTP username*
+
+Username for SMTP authentication. Leave unset for a relay that needs no login.
+
+| Property | Value |
+|---|---|
+| Type | str |
+| Required | No |
+| Default | `null` |
+| Environment variable | `EMAIL_SMTP_USER` |
+
+---
+
+## `EMAIL_SMTP_PASSWORD`
+
+*SMTP password*
+
+Password for SMTP authentication. Only used together with EMAIL_SMTP_USER. Supply it through the environment rather than committing it to a config file.
+
+| Property | Value |
+|---|---|
+| Type | Object |
+| Required | No |
+| Default | `null` |
+| Environment variable | `EMAIL_SMTP_PASSWORD` |
+
+---
+
+## `EMAIL_SMTP_SECURITY`
+
+*SMTP connection security*
+
+How the connection to the mail server is encrypted. `starttls` connects in plain text and upgrades (the normal choice for port 587), `ssl` is TLS from the first byte (port 465), `none` is unencrypted and only acceptable for a mail server on localhost or a trusted private network.
+
+| Property | Value |
+|---|---|
+| Type | Enum |
+| Required | No |
+| Default | `"starttls"` |
+| Allowed values | `starttls` · `ssl` · `none` |
+| Environment variable | `EMAIL_SMTP_SECURITY` |
+
+**Examples:**
+
+*Example 1:*
+
+```yaml
+EMAIL_SMTP_SECURITY: starttls
+```
+
+*Example 2:*
+
+```yaml
+EMAIL_SMTP_SECURITY: ssl
+```
+
+*Example 3:*
+
+```yaml
+EMAIL_SMTP_SECURITY: none
+```
+
+---
+
+## `EMAIL_FROM_ADDRESS`
+
+*Sender address*
+
+The address every message is sent from. Required when EMAIL_ENABLED is true, checked at startup. Use an address the mail server is actually allowed to send as, otherwise messages get rejected or land in spam.
+
+| Property | Value |
+|---|---|
+| Type | str |
+| Required | No |
+| Default | `null` |
+| Environment variable | `EMAIL_FROM_ADDRESS` |
+
+**Examples:**
+
+*Example 1:*
+
+```yaml
+EMAIL_FROM_ADDRESS: checkcheck@example.com
+```
+
+*Example 2:*
+
+```yaml
+EMAIL_FROM_ADDRESS: no-reply@example.com
+```
+
+---
+
+## `EMAIL_FROM_NAME`
+
+*Sender display name*
+
+The human-readable name shown next to the sender address. Falls back to APP_NAME when unset.
+
+| Property | Value |
+|---|---|
+| Type | str |
+| Required | No |
+| Default | `null` |
+| Environment variable | `EMAIL_FROM_NAME` |
+
+**Examples:**
+
+*Example 1:*
+
+```yaml
+EMAIL_FROM_NAME: CheckCheck
+```
+
+*Example 2:*
+
+```yaml
+EMAIL_FROM_NAME: My Checklists
+```
+
+---
+
+## `EMAIL_REPLY_TO`
+
+*Reply-To address*
+
+Optional address replies should go to. Set it to a monitored mailbox when EMAIL_FROM_ADDRESS is a no-reply one; leave unset to omit the header.
+
+| Property | Value |
+|---|---|
+| Type | str |
+| Required | No |
+| Default | `null` |
+| Environment variable | `EMAIL_REPLY_TO` |
+
+**Examples:**
+
+```yaml
+EMAIL_REPLY_TO: support@example.com
+```
+
+---
+
+## `EMAIL_FILE_TRANSPORT_DIR`
+
+*Directory for the file transport*
+
+Where EMAIL_TRANSPORT `file` writes messages as `.eml` files. Created on first use and must be writable by the server process. Ignored by every other transport.
+
+| Property | Value |
+|---|---|
+| Type | str |
+| Required | No |
+| Default | `"./dev_mail"` |
+| Environment variable | `EMAIL_FILE_TRANSPORT_DIR` |
+
+---
+
+## `EMAIL_TIMEOUT_SECONDS`
+
+*SMTP timeout (seconds)*
+
+How long to wait for the mail server before giving up on a message. The attempt is retried later, so a short timeout is safer than a long stall.
+
+| Property | Value |
+|---|---|
+| Type | int |
+| Required | No |
+| Default | `20` |
+| Environment variable | `EMAIL_TIMEOUT_SECONDS` |
+
+---
+
+## `NOTIFY_EMAIL_REQUIRE_VERIFIED`
+
+*Only mail verified addresses*
+
+When true, a user whose address is not marked verified receives no mail. Off by default because in a self-hosted instance addresses come from the identity provider or an administrator and are already trusted. There is no verification flow yet, so turning this on currently stops all mail.
+
+| Property | Value |
+|---|---|
+| Type | bool |
+| Required | No |
+| Default | `false` |
+| Environment variable | `NOTIFY_EMAIL_REQUIRE_VERIFIED` |
+
+---
+
+## `NOTIFY_EMAIL_CONTENT_MODE`
+
+*How much email messages reveal*
+
+`full` names the card and the person who acted, which makes the message useful on its own. `minimal` only says that something happened and links back to the app. Mail leaves the instance and is stored on someone else's server, so pick `minimal` when card names are sensitive.
+
+| Property | Value |
+|---|---|
+| Type | Enum |
+| Required | No |
+| Default | `"full"` |
+| Allowed values | `full` · `minimal` |
+| Environment variable | `NOTIFY_EMAIL_CONTENT_MODE` |
+
+**Examples:**
+
+*Example 1:*
+
+```yaml
+NOTIFY_EMAIL_CONTENT_MODE: full
+```
+
+*Example 2:*
+
+```yaml
+NOTIFY_EMAIL_CONTENT_MODE: minimal
+```
+
+---
+
+## `NOTIFY_EMAIL_SUPPRESS_WINDOW_SECONDS`
+
+*Delay before an immediate mail goes out (seconds)*
+
+How long a message waits before being sent. If the user reads the notification in the app within that window, no mail is sent at all. Keeps people who are looking at the app right now out of their own inbox. Set to 0 to send without delay.
+
+| Property | Value |
+|---|---|
+| Type | int |
+| Required | No |
+| Default | `120` |
+| Environment variable | `NOTIFY_EMAIL_SUPPRESS_WINDOW_SECONDS` |
+
+---
+
+## `NOTIFY_PUBLIC_LINK_THROTTLE_MINUTES`
+
+*Throttle for public-link-opened mail (minutes)*
+
+At most one `public_link_opened` mail per card per recipient in this window. Anyone holding a public link can trigger that event, so without a throttle a reload loop would flood the owner's inbox.
+
+| Property | Value |
+|---|---|
+| Type | int |
+| Required | No |
+| Default | `60` |
+| Environment variable | `NOTIFY_PUBLIC_LINK_THROTTLE_MINUTES` |
+
+---
+
+## `NOTIFY_DEFAULT_MODES`
+
+*Instance default notification modes*
+
+The delivery mode used for a notification type and channel when the user has not chosen one. Keyed by notification type (`card_shared`, `card_invited`, `public_link_opened`), then by channel (`in_app`, `email`, `webhook`). Modes are `off`, `immediate`, `hourly` and `daily`; `in_app` and `webhook` accept only `off` and `immediate`. Users can override every entry unless it is listed in NOTIFY_DISABLED_TYPES.
+
+| Property | Value |
+|---|---|
+| Type | Dictionary of (str, Dictionary of (str, str)) |
+| Required | No |
+| Environment variable | `NOTIFY_DEFAULT_MODES` |
+
+**Examples:**
+
+```yaml
+NOTIFY_DEFAULT_MODES:
+  card_shared:
+    in_app: immediate
+    email: immediate
+  card_invited:
+    in_app: immediate
+    email: immediate
+  public_link_opened:
+    in_app: immediate
+    email: 'off'
+```
+
+---
+
+## `NOTIFY_DISABLED_TYPES`
+
+*Notification types disabled instance-wide*
+
+Notification types nobody may receive, whatever their personal settings say. The settings UI shows those entries as locked by the administrator. Empty by default.
+
+| Property | Value |
+|---|---|
+| Type | List of str |
+| Required | No |
+| Environment variable | `NOTIFY_DISABLED_TYPES` |
+
+**Examples:**
+
+```yaml
+NOTIFY_DISABLED_TYPES:
+- public_link_opened
+```
+
+---
+
+## `NOTIFY_DISPATCH_TICK_SECONDS`
+
+*Dispatcher tick (seconds)*
+
+How often the background sender looks for due messages. It also wakes up immediately when something is queued, so this is only the fallback interval.
+
+| Property | Value |
+|---|---|
+| Type | int |
+| Required | No |
+| Default | `30` |
+| Environment variable | `NOTIFY_DISPATCH_TICK_SECONDS` |
+
+---
+
+## `NOTIFY_MAX_ATTEMPTS`
+
+*Delivery attempts before giving up*
+
+How often a message is retried after a temporary failure (with growing backoff) before it is marked failed and left for inspection. Permanent failures, such as a rejected address, are never retried.
+
+| Property | Value |
+|---|---|
+| Type | int |
+| Required | No |
+| Default | `6` |
+| Environment variable | `NOTIFY_MAX_ATTEMPTS` |
+
+---
+
+## `NOTIFY_OUTBOX_RETENTION_DAYS`
+
+*Keep sent messages for (days)*
+
+How long successfully sent rows stay in the outbox table before they are pruned. Failed rows are kept longer so an operator can still see what broke.
+
+| Property | Value |
+|---|---|
+| Type | int |
+| Required | No |
+| Default | `30` |
+| Environment variable | `NOTIFY_OUTBOX_RETENTION_DAYS` |
+
+---
+
+## `NOTIFY_FEED_RETENTION_DAYS`
+
+*Keep in-app notifications for (days)*
+
+How long read notifications stay in the in-app feed before they are pruned. The feed grows forever otherwise. Set to 0 to keep everything.
+
+| Property | Value |
+|---|---|
+| Type | int |
+| Required | No |
+| Default | `180` |
+| Environment variable | `NOTIFY_FEED_RETENTION_DAYS` |
+
+---
+
+## `NOTIFY_EMAIL_MAX_PER_USER_PER_HOUR`
+
+*Maximum emails per user per hour*
+
+A blunt backstop against flooding a single recipient. Messages over the limit are dropped rather than queued forever.
+
+| Property | Value |
+|---|---|
+| Type | int |
+| Required | No |
+| Default | `20` |
+| Environment variable | `NOTIFY_EMAIL_MAX_PER_USER_PER_HOUR` |
+
+---
+
+## `NOTIFY_WEBHOOK_ENABLED`
+
+*Enable per-user webhooks*
+
+Master switch for the webhook channel, which POSTs a small JSON body to a URL each user configures for themselves. Off by default: it lets signed-in users make the server issue outbound HTTP requests.
+
+| Property | Value |
+|---|---|
+| Type | bool |
+| Required | No |
+| Default | `false` |
+| Environment variable | `NOTIFY_WEBHOOK_ENABLED` |
+
+---
+
+## `NOTIFY_WEBHOOK_ALLOW_PRIVATE_IPS`
+
+*Allow webhooks to private addresses*
+
+When false, webhook URLs resolving to loopback, link-local or private network ranges are refused, which is what stops a user pointing a webhook at services reachable only from the server. Turn it on only for a trusted, single-user instance on a private network.
+
+| Property | Value |
+|---|---|
+| Type | bool |
+| Required | No |
+| Default | `false` |
+| Environment variable | `NOTIFY_WEBHOOK_ALLOW_PRIVATE_IPS` |
+
+---
+
 ## `AUTH_BASIC_LOGIN_IS_ENABLED`
 
 *Enable local login*

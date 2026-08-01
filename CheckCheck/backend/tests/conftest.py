@@ -273,6 +273,54 @@ def database(request):
         _teardown_postgres()
 
 
+# ── mail harness ──────────────────────────────────────────────────────────────
+
+# Sender address the mail_capture fixture pretends the instance is configured
+# with. Tests may assert on it.
+MAIL_CAPTURE_FROM_ADDRESS = "checkcheck-tests@example.com"
+
+
+@pytest.fixture
+def mail_capture():
+    """A capturing email transport, installed for the duration of one test.
+
+    Every message an in-process caller sends through
+    ``notify.transports.get_email_transport()`` lands in ``.sent`` (the
+    :class:`OutgoingEmail`) and ``.messages`` (the rendered MIME message)
+    instead of going anywhere. Set ``.raise_on_send`` to a
+    ``TransientEmailError``/``PermanentEmailError`` to make the next send fail,
+    which is how the dispatcher's retry and dead-letter behaviour gets tested.
+
+    Scope note: this patches the *test* process, not the server subprocess that
+    conftest boots. It is for code called directly from a test (the dispatcher's
+    ``drain_once()`` from chunk E2 onward), not for mail triggered by an HTTP
+    request against the live server. The live server sends nothing while
+    EMAIL_ENABLED is false, which is the default in the test environment.
+    """
+    from checkcheckserver.config import Config
+    from checkcheckserver.notify.transports import (
+        CapturingEmailTransport,
+        reset_email_transport,
+        set_email_transport,
+    )
+
+    # The test environment has mail switched off, so give the capturing
+    # transport a config that looks like a configured instance. Otherwise every
+    # captured message would render without a sender address.
+    transport = CapturingEmailTransport(
+        Config(
+            EMAIL_ENABLED=True,
+            EMAIL_TRANSPORT="null",
+            EMAIL_FROM_ADDRESS=MAIL_CAPTURE_FROM_ADDRESS,
+        )
+    )
+    set_email_transport(transport)
+    try:
+        yield transport
+    finally:
+        reset_email_transport()
+
+
 def _start_server() -> subprocess.Popen:
     """Boot the backend exactly as run_dev_backend_server_with_oidc.sh does:
     ``python ./checkcheckserver/main.py`` from the backend dir, so __main__ and

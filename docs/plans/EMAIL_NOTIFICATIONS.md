@@ -171,10 +171,19 @@ recipient. Its own docstring names it as the hook point for this sub-project.
    everything read before the human sees it.
 4. **Webhooks are a per-user setting behind an admin master switch** (default
    off), with a private-IP guard. Last chunk, droppable.
-5. **Sending a public link to an email address is in scope.** Inviting a person
-   who has no account yet is **out of scope** (needs a pending-invite-by-email
-   identity concept and interacts badly with OIDC-only instances). Noted as a
-   follow-up in section 8.
+5. **"Invite someone to work on this card" by email is in scope** (chunk E6).
+   This means mailing a **public link** to an arbitrary address, framed as an
+   invitation to collaborate. It works for recipients with **no account at all**,
+   because a `CheckListPublicShare` is a capability, not a user grant, and its
+   `permission` can be `view`, `check` or `edit`
+   ([`model/checklist_public_share.py`](../../CheckCheck/backend/checkcheckserver/model/checklist_public_share.py)).
+   An `edit` link therefore lets the recipient genuinely work on the card by
+   clicking a link in an email.
+
+   What is **out of scope** is the different thing of provisioning an *account*
+   for that person (a pending-invite record keyed on an email address, matched at
+   registration), which needs a new identity concept and interacts badly with
+   OIDC-only instances where the server does not control signup. See section 8.
 
 ---
 
@@ -276,11 +285,25 @@ Implement them in `drain_once()`, at the moment a row becomes due:
    collapse into one message ("Anna shared 5 cards with you"). The key is
    `f"{user_id}:{type}:{actor_id}"` for share events. This is what stops a
    30-person group share turning into 30 separate mails per person.
-3. **Throttling.** `public_link_opened` is triggerable by anyone holding the
-   link, so it is rate-limited per (card, user) to at most one mail per
-   `NOTIFY_PUBLIC_LINK_THROTTLE_MINUTES` (default 60), and its email default is
-   `off` even when the type is enabled. Reloading a public link in a loop must
-   not flood the owner's inbox.
+3. **No special throttle for `public_link_opened`.** It fires **once per link**,
+   not on every open: `mark_first_opened` flips `first_opened_at` from null
+   atomically and only the very first caller emits
+   ([`api/access.py:344-347`](../../CheckCheck/backend/checkcheckserver/api/access.py)).
+   So there is no inbox-flood vector here, and its email default is `immediate`
+   like the other types. The only residual noise is an owner who deletes and
+   recreates links repeatedly, which is owner-driven and already covered by the
+   blunt `NOTIFY_EMAIL_MAX_PER_USER_PER_HOUR` cap. Do not add a per-link throttle.
+
+   **Correction recorded 2026-08-01, after chunk E1 was already in progress.**
+   The original plan wrongly assumed every open emits, and therefore specified a
+   `NOTIFY_PUBLIC_LINK_THROTTLE_MINUTES` setting plus an email default of `off`
+   for this type. Section 5 still lists both, deliberately left untouched so the
+   running E1 session's spec does not move under it. **Chunk E4 owns the
+   cleanup:** delete `NOTIFY_PUBLIC_LINK_THROTTLE_MINUTES` from `config.py` (it
+   will have been added by E1 and never read), flip the `public_link_opened`
+   email entry in `NOTIFY_DEFAULT_MODES` from `off` to `immediate`, and rerun
+   `./gen_config_docs.sh`. Neither has any effect before E4, since nothing reads
+   the defaults until the fan-out exists.
 4. **No address, no send.** A user with `email is None` produces no outbox row at
    all (do not enqueue and then fail). Log at debug, not warning.
 5. **Verification.** `NOTIFY_EMAIL_REQUIRE_VERIFIED` defaults to `false`, because
@@ -350,7 +373,7 @@ frontend hides the whole settings section on an instance without mail configured
 | `PUT` | `/api/user/me/notification-settings` | E3 | Partial update of the matrix, timezone, webhook url. Rejects a mode the admin has capped, with a clear 4xx. |
 | `POST` | `/api/user/me/notification-settings/test-email` | E2/E5 | Sends a test mail to the current user. Rate-limited hard (one per minute). 409 when the user has no address or mail is disabled. |
 | `GET` | `/api/notifications/unsubscribe` | E4 | Public, no session. Takes a signed token (`user_id`, `type`, expiry, HMAC over `unsubscribe_secret`). Shows a tiny confirm page, then sets that type's email mode to `off`. One-click, per RFC 8058 expectations. Forged or expired tokens get a neutral error page, never a stack trace and never a hint about whether the user exists. |
-| `POST` | `/api/checklist/{id}/public-share/email` | E6 | Mails an existing public link to a given address. Owner only, requires the public-links feature plus `SHARING_PUBLIC_LINK_EMAIL_ENABLED`, rate-limited per user per hour. |
+| `POST` | `/api/checklist/{id}/public-share/email` | E6 | "Invite someone to work on this card": mails an existing public link to a given address, with an optional personal message. The recipient needs no account and gets whatever the link grants (`view`, `check` or `edit`). Owner only, requires the public-links feature plus `SHARING_PUBLIC_LINK_EMAIL_ENABLED`, rate-limited per user per hour. |
 
 ---
 
@@ -464,26 +487,97 @@ handler; E2E for opening the modal, changing a mode and seeing it persist across
 reload, the disabled state when the admin capped a type, the offline notice, and
 the `?card=&n=` deep link marking exactly that notification read.
 
-### E6: webhooks, public link by email, feed retention
+### E6: invite-by-email for public cards, webhooks, feed retention
 
-**Goal:** the optional extras. Droppable without harming E1 to E5.
+**Goal:** the user-facing extra the maintainer asked for, plus two smaller items.
+Order matters here: the card invitation is the valuable part, webhooks are
+droppable if the session runs long.
 
-- Webhook channel: per-user `webhook_url`, admin master switch, generic JSON
-  payload, SSRF guard rejecting private and loopback ranges unless
-  `NOTIFY_WEBHOOK_ALLOW_PRIVATE_IPS`, short timeout, same retry policy, plus a
-  "send test webhook" action.
-- `POST /api/checklist/{id}/public-share/email`: mails an existing public link to
-  an address, owner only, feature-flagged, rate-limited per user per hour, with
-  the address never echoed back in an error (no user enumeration). Add a small
-  "send by email" field in `ShareModal`.
-- Feed retention pruning of the `notification` table via
-  `NOTIFY_FEED_RETENTION_DAYS`, in the same loop.
+1. **"Invite someone to work on this card" (do this first).**
+   `POST /api/checklist/{id}/public-share/email`. Mails an existing public link
+   to an address with an optional personal message, framed as an invitation, not
+   as a notification. The recipient needs no account: the link is a capability
+   and can grant `view`, `check` or `edit`, so an `edit` link means they can
+   really work on the card straight from the email.
+   - Owner only. Requires `SHARING_ENABLED`, `SHARING_PUBLIC_LINKS_ENABLED` and
+     `SHARING_PUBLIC_LINK_EMAIL_ENABLED`.
+   - The link must already exist. This endpoint never creates or upgrades one,
+     so a user cannot accidentally mail out more access than they meant to.
+   - **This is an open mail relay if you get it wrong.** Any authenticated user
+     can name an arbitrary recipient. Rate-limit per sender per hour, cap the
+     personal message length, and never echo the address back in an error
+     response (no enumeration, no reflected content).
+   - If the link carries a passphrase, the mail must **not** include it. Say that
+     a passphrase is required and let the sender share it out of band.
+   - **Frontend, and this part is not optional polish.** The single biggest risk
+     with this feature is the Nextcloud failure mode the maintainer has watched
+     users hit repeatedly: someone wants to share with a *colleague who has an
+     account*, thinks "I know their email", and uses the external-link email
+     field instead of the collaborator box. They then hand out an anonymous
+     capability link when they meant a per-user grant. Design against it:
 
-**Tests:** webhook posts the expected body and honours the master switch;
+     1. **Placement is the primary defence.** The field lives *inside* the
+        public-link block and only renders once a public link exists. It is
+        never a sibling of the "Add people" collaborator box. Because the
+        endpoint requires an existing link, the field cannot be a user's first
+        move, which is precisely what makes the confusion possible in Nextcloud.
+     2. **Name it by audience, not mechanism.** Not "Invite by email". Use
+        "Send this link to someone without an account", under a heading like
+        "People outside {APP_NAME}".
+     3. **Spell out the consequence difference** next to it, one line each,
+        because this is the thing users actually get wrong:
+        collaborator = the card appears in their board, tied to their account,
+        revoke them individually; link by email = anyone holding the link gets
+        in without signing in, and revoking kills it for everyone.
+     4. **Soft "that looks internal" hint** driven by a new
+        `SHARING_INTERNAL_EMAIL_DOMAINS` config list (default empty). When the
+        typed address is on a declared domain, show a callout: "That address
+        looks internal. If they have an account, add them as a collaborator
+        above instead", with "Add as collaborator" as the primary action and
+        "Send link anyway" as the secondary one.
+     5. **Never hard-block.** Sending to a member's address is sometimes exactly
+        right: a personal address, or a device where they are not signed in.
+     6. **Confirm step** states the granted level in plain words: "They will be
+        able to edit this card without signing in."
+
+     **Do not implement the hint as a live per-address membership lookup.**
+     That was considered and rejected: it hands every account holder an oracle
+     for "does this address have an account here", which is exactly what
+     [`db/user.py:107`](../../CheckCheck/backend/checkcheckserver/db/user.py)
+     deliberately avoids ("Deliberately does NOT match on email to avoid address
+     enumeration"), and the user-search response model never returns email
+     either. The domain list in point 4 catches the real-world case (a colleague
+     on the company domain) without disclosing anything the operator did not
+     declare. If an instance owner wants the exact per-address behaviour anyway,
+     it is a legitimate choice for a trusted self-hosted deployment, but it ships
+     as `SHARING_EMAIL_MEMBER_HINT` defaulting to **off**, requiring
+     `SHARING_USER_SEARCH_ENABLED`, rate-limited, and documented as "reveals to
+     your users whether an email address has an account on this server".
+   - Online-only surface, like the rest of the share UI.
+2. **Webhook channel.** Per-user `webhook_url`, admin master switch, generic JSON
+   payload, SSRF guard rejecting private and loopback ranges unless
+   `NOTIFY_WEBHOOK_ALLOW_PRIVATE_IPS`, short timeout, same retry policy, plus a
+   "send test webhook" action.
+3. **Feed retention** pruning of the `notification` table via
+   `NOTIFY_FEED_RETENTION_DAYS`, in the same loop.
+4. **Config work owned by this chunk.** `SHARING_INTERNAL_EMAIL_DOMAINS` (and
+   `SHARING_EMAIL_MEMBER_HINT` if the operator-choice variant is wanted) are
+   **not** in the section 5 table and are **not** E1's job: they were decided
+   after E1 was already in progress, so add them here and rerun
+   `./gen_config_docs.sh`. While you are in there, confirm the E4 cleanup landed:
+   `NOTIFY_PUBLIC_LINK_THROTTLE_MINUTES` should be gone (see 4.1.3).
+
+**Tests:** invitation mail requires ownership and all three flags; a
+non-owner collaborator gets 403; the rate limit blocks the second send in the
+window; the passphrase never appears in the rendered mail; an `edit` link in a
+test mail actually resolves to an editable card; the address is absent from every
+error body. E2E: the email field is not visible until a public link exists; an
+address on a `SHARING_INTERNAL_EMAIL_DOMAINS` domain raises the callout and its
+primary action lands in the collaborator box with the address carried over; "send
+link anyway" still works; with an empty domain list no callout ever appears. Webhook posts the expected body and honours the master switch;
 `http://169.254.169.254` and `http://127.0.0.1` are refused by default and
-allowed when the flag is on; DNS-rebinding style hostnames resolving to private
-IPs are refused too; public-link mail requires ownership plus both flags and
-respects the rate limit; feed pruning keeps unread rows inside the window.
+allowed when the flag is on; hostnames resolving to private IPs are refused too.
+Feed pruning keeps unread rows inside the window.
 
 ---
 
@@ -498,9 +592,14 @@ respects the rate limit; feed pruning keeps unread rows inside the window.
   for it: who gets the reminder (owner only, or all collaborators), and what
   happens to a pending reminder when the card is deleted or the user's access is
   revoked.
-- **Inviting a person who has no account yet** by email address. Needs a
-  pending-invite record keyed on an address, matched at registration, and it
-  conflicts with OIDC-only instances where the server does not control signup.
+- **Provisioning an account for someone who does not have one.** Note the
+  distinction from chunk E6: inviting a stranger to *work on a card* is in
+  scope and needs no account, because a public link is a capability. What is out
+  of scope is creating a *user* from an email invitation, which needs a pending
+  invite record keyed on an address, matched at registration, and conflicts with
+  OIDC-only instances where the server does not control signup. If a recipient of
+  a card invitation later wants a real account with the card in their own board,
+  that is the normal signup plus share flow, not this feature.
 - **Email address verification and change flow.** `is_email_verified` stays dead
   code for now. The plumbing built here (transports, outbox, signed tokens) is
   most of what it would need.
@@ -518,7 +617,7 @@ partial.
 
 | Chunk | Status | Session date | Notes and deviations |
 |---|---|---|---|
-| E1 config, transports, harness | ⬜ Not started | | |
+| E1 config, transports, harness | ✅ Done | 2026-08-01 | Full section 5 config block including the E6 settings, boot-time validation as a `Config` model validator, `notify/transports.py` with all four transports plus a `CapturingEmailTransport` test seam, `aiosmtplib` runtime dep and `aiosmtpd` test dep (both venvs synced), `email_enabled` **and** `webhook_enabled` on `/api/public-config`, 26 tests in `tests_email_transports.py` including a real aiosmtpd round trip. Deviations, all small: (a) `webhook_enabled` was added to public-config now rather than in E6, same reasoning as adding the E6 config settings early (one openapi regeneration instead of two); (b) `build_email_transport()` returns the null transport whenever `EMAIL_ENABLED` is false, so the master switch cannot be defeated by a caller that forgets to check it; (c) transports classify failures into `TransientEmailError` / `PermanentEmailError` (SMTP 4xx vs 5xx), which E2's retry policy consumes; (d) `EMAIL_FROM_NAME` is resolved to `APP_NAME` in the validator rather than at use time. |
 | E2 outbox and dispatcher | ⬜ Not started | | |
 | E3 preferences | ⬜ Not started | | |
 | E4 wiring and rendering | ⬜ Not started | | |

@@ -48,6 +48,12 @@ class PublicConfig(BaseModel):
     server_version: str = Field(
         description="The running server's version string (from checkcheckserver.__version__), surfaced so the web client can display it.",
     )
+    email_enabled: bool = Field(
+        description="Whether the instance can send email at all. When false, the notification settings hide the email column entirely (there is nothing to configure).",
+    )
+    webhook_enabled: bool = Field(
+        description="Whether per-user notification webhooks are allowed. When false, the notification settings hide the webhook column.",
+    )
 
 
 def _default_api_token_expiry_days() -> Optional[int]:
@@ -74,4 +80,6 @@ async def get_public_config() -> PublicConfig:
         api_token_default_expiry_days=_default_api_token_expiry_days(),
         api_token_allow_never_expire=config.API_TOKEN_ALLOW_NEVER_EXPIRE,
         server_version=server_version,
+        email_enabled=config.EMAIL_ENABLED,
+        webhook_enabled=config.NOTIFY_WEBHOOK_ENABLED,
     )

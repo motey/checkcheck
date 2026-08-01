@@ -243,6 +243,265 @@ class Config(BaseSettings):
             "collaborator immediately."
         ),
     )
+    SHARING_PUBLIC_LINK_EMAIL_ENABLED: bool = Field(
+        default=False,
+        title="Allow mailing a public link",
+        description=(
+            "Allow a card owner to send an existing public share link to an arbitrary email "
+            "address from inside the app. Off by default: it lets signed-in users make the "
+            "server send mail to addresses of their choosing. Requires EMAIL_ENABLED and "
+            "SHARING_PUBLIC_LINKS_ENABLED as well."
+        ),
+    )
+
+    # ── Email delivery ────────────────────────────────────────────────────────
+    # How the server sends mail. Nothing is ever sent while EMAIL_ENABLED is
+    # false. When it is true the settings are validated at startup, so a
+    # misconfigured instance fails to boot instead of silently swallowing mail.
+    EMAIL_ENABLED: bool = Field(
+        default=False,
+        title="Enable email sending",
+        description=(
+            "Master switch for outgoing email. When false the server never sends a message "
+            "and the email column of the notification settings is hidden in the UI. When "
+            "true, EMAIL_FROM_ADDRESS is required (and EMAIL_SMTP_HOST for the `smtp` "
+            "transport), checked at startup."
+        ),
+    )
+    EMAIL_TRANSPORT: Literal["smtp", "console", "file", "null"] = Field(
+        default="smtp",
+        title="Email transport",
+        description=(
+            "How messages leave the server. `smtp` talks to a real mail server and is the "
+            "only production choice. `console` writes the whole message to the log, `file` "
+            "drops it as an `.eml` file into EMAIL_FILE_TRANSPORT_DIR (open it with any mail "
+            "client), and `null` discards it. The last three exist so local development and "
+            "automated tests never need a mail server."
+        ),
+        examples=["smtp", "console", "file", "null"],
+    )
+    EMAIL_SMTP_HOST: Optional[str] = Field(
+        default=None,
+        title="SMTP host",
+        description=(
+            "Hostname of the mail server to hand messages to. Required when EMAIL_ENABLED is "
+            "true and EMAIL_TRANSPORT is `smtp`."
+        ),
+        examples=["smtp.example.com", "localhost"],
+    )
+    EMAIL_SMTP_PORT: int = Field(
+        default=587,
+        title="SMTP port",
+        description=(
+            "Port of the mail server. 587 is the usual submission port (with STARTTLS), 465 "
+            "the implicit-TLS one (use EMAIL_SMTP_SECURITY `ssl`), 25 plain relay on a "
+            "trusted network."
+        ),
+        examples=[587, 465, 25],
+    )
+    EMAIL_SMTP_USER: Optional[str] = Field(
+        default=None,
+        title="SMTP username",
+        description="Username for SMTP authentication. Leave unset for a relay that needs no login.",
+    )
+    EMAIL_SMTP_PASSWORD: Optional[SecretStr] = Field(
+        default=None,
+        title="SMTP password",
+        description=(
+            "Password for SMTP authentication. Only used together with EMAIL_SMTP_USER. "
+            "Supply it through the environment rather than committing it to a config file."
+        ),
+    )
+    EMAIL_SMTP_SECURITY: Literal["starttls", "ssl", "none"] = Field(
+        default="starttls",
+        title="SMTP connection security",
+        description=(
+            "How the connection to the mail server is encrypted. `starttls` connects in plain "
+            "text and upgrades (the normal choice for port 587), `ssl` is TLS from the first "
+            "byte (port 465), `none` is unencrypted and only acceptable for a mail server on "
+            "localhost or a trusted private network."
+        ),
+        examples=["starttls", "ssl", "none"],
+    )
+    EMAIL_FROM_ADDRESS: Optional[str] = Field(
+        default=None,
+        title="Sender address",
+        description=(
+            "The address every message is sent from. Required when EMAIL_ENABLED is true, "
+            "checked at startup. Use an address the mail server is actually allowed to send "
+            "as, otherwise messages get rejected or land in spam."
+        ),
+        examples=["checkcheck@example.com", "no-reply@example.com"],
+    )
+    EMAIL_FROM_NAME: Optional[str] = Field(
+        default=None,
+        title="Sender display name",
+        description=(
+            "The human-readable name shown next to the sender address. Falls back to APP_NAME "
+            "when unset."
+        ),
+        examples=["CheckCheck", "My Checklists"],
+    )
+    EMAIL_REPLY_TO: Optional[str] = Field(
+        default=None,
+        title="Reply-To address",
+        description=(
+            "Optional address replies should go to. Set it to a monitored mailbox when "
+            "EMAIL_FROM_ADDRESS is a no-reply one; leave unset to omit the header."
+        ),
+        examples=["support@example.com"],
+    )
+    EMAIL_FILE_TRANSPORT_DIR: str = Field(
+        default="./dev_mail",
+        title="Directory for the file transport",
+        description=(
+            "Where EMAIL_TRANSPORT `file` writes messages as `.eml` files. Created on first "
+            "use and must be writable by the server process. Ignored by every other transport."
+        ),
+    )
+    EMAIL_TIMEOUT_SECONDS: int = Field(
+        default=20,
+        title="SMTP timeout (seconds)",
+        description=(
+            "How long to wait for the mail server before giving up on a message. The attempt "
+            "is retried later, so a short timeout is safer than a long stall."
+        ),
+    )
+
+    # ── Notification delivery ─────────────────────────────────────────────────
+    # Which notifications turn into mail, how much they may say, and how the
+    # background dispatcher behaves. See docs/plans/EMAIL_NOTIFICATIONS.md.
+    NOTIFY_EMAIL_REQUIRE_VERIFIED: bool = Field(
+        default=False,
+        title="Only mail verified addresses",
+        description=(
+            "When true, a user whose address is not marked verified receives no mail. Off by "
+            "default because in a self-hosted instance addresses come from the identity "
+            "provider or an administrator and are already trusted. There is no verification "
+            "flow yet, so turning this on currently stops all mail."
+        ),
+    )
+    NOTIFY_EMAIL_CONTENT_MODE: Literal["full", "minimal"] = Field(
+        default="full",
+        title="How much email messages reveal",
+        description=(
+            "`full` names the card and the person who acted, which makes the message useful "
+            "on its own. `minimal` only says that something happened and links back to the "
+            "app. Mail leaves the instance and is stored on someone else's server, so pick "
+            "`minimal` when card names are sensitive."
+        ),
+        examples=["full", "minimal"],
+    )
+    NOTIFY_EMAIL_SUPPRESS_WINDOW_SECONDS: int = Field(
+        default=120,
+        title="Delay before an immediate mail goes out (seconds)",
+        description=(
+            "How long a message waits before being sent. If the user reads the notification in "
+            "the app within that window, no mail is sent at all. Keeps people who are looking "
+            "at the app right now out of their own inbox. Set to 0 to send without delay."
+        ),
+    )
+    NOTIFY_PUBLIC_LINK_THROTTLE_MINUTES: int = Field(
+        default=60,
+        title="Throttle for public-link-opened mail (minutes)",
+        description=(
+            "At most one `public_link_opened` mail per card per recipient in this window. "
+            "Anyone holding a public link can trigger that event, so without a throttle a "
+            "reload loop would flood the owner's inbox."
+        ),
+    )
+    NOTIFY_DEFAULT_MODES: Dict[str, Dict[str, str]] = Field(
+        default_factory=lambda: {
+            "card_shared": {"in_app": "immediate", "email": "immediate"},
+            "card_invited": {"in_app": "immediate", "email": "immediate"},
+            "public_link_opened": {"in_app": "immediate", "email": "off"},
+        },
+        title="Instance default notification modes",
+        description=(
+            "The delivery mode used for a notification type and channel when the user has not "
+            "chosen one. Keyed by notification type (`card_shared`, `card_invited`, "
+            "`public_link_opened`), then by channel (`in_app`, `email`, `webhook`). Modes are "
+            "`off`, `immediate`, `hourly` and `daily`; `in_app` and `webhook` accept only "
+            "`off` and `immediate`. Users can override every entry unless it is listed in "
+            "NOTIFY_DISABLED_TYPES."
+        ),
+        examples=[
+            {
+                "card_shared": {"in_app": "immediate", "email": "immediate"},
+                "card_invited": {"in_app": "immediate", "email": "immediate"},
+                "public_link_opened": {"in_app": "immediate", "email": "off"},
+            }
+        ],
+    )
+    NOTIFY_DISABLED_TYPES: List[str] = Field(
+        default_factory=list,
+        title="Notification types disabled instance-wide",
+        description=(
+            "Notification types nobody may receive, whatever their personal settings say. The "
+            "settings UI shows those entries as locked by the administrator. Empty by default."
+        ),
+        examples=[["public_link_opened"]],
+    )
+    NOTIFY_DISPATCH_TICK_SECONDS: int = Field(
+        default=30,
+        title="Dispatcher tick (seconds)",
+        description=(
+            "How often the background sender looks for due messages. It also wakes up "
+            "immediately when something is queued, so this is only the fallback interval."
+        ),
+    )
+    NOTIFY_MAX_ATTEMPTS: int = Field(
+        default=6,
+        title="Delivery attempts before giving up",
+        description=(
+            "How often a message is retried after a temporary failure (with growing backoff) "
+            "before it is marked failed and left for inspection. Permanent failures, such as "
+            "a rejected address, are never retried."
+        ),
+    )
+    NOTIFY_OUTBOX_RETENTION_DAYS: int = Field(
+        default=30,
+        title="Keep sent messages for (days)",
+        description=(
+            "How long successfully sent rows stay in the outbox table before they are pruned. "
+            "Failed rows are kept longer so an operator can still see what broke."
+        ),
+    )
+    NOTIFY_FEED_RETENTION_DAYS: int = Field(
+        default=180,
+        title="Keep in-app notifications for (days)",
+        description=(
+            "How long read notifications stay in the in-app feed before they are pruned. The "
+            "feed grows forever otherwise. Set to 0 to keep everything."
+        ),
+    )
+    NOTIFY_EMAIL_MAX_PER_USER_PER_HOUR: int = Field(
+        default=20,
+        title="Maximum emails per user per hour",
+        description=(
+            "A blunt backstop against flooding a single recipient. Messages over the limit are "
+            "dropped rather than queued forever."
+        ),
+    )
+    NOTIFY_WEBHOOK_ENABLED: bool = Field(
+        default=False,
+        title="Enable per-user webhooks",
+        description=(
+            "Master switch for the webhook channel, which POSTs a small JSON body to a URL "
+            "each user configures for themselves. Off by default: it lets signed-in users make "
+            "the server issue outbound HTTP requests."
+        ),
+    )
+    NOTIFY_WEBHOOK_ALLOW_PRIVATE_IPS: bool = Field(
+        default=False,
+        title="Allow webhooks to private addresses",
+        description=(
+            "When false, webhook URLs resolving to loopback, link-local or private network "
+            "ranges are refused, which is what stops a user pointing a webhook at services "
+            "reachable only from the server. Turn it on only for a trusted, single-user "
+            "instance on a private network."
+        ),
+    )
 
     # ── Local (username + password) authentication ────────────────────────────
     AUTH_BASIC_LOGIN_IS_ENABLED: bool = Field(
@@ -546,6 +805,34 @@ class Config(BaseSettings):
         if self.SET_SESSION_COOKIE_SECURE is None:
             self.SET_SESSION_COOKIE_SECURE = self.SERVER_PUBLIC_URL.startswith("https://")
 
+        return self
+
+    @model_validator(mode="after")
+    def _resolve_and_validate_email(self) -> "Config":
+        """Fill EMAIL_FROM_NAME from APP_NAME and reject a half-configured mailer.
+
+        A mail setup that is switched on but missing a sender address (or an SMTP
+        host) can only fail later, once per message, inside a background task
+        where nobody looks. Fail at boot instead: the instance does not start
+        until the operator finishes the configuration.
+        """
+        if self.EMAIL_FROM_NAME is None:
+            self.EMAIL_FROM_NAME = self.APP_NAME
+
+        if not self.EMAIL_ENABLED:
+            return self
+
+        if not self.EMAIL_FROM_ADDRESS:
+            raise ValueError(
+                "EMAIL_ENABLED is true but EMAIL_FROM_ADDRESS is not set. "
+                "Set the address messages are sent from, or set EMAIL_ENABLED to false."
+            )
+        if self.EMAIL_TRANSPORT == "smtp" and not self.EMAIL_SMTP_HOST:
+            raise ValueError(
+                "EMAIL_ENABLED is true and EMAIL_TRANSPORT is 'smtp', but EMAIL_SMTP_HOST is "
+                "not set. Point it at your mail server, or pick another EMAIL_TRANSPORT "
+                "('console' or 'file' for local development)."
+            )
         return self
 
     def get_server_url(self) -> str:

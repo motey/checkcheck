@@ -204,6 +204,10 @@ def test_public_config_unauthenticated_returns_flags():
             "sharing_require_invite_accept",
             "api_token_default_expiry_days",
             "api_token_allow_never_expire",
+            # notification transports (chunk E1): the client hides the email and
+            # webhook columns of the notification settings when these are off.
+            "email_enabled",
+            "webhook_enabled",
         ],
     )
     # the flags must be booleans
@@ -213,6 +217,8 @@ def test_public_config_unauthenticated_returns_flags():
         "sharing_user_search_enabled",
         "sharing_require_invite_accept",
         "api_token_allow_never_expire",
+        "email_enabled",
+        "webhook_enabled",
     ):
         assert isinstance(res[key], bool), f"{key} must be a bool, got {type(res[key])}"
     # the default-expiry hint is an int (whole days) or null (server default is never)
@@ -239,5 +245,7 @@ def test_public_config_reflects_server_flags():
             "sharing_require_invite_accept": server_config.SHARING_REQUIRE_INVITE_ACCEPT,
             "api_token_allow_never_expire": server_config.API_TOKEN_ALLOW_NEVER_EXPIRE,
             "api_token_default_expiry_days": expected_default_days,
+            "email_enabled": server_config.EMAIL_ENABLED,
+            "webhook_enabled": server_config.NOTIFY_WEBHOOK_ENABLED,
         },
     )
