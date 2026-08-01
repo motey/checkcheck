@@ -149,10 +149,20 @@ rare case that something else drains the queue.
 
 To check a fresh setup, use the "send test email" endpoint
 (`POST /api/user/me/notification-settings/test-email`), which mails the signed-in
-user's own address, at most once a minute. Note that notifications themselves do
-not produce mail yet: transports, the queue and the sender are in place, the
-per-user preferences and the message templates are being built (see
-`docs/plans/EMAIL_NOTIFICATIONS.md`).
+user's own address, at most once a minute.
+
+Every user can decide, per notification type, whether it reaches them in the app,
+by email, or not at all. `NOTIFY_DEFAULT_MODES` sets what a user gets before they
+choose anything, and `NOTIFY_DISABLED_TYPES` lists the types nobody on this
+instance may receive, whatever their personal settings say. A type in that list,
+and every channel whose master switch is off, is reported to the client as locked,
+so the settings dialog can say that an administrator decided it. A user who never
+opens the dialog is stored nowhere and simply follows the instance defaults, which
+is also why adding a notification type in a later release needs no migration.
+
+Note that notifications themselves do not produce mail yet: transports, the queue,
+the sender and the preferences are in place, the fan-out and the message templates
+are being built (see `docs/plans/EMAIL_NOTIFICATIONS.md`).
 
 ## Logging in with an external provider (OIDC)
 

@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "CheckCheck REST API",
-    "version": "0.3.2.dev4+gc05b8ee.d20260801"
+    "version": "0.3.2.dev5+ge29d66faf.d20260801"
   },
   "paths": {
     "/api/health": {
@@ -1036,6 +1036,78 @@
             }
           }
         }
+      }
+    },
+    "/api/user/me/notification-settings": {
+      "get": {
+        "tags": [
+          "Notifications"
+        ],
+        "summary": "Get Notification Settings",
+        "description": "The current user's effective notification settings: for every notification type and channel the mode actually in force, what the user picked, what it would fall back to, and whether an administrator locked it. A user who has never saved anything gets the instance defaults; no row is created by reading.",
+        "operationId": "get_notification_settings_api_user_me_notification_settings_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotificationSettings"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      },
+      "put": {
+        "tags": [
+          "Notifications"
+        ],
+        "summary": "Update Notification Settings",
+        "description": "Update the current user's notification settings, partially: only the entries and fields present in the body change. Returns the full effective settings afterwards. Returns 400 for an unknown notification type, channel, mode or time zone, and 409 for an entry the administrator has locked.",
+        "operationId": "update_notification_settings_api_user_me_notification_settings_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NotificationSettingsUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotificationSettings"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
       }
     },
     "/api/user/me/notification-settings/test-email": {
@@ -7292,6 +7364,74 @@
         "type": "object",
         "title": "LabelUpdate"
       },
+      "NotificationChannelSetting": {
+        "properties": {
+          "mode": {
+            "$ref": "#/components/schemas/NotificationMode",
+            "description": "The mode actually in force, after user choice and admin caps."
+          },
+          "user_choice": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/NotificationMode"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "What the user explicitly picked here, or null when the entry is inherited. Null and a value equal to `default_mode` look the same today but behave differently once an administrator changes the default, so the dialog should show the difference."
+          },
+          "default_mode": {
+            "$ref": "#/components/schemas/NotificationMode",
+            "description": "What this entry falls back to when the user has picked nothing."
+          },
+          "locked": {
+            "type": "boolean",
+            "title": "Locked",
+            "description": "True when the administrator decided this, not the user."
+          },
+          "locked_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Locked Reason",
+            "description": "Plain-language reason to show next to a locked entry."
+          },
+          "allowed_modes": {
+            "items": {
+              "$ref": "#/components/schemas/NotificationMode"
+            },
+            "type": "array",
+            "title": "Allowed Modes",
+            "description": "The modes this channel accepts. A digest is email-only."
+          }
+        },
+        "type": "object",
+        "required": [
+          "mode",
+          "default_mode",
+          "locked",
+          "allowed_modes"
+        ],
+        "title": "NotificationChannelSetting",
+        "description": "One cell of the matrix: what happens for this type on this channel."
+      },
+      "NotificationMode": {
+        "type": "string",
+        "enum": [
+          "off",
+          "immediate",
+          "hourly",
+          "daily"
+        ],
+        "title": "NotificationMode",
+        "description": "How much of a channel a user wants for one notification type.\n\n``off``\n    Never deliver this type on this channel.\n``immediate``\n    Deliver as it happens (for email, after the suppress window, so reading\n    it in the app first cancels the mail).\n``hourly`` / ``daily``\n    Collect into a digest. Email only, and assembled in chunk E4."
+      },
       "NotificationRead": {
         "properties": {
           "id": {
@@ -7352,6 +7492,126 @@
         ],
         "title": "NotificationRead"
       },
+      "NotificationSettings": {
+        "properties": {
+          "types": {
+            "items": {
+              "$ref": "#/components/schemas/NotificationTypeSettings"
+            },
+            "type": "array",
+            "title": "Types",
+            "description": "The full matrix, one entry per notification type the server knows."
+          },
+          "timezone": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Timezone",
+            "description": "The user's IANA time zone, or null to use UTC."
+          },
+          "webhook_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Webhook Url",
+            "description": "The user's webhook target, or null. Not called before chunk E6."
+          },
+          "email_enabled": {
+            "type": "boolean",
+            "title": "Email Enabled",
+            "description": "Whether this instance sends email at all. When false, every email entry is locked off."
+          },
+          "webhook_enabled": {
+            "type": "boolean",
+            "title": "Webhook Enabled",
+            "description": "Whether this instance allows per-user webhooks at all."
+          }
+        },
+        "type": "object",
+        "required": [
+          "types",
+          "email_enabled",
+          "webhook_enabled"
+        ],
+        "title": "NotificationSettings",
+        "description": "Everything the settings dialog needs in one response."
+      },
+      "NotificationSettingsUpdate": {
+        "properties": {
+          "prefs": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "additionalProperties": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "type": "object"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Prefs",
+            "description": "Partial matrix as {type: {channel: mode}}. Modes are `off`, `immediate`, `hourly` and `daily`; `in_app` and `webhook` accept only `off` and `immediate`. A null mode restores the instance default for that entry.",
+            "examples": [
+              {
+                "card_shared": {
+                  "email": "daily"
+                }
+              }
+            ]
+          },
+          "timezone": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Timezone",
+            "description": "IANA time zone name such as `Europe/Berlin`. Null clears it.",
+            "examples": [
+              "Europe/Berlin"
+            ]
+          },
+          "webhook_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Webhook Url",
+            "description": "Where this user's webhooks go (chunk E6). Null clears it. Rejected while the instance has webhooks switched off."
+          }
+        },
+        "type": "object",
+        "title": "NotificationSettingsUpdate",
+        "description": "A partial update. Anything not named here keeps its stored value.\n\n``prefs`` is merged entry by entry, so sending one type with one channel\nchanges exactly that cell. A **null mode** removes the user's choice for that\ncell, which puts it back to inheriting the instance default; that is always\nallowed, even for an entry an administrator has locked, since it only ever\ndrops an override.\n\n``timezone`` and ``webhook_url`` follow the same rule at field level: leaving\nthe field out keeps the stored value, sending null clears it."
+      },
       "NotificationType": {
         "type": "string",
         "enum": [
@@ -7361,6 +7621,29 @@
         ],
         "title": "NotificationType",
         "description": "What a notification is about. Stored as a string (enum-as-string like\n``SharePermission`` / ``ShareStatus``)."
+      },
+      "NotificationTypeSettings": {
+        "properties": {
+          "type": {
+            "type": "string",
+            "title": "Type",
+            "description": "Notification type, e.g. `card_shared`."
+          },
+          "channels": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/NotificationChannelSetting"
+            },
+            "type": "object",
+            "title": "Channels",
+            "description": "One entry per channel: `in_app`, `email`, `webhook`."
+          }
+        },
+        "type": "object",
+        "required": [
+          "type",
+          "channels"
+        ],
+        "title": "NotificationTypeSettings"
       },
       "PaginatedResponse_CheckListApiWithSubObj_": {
         "properties": {

@@ -1,10 +1,20 @@
 """Notification settings API (self-service, ``/user/me/notification-settings``).
 
-Chunk E2 puts a single endpoint here, the test mail, so the whole delivery path
-(enqueue, dispatcher, transport) can be exercised by hand on a real instance
-from the day it exists. The preference matrix itself (``GET`` and ``PUT`` on
-``/user/me/notification-settings``) arrives in chunk E3 and belongs in this same
-module.
+Three endpoints:
+
+* ``GET`` returns the **effective** preference matrix, which is what the user's
+  own choices, the instance defaults and the administrator's caps add up to,
+  together with enough detail for the settings dialog to explain itself (what
+  each entry would fall back to, which entries are locked and why).
+* ``PUT`` writes a partial patch of that matrix, plus the time zone and the
+  webhook target.
+* ``POST .../test-email`` queues a message to the caller's own address, so the
+  whole delivery path can be checked by hand on a real instance.
+
+The resolution rules live in ``notify/prefs.py``, not here; this module is the
+HTTP shape around them, and the place where a rejected write becomes a status
+code (400 for something that does not exist, 409 for something an administrator
+has locked).
 
 This router also carries the dispatcher's lifespan: FastAPI merges a router's
 ``lifespan_context`` into the app's, which is how the SSE listener starts its
@@ -14,6 +24,7 @@ background tasks too (``routes_sync_notification.py``).
 import datetime
 import html
 import uuid
+from typing import Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Security, status
 from pydantic import BaseModel, Field
@@ -23,12 +34,23 @@ from checkcheckserver.api.auth.security import get_current_user
 from checkcheckserver.config import Config
 from checkcheckserver.db._session import get_async_session
 from checkcheckserver.db.user import User
+from checkcheckserver.db.user_notification_settings import (
+    get_or_create_settings,
+    get_settings,
+)
 from checkcheckserver.log import get_logger
 from checkcheckserver.model._base_model import naive_utc_now
 from checkcheckserver.model.notification_outbox import NotificationChannel
-from checkcheckserver.notify import outbox
+from checkcheckserver.model.user_notification_settings import UserNotificationSettings
+from checkcheckserver.notify import outbox, prefs
 from checkcheckserver.notify.dispatcher import lifespan as dispatcher_lifespan
 from checkcheckserver.notify.dispatcher import nudge
+from checkcheckserver.notify.prefs import (
+    LockedPreferenceError,
+    NotificationMode,
+    PreferenceChannel,
+    UnknownPreferenceError,
+)
 
 
 config = Config()
@@ -48,6 +70,225 @@ TEST_EMAIL_RATE_LIMIT_SECONDS = 60
 
 def test_email_dedupe_key(user_id: uuid.UUID) -> str:
     return f"{user_id}:test_email"
+
+
+# ── the preference matrix ─────────────────────────────────────────────────────
+
+
+class NotificationChannelSetting(BaseModel):
+    """One cell of the matrix: what happens for this type on this channel."""
+
+    mode: NotificationMode = Field(
+        description="The mode actually in force, after user choice and admin caps."
+    )
+    user_choice: Optional[NotificationMode] = Field(
+        default=None,
+        description=(
+            "What the user explicitly picked here, or null when the entry is "
+            "inherited. Null and a value equal to `default_mode` look the same "
+            "today but behave differently once an administrator changes the "
+            "default, so the dialog should show the difference."
+        ),
+    )
+    default_mode: NotificationMode = Field(
+        description="What this entry falls back to when the user has picked nothing."
+    )
+    locked: bool = Field(
+        description="True when the administrator decided this, not the user."
+    )
+    locked_reason: Optional[str] = Field(
+        default=None,
+        description="Plain-language reason to show next to a locked entry.",
+    )
+    allowed_modes: List[NotificationMode] = Field(
+        description="The modes this channel accepts. A digest is email-only."
+    )
+
+
+class NotificationTypeSettings(BaseModel):
+    type: str = Field(description="Notification type, e.g. `card_shared`.")
+    channels: Dict[str, NotificationChannelSetting] = Field(
+        description="One entry per channel: `in_app`, `email`, `webhook`."
+    )
+
+
+class NotificationSettings(BaseModel):
+    """Everything the settings dialog needs in one response."""
+
+    types: List[NotificationTypeSettings] = Field(
+        description="The full matrix, one entry per notification type the server knows."
+    )
+    timezone: Optional[str] = Field(
+        default=None,
+        description="The user's IANA time zone, or null to use UTC.",
+    )
+    webhook_url: Optional[str] = Field(
+        default=None,
+        description="The user's webhook target, or null. Not called before chunk E6.",
+    )
+    email_enabled: bool = Field(
+        description="Whether this instance sends email at all. When false, every "
+        "email entry is locked off."
+    )
+    webhook_enabled: bool = Field(
+        description="Whether this instance allows per-user webhooks at all."
+    )
+
+
+class NotificationSettingsUpdate(BaseModel):
+    """A partial update. Anything not named here keeps its stored value.
+
+    ``prefs`` is merged entry by entry, so sending one type with one channel
+    changes exactly that cell. A **null mode** removes the user's choice for that
+    cell, which puts it back to inheriting the instance default; that is always
+    allowed, even for an entry an administrator has locked, since it only ever
+    drops an override.
+
+    ``timezone`` and ``webhook_url`` follow the same rule at field level: leaving
+    the field out keeps the stored value, sending null clears it.
+    """
+
+    prefs: Optional[Dict[str, Dict[str, Optional[str]]]] = Field(
+        default=None,
+        description=(
+            "Partial matrix as {type: {channel: mode}}. Modes are `off`, "
+            "`immediate`, `hourly` and `daily`; `in_app` and `webhook` accept only "
+            "`off` and `immediate`. A null mode restores the instance default for "
+            "that entry."
+        ),
+        examples=[{"card_shared": {"email": "daily"}}],
+    )
+    timezone: Optional[str] = Field(
+        default=None,
+        description="IANA time zone name such as `Europe/Berlin`. Null clears it.",
+        examples=["Europe/Berlin"],
+    )
+    webhook_url: Optional[str] = Field(
+        default=None,
+        description=(
+            "Where this user's webhooks go (chunk E6). Null clears it. Rejected "
+            "while the instance has webhooks switched off."
+        ),
+    )
+
+
+def _settings_response(
+    settings: Optional[UserNotificationSettings], cfg: Config
+) -> NotificationSettings:
+    """Render the effective matrix for a user, with or without a stored row."""
+    types = []
+    for type in prefs.known_types():
+        channels = {}
+        for channel in PreferenceChannel:
+            reason = prefs.lock_reason(type, channel, cfg)
+            channels[channel.value] = NotificationChannelSetting(
+                mode=prefs.resolve_mode(settings, type, channel, config=cfg),
+                user_choice=prefs.user_choice(settings, type, channel),
+                # What the entry would be without this user's choice, which is
+                # what the dialog shows as "(default)".
+                default_mode=prefs.resolve_mode(None, type, channel, config=cfg),
+                locked=reason is not None,
+                locked_reason=reason,
+                allowed_modes=prefs.allowed_modes(channel),
+            )
+        types.append(NotificationTypeSettings(type=type, channels=channels))
+    return NotificationSettings(
+        types=types,
+        timezone=settings.timezone if settings else None,
+        webhook_url=settings.webhook_url if settings else None,
+        email_enabled=bool(cfg.EMAIL_ENABLED),
+        webhook_enabled=bool(cfg.NOTIFY_WEBHOOK_ENABLED),
+    )
+
+
+@fast_api_notification_settings_router.get(
+    "/user/me/notification-settings",
+    response_model=NotificationSettings,
+    description=(
+        "The current user's effective notification settings: for every notification "
+        "type and channel the mode actually in force, what the user picked, what it "
+        "would fall back to, and whether an administrator locked it. A user who has "
+        "never saved anything gets the instance defaults; no row is created by "
+        "reading."
+    ),
+)
+async def get_notification_settings(
+    current_user: User = Security(get_current_user),
+    session: AsyncSession = Depends(get_async_session),
+) -> NotificationSettings:
+    settings = await get_settings(session, current_user.id)
+    return _settings_response(settings, config)
+
+
+@fast_api_notification_settings_router.put(
+    "/user/me/notification-settings",
+    response_model=NotificationSettings,
+    description=(
+        "Update the current user's notification settings, partially: only the "
+        "entries and fields present in the body change. Returns the full effective "
+        "settings afterwards. Returns 400 for an unknown notification type, channel, "
+        "mode or time zone, and 409 for an entry the administrator has locked."
+    ),
+)
+async def update_notification_settings(
+    update: NotificationSettingsUpdate,
+    current_user: User = Security(get_current_user),
+    session: AsyncSession = Depends(get_async_session),
+) -> NotificationSettings:
+    provided = update.model_fields_set
+
+    # Validate everything before touching the database, so a request that is
+    # rejected halfway cannot leave half of itself stored.
+    try:
+        if update.prefs is not None:
+            prefs.validate_prefs_patch(update.prefs, config=config)
+        timezone = (
+            prefs.validate_timezone(update.timezone)
+            if update.timezone is not None
+            else None
+        )
+        webhook_url = (
+            prefs.validate_webhook_url(update.webhook_url)
+            if update.webhook_url is not None
+            else None
+        )
+    except LockedPreferenceError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc))
+    except UnknownPreferenceError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+
+    if webhook_url is not None and not config.NOTIFY_WEBHOOK_ENABLED:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="This server does not send webhooks.",
+        )
+
+    writes_something = bool(
+        update.prefs or "timezone" in provided or "webhook_url" in provided
+    )
+    if not writes_something:
+        # An empty body is not an error, and it must not conjure a row for a user
+        # who has never chosen anything.
+        return _settings_response(await get_settings(session, current_user.id), config)
+
+    settings = await get_or_create_settings(session, current_user.id)
+    if update.prefs is not None:
+        # Assigned, never mutated in place: SQLAlchemy does not notice a change
+        # made inside a JSON column's dict.
+        settings.prefs = prefs.apply_prefs_patch(settings.prefs, update.prefs)
+    if "timezone" in provided:
+        settings.timezone = timezone
+    if "webhook_url" in provided:
+        settings.webhook_url = webhook_url
+
+    session.add(settings)
+    await session.commit()
+    await session.refresh(settings)
+    log.debug("[notify] updated notification settings for user %s", current_user.id)
+    return _settings_response(settings, config)
+
+
+# ── the test message ──────────────────────────────────────────────────────────
 
 
 class TestEmailResult(BaseModel):
