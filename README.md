@@ -1,7 +1,10 @@
 # CheckCheck
 
-A collaborative, self-hostable, offline-capable checklist app. It ships as a
-single container: a web UI backed by a REST API. Make lists, check things off,
+A collaborative, self-hostable, offline-capable checklist app, inspired by Google Keep.
+
+> Not affiliated with, endorsed by, or sponsored by Google. Google Keep is a trademark of Google LLC.
+
+It ships as a single container: a web UI backed by a REST API. Make lists, check things off,
 organise with labels, and share individual cards with other people. Because it
 is local-first, the app keeps working while you are offline and syncs back up
 when the connection returns, and it installs as a PWA.
