@@ -1,7 +1,7 @@
 /**
  * Markdown rendering for the card description (`text`) field.
  *
- * Covers the four surfaces from docs/plans/MARKDOWN_CARD_DESCRIPTION.md:
+ * Covers the four surfaces from docs/archive/MARKDOWN_CARD_DESCRIPTION.md:
  *  - board preview renders formatting (not raw markers),
  *  - the open card's focus-swap edit surface (rendered ⇄ raw textarea),
  *  - the "Formatting help" hint popup,

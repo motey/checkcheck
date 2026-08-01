@@ -1,5 +1,9 @@
 # Cold-start prompt: write the developer onboarding doc
 
+**Status:** ✅ Done, archived 2026-08-01. The doc this prompt asked for now lives
+at [`docs/development.md`](../development.md) and is linked from
+[`docs/README.md`](../README.md). Kept only as a record of the brief.
+
 Paste everything below into a fresh session. It is written for an agent that has
 not seen this repo before.
 
