@@ -72,6 +72,36 @@ A few behaviours worth knowing when you support users:
   notifications, and label create/rename/delete do not work offline. This is not
   a bug; those surfaces queue nothing while disconnected.
 
+## Notifications, email and webhooks
+
+Notifications appear in the app's bell by default and go no further. Sending them
+as email is opt-in per instance and takes a mail server: see
+[configuration.md](configuration.md#email). Things to know when supporting users:
+
+- **Users choose their own modes**, per notification type and per channel, under
+  "Notifications" in the avatar menu. You set the instance defaults with
+  `NOTIFY_DEFAULT_MODES`, and you can take a type away from everybody with
+  `NOTIFY_DISABLED_TYPES`, which the settings dialog then shows as locked by the
+  administrator.
+- **"No mail arrived" is usually one of three things**: `EMAIL_ENABLED` is off,
+  `NOTIFY_EMAIL_REQUIRE_VERIFIED` is on (there is no verification flow yet, so it
+  blocks everything), or the recipient hit `NOTIFY_EMAIL_MAX_PER_USER_PER_HOUR`.
+  The user's own "Send test email" button separates a mail-server problem from a
+  preference problem, and failed messages stay in the `notification_outbox` table
+  with the reason in `last_error`.
+- **Sending happens in a background task inside the server**
+  (`NOTIFY_DISPATCH_IN_PROCESS`), not in the request, so a dead mail server slows
+  nothing down. Digests are batched per user and sent in that user's timezone.
+- **Webhooks are off by default** and let a signed-in user make the server issue
+  outbound HTTP requests, which is why the target is checked against private and
+  loopback ranges on every attempt. See
+  [configuration.md](configuration.md#webhooks).
+- **Mailing a public link** to someone without an account is a separate switch
+  (`SHARING_PUBLIC_LINK_EMAIL_ENABLED`, off by default) and is rate-limited per
+  sender, since it lets an account holder make your server mail an address of
+  their choosing. See
+  [configuration.md](configuration.md#sending-a-public-link-by-email).
+
 ## API tokens
 
 Users can mint API tokens in the token manager. Two settings govern them:

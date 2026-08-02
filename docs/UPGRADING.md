@@ -5,6 +5,43 @@ changes see [`../CHANGELOG.md`](../CHANGELOG.md).
 
 ---
 
+## Notification transports: email and webhooks (migrations `0013`, `0014`)
+
+Notifications can now leave the app as email or as a per-user webhook. This ships
+as Alembic revisions `0013` (a `notification_outbox` queue table) and `0014` (a
+`user_notification_settings` table holding each user's per-type preferences,
+timezone, webhook URL and unsubscribe secret). Both are applied automatically on
+server start and add tables only, so nothing existing is touched.
+
+- **Nothing is sent until you configure it.** `EMAIL_ENABLED`,
+  `SHARING_PUBLIC_LINK_EMAIL_ENABLED` and `NOTIFY_WEBHOOK_ENABLED` all default to
+  false. An instance that upgrades and changes no settings behaves exactly as
+  before, in-app notifications included.
+- **A half-configured mailer refuses to boot.** With `EMAIL_ENABLED: true` the
+  server requires `EMAIL_FROM_ADDRESS`, and `EMAIL_SMTP_HOST` as well when
+  `EMAIL_TRANSPORT` is `smtp`. That is deliberate: a silently disabled mailer is
+  worse than a startup error. To try it out without a mail server, set
+  `EMAIL_TRANSPORT` to `file` (writes `.eml` files) or `console`.
+- **Leave `NOTIFY_EMAIL_REQUIRE_VERIFIED` false.** There is no address
+  verification flow yet, so no address is ever marked verified and turning this on
+  stops every outgoing message.
+- **Keep `NOTIFY_DISPATCH_IN_PROCESS` true** unless something outside the server
+  drains the outbox, otherwise queued messages are delivered twice. It is what a
+  single-container deployment wants.
+- **Read in-app notifications are now pruned** after
+  `NOTIFY_FEED_RETENTION_DAYS` (default 180). Unread ones are kept regardless.
+  Set it to 0 to keep everything, as before.
+- **Webhooks let signed-in users trigger outbound requests from your server.**
+  That is why the channel is off by default. Targets are re-resolved and checked
+  on every attempt, and loopback, link-local and private ranges are refused
+  unless you set `NOTIFY_WEBHOOK_ALLOW_PRIVATE_IPS`, which is only sensible on a
+  trusted private instance.
+
+Every setting is described in [`configuration.md`](configuration.md) and listed
+in [`CONFIG_REFERENCE.md`](CONFIG_REFERENCE.md).
+
+---
+
 ## Living group shares (migration `0012`)
 
 "Share with a group" became a first-class, living share. This ships as Alembic
