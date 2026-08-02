@@ -243,6 +243,15 @@ twin of the test message, and the same limit of one a minute. A refused URL fail
 in the queue with the reason in the server log; there is no delivery receipt in
 the API.
 
+Requests carry no signature, so **the URL is the credential**. A receiver that
+needs to know a request genuinely came from this server should sit behind a path
+or query token nobody can guess, which is why the server never writes a webhook
+URL to the log. That trade is deliberate rather than a gap: the body carries
+nothing the recipient does not already have in their inbox and their feed, and
+`NOTIFY_EMAIL_CONTENT_MODE: minimal` strips card titles and actor names from the
+webhook body as well. Tell your users to treat their URL the way they would treat
+a password, and to replace it rather than reuse it if it leaks.
+
 ### Keeping the in-app feed from growing forever
 
 `NOTIFY_FEED_RETENTION_DAYS` (180 by default) is how long a notification the user

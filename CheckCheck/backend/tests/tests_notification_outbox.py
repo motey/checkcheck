@@ -293,6 +293,63 @@ def test_giving_up_after_max_attempts(mail_capture, admin_user_id):
     assert _captured(mail_capture, subject) == []
 
 
+def test_a_failing_row_warns_once_then_goes_quiet(mail_capture, admin_user_id, caplog):
+    """An operator must learn about a broken transport on the *first* failure.
+
+    Before this, every retry logged at INFO and nothing at WARNING until the
+    attempt budget was spent, so "mail stopped arriving an hour ago" either drowned
+    in repeats or arrived far too late. The rule is one warning at the start, one
+    at the end, and nothing louder than DEBUG in between, whichever channel it is.
+    """
+    import logging
+
+    from checkcheckserver.model.notification_outbox import NotificationChannel
+    from checkcheckserver.notify.transports import TransientEmailError
+    from checkcheckserver.notify.outbox import drain_once, enqueue
+
+    subject = _subject("log-once")
+    now = _epoch(2010)
+    config = _config(NOTIFY_MAX_ATTEMPTS=3)
+    mail_capture.raise_on_send = TransientEmailError("mail server unreachable")
+
+    async def body(session):
+        row = await enqueue(
+            session,
+            user_id=admin_user_id,
+            channel=NotificationChannel.email,
+            payload=_payload(subject),
+            not_before=now,
+        )
+        at = now
+        for _ in range(3):
+            await drain_once(session, now=at, config=config)
+            current = await _reload(session, row.id)
+            at = current.not_before
+        return row.id
+
+    # DEBUG, so the quiet attempts are captured too and can be asserted *absent*
+    # from the warnings rather than absent from the log altogether.
+    with caplog.at_level(logging.DEBUG, logger="CheckCheck"):
+        row_id = _run(body)
+
+    # Only this row's failure lines: a drain delivers whatever else is due (see
+    # the module docstring), and enqueue logs a line of its own.
+    mine = [
+        rec
+        for rec in caplog.records
+        if str(row_id) in rec.getMessage() and "failed" in rec.getMessage()
+    ]
+    levels = [rec.levelno for rec in mine]
+    assert levels == [logging.WARNING, logging.DEBUG, logging.WARNING], [
+        (rec.levelname, rec.getMessage()) for rec in mine
+    ]
+    assert "attempt 1 failed" in mine[0].getMessage()
+    assert "failed after 3 attempts" in mine[-1].getMessage()
+    # The convention the whole module keeps: the row id identifies the failure,
+    # the recipient address never appears.
+    assert not any("recipient@example.com" in rec.getMessage() for rec in mine)
+
+
 def test_permanent_failure_is_not_retried(mail_capture, admin_user_id):
     from checkcheckserver.model.notification_outbox import (
         NotificationChannel,

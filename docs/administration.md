@@ -94,7 +94,9 @@ as email is opt-in per instance and takes a mail server: see
   nothing down. Digests are batched per user and sent in that user's timezone.
 - **Webhooks are off by default** and let a signed-in user make the server issue
   outbound HTTP requests, which is why the target is checked against private and
-  loopback ranges on every attempt. See
+  loopback ranges on every attempt. Requests are not signed, so the URL itself is
+  the credential: a user whose receiver needs to trust the request should put an
+  unguessable token in the path. See
   [configuration.md](configuration.md#webhooks).
 - **Mailing a public link** to someone without an account is a separate switch
   (`SHARING_PUBLIC_LINK_EMAIL_ENABLED`, off by default) and is rate-limited per

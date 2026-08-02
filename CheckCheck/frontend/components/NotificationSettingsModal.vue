@@ -181,6 +181,11 @@
                 POSTed, as a small JSON body. A URL pointing into a private network
                 is refused unless this server was configured to allow it.
               </p>
+              <p class="text-xs text-muted">
+                Requests are not signed, so treat the URL as the secret: if your
+                receiver needs to know a request really came from here, give it a
+                path or token nobody can guess.
+              </p>
             </div>
             <div class="flex flex-wrap items-center gap-2">
               <UInput

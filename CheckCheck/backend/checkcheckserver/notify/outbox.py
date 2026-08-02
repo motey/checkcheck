@@ -617,7 +617,15 @@ async def _record_transient_failure(
     )
     await session.commit()
     row.last_error = message[:1000]
-    log.info(
+    # Say it once, loudly, then stop. The row was claimed with `attempts + 1`, so
+    # the first failure of a message is `attempts == 1`; that one is worth a
+    # warning, because "mail stopped arriving an hour ago" should not have to wait
+    # for the attempt budget to run out before it shows up in the log. Every
+    # attempt after it is the same fact again, so a row that never succeeds costs
+    # two lines at the default level (this one and the give-up warning above)
+    # rather than one line too late or six lines of the same thing.
+    log_failure = log.warning if row.attempts <= 1 else log.debug
+    log_failure(
         "[notify] %s attempt %s failed, retrying at %s: %s",
         row.id,
         row.attempts,
