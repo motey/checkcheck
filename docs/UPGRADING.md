@@ -5,6 +5,41 @@ changes see [`../CHANGELOG.md`](../CHANGELOG.md).
 
 ---
 
+## Date reminders (migration `0015`)
+
+Users can set a reminder on a card ("remind me about this on Friday at 09:00",
+optionally repeating). This ships as Alembic revision `0015`, which adds a single
+`scheduled_notification` table and is applied automatically on server start. It
+adds a table only, so nothing existing is touched, and it needs no configuration
+to work.
+
+- **This one notification type does send mail by default.** Every other type
+  starts at in-app only, so that a release never signs your users up for mail
+  they did not ask for. `reminder_due` ships with `email: immediate` in the
+  instance defaults, because a reminder the user only sees the next time they
+  open the app is not a reminder. It still only leaves the server on an instance
+  where `EMAIL_ENABLED` is true, and any user can turn it off for themselves.
+- **A reminder cannot go into a digest.** The email channel offers `off` and
+  `immediate` for this type and nothing else, whatever `NOTIFY_DEFAULT_MODES`
+  says. A digest mode configured for it (or saved by a user before an upgrade)
+  falls back to the default rather than being honoured.
+- **To switch the feature off entirely**, add `reminder_due` to
+  `NOTIFY_DISABLED_TYPES`. That is the only switch: it locks the type in the
+  settings dialog, stops the scan that looks for due rows, and makes the API
+  refuse to store a new reminder rather than accepting one nothing would deliver.
+  Existing rows are left in place and start working again if you switch it back
+  on.
+- **The dispatcher now has a reason to run on an instance with no email and no
+  webhooks**, since an in-app reminder is a real reminder. If you rely on
+  `NOTIFY_DISPATCH_IN_PROCESS` being effectively idle, note that it now polls for
+  due reminders once per `NOTIFY_DISPATCH_TICK_SECONDS` (default 30) unless the
+  type is disabled.
+- **Reminders are per-user side data**, not part of a card, so they are not in
+  the sync feed and are never queued offline. Setting one needs a connection.
+  Fired and cancelled rows are pruned after 30 days.
+
+---
+
 ## Notification transports: email and webhooks (migrations `0013`, `0014`)
 
 Notifications can now leave the app as email or as a per-user webhook. This ships

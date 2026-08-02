@@ -91,6 +91,29 @@ CHANNEL_MODES: Dict[PreferenceChannel, Tuple[NotificationMode, ...]] = {
     PreferenceChannel.webhook: (NotificationMode.off, NotificationMode.immediate),
 }
 
+# Where one notification type accepts less than its channel does. Narrowing only:
+# an entry here is always a subset of CHANNEL_MODES, because the channel decides
+# what is possible and this decides what makes sense.
+#
+# ``reminder_due`` on email is the one case (plan decision 8). A digest is a
+# deliberate delay of up to a day, and a reminder that arrives the morning after
+# the thing it was reminding you about is not a reminder, it is a receipt. The
+# user picked a time; the only meaningful choices are honouring it or not.
+TYPE_CHANNEL_MODES: Dict[Tuple[str, PreferenceChannel], Tuple[NotificationMode, ...]] = {
+    (NotificationType.reminder_due.value, PreferenceChannel.email): (
+        NotificationMode.off,
+        NotificationMode.immediate,
+    ),
+}
+
+# Shown next to a mode the type does not accept, so the settings dialog and the
+# 400 body say the same thing. Keyed like TYPE_CHANNEL_MODES.
+TYPE_CHANNEL_MODE_REASON: Dict[Tuple[str, PreferenceChannel], str] = {
+    (NotificationType.reminder_due.value, PreferenceChannel.email): (
+        "A reminder is sent when it is due, so it cannot go into a digest."
+    ),
+}
+
 # Step 4 of the precedence: what a notification type nobody configured does.
 # The bell stays on, because an in-app notification is the behaviour that already
 # exists and costs the user nothing. Mail and webhooks stay off, because a new
@@ -131,8 +154,35 @@ def known_channels() -> List[str]:
     return [member.value for member in PreferenceChannel]
 
 
-def allowed_modes(channel: PreferenceChannel) -> List[str]:
-    return [mode.value for mode in CHANNEL_MODES[channel]]
+def modes_for(
+    channel: PreferenceChannel, type: Optional[str] = None
+) -> Tuple[NotificationMode, ...]:
+    """What this channel accepts, narrowed to *type* when one is given.
+
+    ``type`` is optional so a caller that only wants to know what a channel can
+    do at all (the digest question) does not have to invent a type to ask.
+    """
+    if type is not None:
+        narrowed = TYPE_CHANNEL_MODES.get((type, channel))
+        if narrowed is not None:
+            return narrowed
+    return CHANNEL_MODES[channel]
+
+
+def allowed_modes(channel: PreferenceChannel, type: Optional[str] = None) -> List[str]:
+    return [mode.value for mode in modes_for(channel, type)]
+
+
+def mode_restriction_reason(
+    type: str, channel: PreferenceChannel
+) -> Optional[str]:
+    """Why this type offers fewer modes than its channel, or None if it does not.
+
+    User-facing, like :func:`lock_reason`, and distinct from it: a lock is
+    something an administrator did and could undo, this is a property of the
+    notification type that no configuration changes.
+    """
+    return TYPE_CHANNEL_MODE_REASON.get((type, channel))
 
 
 def channel_enabled(channel: PreferenceChannel, config: Config) -> bool:
@@ -193,6 +243,7 @@ def resolve_mode(
     user_choice = _mode_or_none(
         (settings.prefs or {}).get(type, {}).get(channel.value) if settings else None,
         channel,
+        type,
         source="user preference",
     )
     if user_choice is not None:
@@ -201,6 +252,7 @@ def resolve_mode(
     instance_default = _mode_or_none(
         (config.NOTIFY_DEFAULT_MODES or {}).get(type, {}).get(channel.value),
         channel,
+        type,
         source="NOTIFY_DEFAULT_MODES",
     )
     if instance_default is not None:
@@ -210,13 +262,18 @@ def resolve_mode(
 
 
 def _mode_or_none(
-    raw, channel: PreferenceChannel, *, source: str
+    raw, channel: PreferenceChannel, type: str, *, source: str
 ) -> Optional[NotificationMode]:
     """Parse one stored value, treating anything unusable as "not set".
 
     Both sources are hand-editable (a YAML file, and a row written by an older
     version of this code), so a value this channel cannot honour must fall
     through to the next precedence level instead of taking the instance down.
+    The per-type narrowing is applied here as well as at the write path, because
+    a restriction added in a later release finds rows that were legal when they
+    were saved: a user who chose a daily digest for a type that later stopped
+    offering one inherits the default again rather than keeping a mode nothing
+    would honour.
     """
     if raw is None:
         return None
@@ -228,11 +285,13 @@ def _mode_or_none(
     except ValueError:
         log.warning("[notify] ignoring unknown mode '%s' from %s", raw, source)
         return None
-    if mode not in CHANNEL_MODES[channel]:
+    if mode not in modes_for(channel, type):
         log.warning(
-            "[notify] ignoring mode '%s' from %s: the %s channel does not support it",
+            "[notify] ignoring mode '%s' from %s: '%s' does not support it on the "
+            "%s channel",
             raw,
             source,
+            type,
             channel.value,
         )
         return None
@@ -312,10 +371,19 @@ def validate_prefs_patch(
                 )
             if mode is None:
                 continue
-            if mode not in allowed_modes(channel):
+            if mode not in allowed_modes(channel, type):
+                reason = mode_restriction_reason(type, channel)
+                # Two different rejections wearing the same status code: the
+                # channel cannot do it at all, or this type does not offer it.
+                # Only the second one has something to explain.
+                detail = (
+                    f"Mode '{mode}' is not valid for '{type}' on the "
+                    f"{channel.value} channel. {reason}"
+                    if reason
+                    else f"Mode '{mode}' is not valid for the {channel.value} channel."
+                )
                 raise UnknownPreferenceError(
-                    f"Mode '{mode}' is not valid for the {channel.value} channel. "
-                    f"Valid modes: {', '.join(allowed_modes(channel))}."
+                    f"{detail} Valid modes: {', '.join(allowed_modes(channel, type))}."
                 )
             reason = lock_reason(type, channel, config)
             if reason is not None:

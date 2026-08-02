@@ -111,7 +111,20 @@ class NotificationChannelSetting(BaseModel):
         description="Plain-language reason to show next to a locked entry.",
     )
     allowed_modes: List[NotificationMode] = Field(
-        description="The modes this channel accepts. A digest is email-only."
+        description=(
+            "The modes this entry accepts. A digest is email-only, and some types "
+            "narrow it further: `reminder_due` offers only `off` and `immediate` on "
+            "email, because a reminder held back for a digest is not a reminder."
+        )
+    )
+    mode_restriction_reason: Optional[str] = Field(
+        default=None,
+        description=(
+            "Plain-language reason why this type offers fewer modes than its "
+            "channel otherwise would, or null when it offers all of them. Unlike "
+            "`locked_reason` this is a property of the notification type, not "
+            "something an administrator configured."
+        ),
     )
 
 
@@ -166,8 +179,9 @@ class NotificationSettingsUpdate(BaseModel):
         description=(
             "Partial matrix as {type: {channel: mode}}. Modes are `off`, "
             "`immediate`, `hourly` and `daily`; `in_app` and `webhook` accept only "
-            "`off` and `immediate`. A null mode restores the instance default for "
-            "that entry."
+            "`off` and `immediate`, and `reminder_due` accepts only those two on "
+            "email as well. A null mode restores the instance default for that "
+            "entry."
         ),
         examples=[{"card_shared": {"email": "daily"}}],
     )
@@ -204,7 +218,8 @@ def _settings_response(
                 default_mode=prefs.resolve_mode(None, type, channel, config=cfg),
                 locked=reason is not None,
                 locked_reason=reason,
-                allowed_modes=prefs.allowed_modes(channel),
+                allowed_modes=prefs.allowed_modes(channel, type),
+                mode_restriction_reason=prefs.mode_restriction_reason(type, channel),
             )
         types.append(NotificationTypeSettings(type=type, channels=channels))
     return NotificationSettings(
@@ -513,6 +528,7 @@ _TYPE_WORDING = {
     "card_shared": "cards being shared with you",
     "card_invited": "invitations to cards",
     "public_link_opened": "your public links being opened",
+    "reminder_due": "reminders you set on cards",
 }
 
 

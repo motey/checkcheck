@@ -3,6 +3,7 @@ import { watchDebounced } from "@vueuse/core";
 import { useCheckListsStore } from "@/stores/checklist";
 import { useCheckListsItemStore } from "@/stores/checklist_item";
 import { useCheckListsLabelStore } from "@/stores/label";
+import { useReminderStore } from "@/stores/reminder";
 import { useUserStore } from "@/stores/user";
 import { usePublicConfigStore } from "@/stores/publicConfig";
 import {
@@ -148,6 +149,9 @@ function resetBoardStores(pinia: Pinia): void {
   (useCheckListsStore(pinia) as any).$reset();
   (useCheckListsItemStore(pinia) as any).$reset();
   (useCheckListsLabelStore(pinia) as any).$reset();
+  // Reminders are keyed by card but belong to the user who set them (R4), so
+  // they are exactly the kind of thing user B must not inherit from user A.
+  (useReminderStore(pinia) as any).$reset();
 }
 
 /**

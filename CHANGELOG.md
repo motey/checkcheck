@@ -112,6 +112,24 @@ and the app is installable as a PWA.
   resolved and checked per attempt and anything on a loopback, link-local, or
   private range is refused unless `NOTIFY_WEBHOOK_ALLOW_PRIVATE_IPS` is set.
   Deliveries use the same retry and backoff policy as email.
+- **Date reminders.** A card's ⋮ menu has "Set a reminder": pick a date and a
+  time, optionally repeat it every day, week or month, and add a note to
+  yourself. When it comes due you are notified through the channels you already
+  chose for notifications, so a reminder can reach you by mail or webhook while
+  the app is closed (this is the one notification type that ships with
+  `immediate` email on by default, since a reminder you only see next time you
+  open the app is not a reminder). The open card lists the reminders you have set
+  on it, each removable in one click. Reminders are **personal**: they belong to
+  whoever set them, only that person is notified, and collaborators on a shared
+  card neither see nor are disturbed by each other's. A repeating reminder keeps
+  its wall-clock time in the timezone from your notification settings, so it does
+  not drift across a daylight-saving change, and a reminder on a card you can no
+  longer open (deleted, or the share was revoked) is silently dropped when it
+  would have fired rather than notifying you about something you cannot reach.
+  Setting one needs a connection: unlike card edits, reminders are never queued
+  offline, because a reminder whose time passes while it sits in a queue is worse
+  than no reminder. Administrators can switch the whole feature off with
+  `NOTIFY_DISABLED_TYPES: ["reminder_due"]`. (Migration `0015`.)
 
 ### Changed
 

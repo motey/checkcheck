@@ -81,6 +81,43 @@ describe("cellDisplay", () => {
     expect(display.hint).toBe("This server does not send email.");
   });
 
+  it("explains why a type offers fewer modes than its channel", () => {
+    // R3 / plan decision 8: `reminder_due` accepts only off and immediate on
+    // email, and the server sends both the narrowed list and the reason. The
+    // dialog renders the server's wording rather than inventing its own.
+    const reason = "A reminder is sent when it is due, so it cannot go into a digest.";
+    const display = cellDisplay(
+      cell({
+        user_choice: "immediate",
+        allowed_modes: ["off", "immediate"],
+        mode_restriction_reason: reason,
+      })
+    );
+    expect(display.disabled).toBe(false);
+    expect(display.hint).toBe(reason);
+    expect(display.options.map((o) => o.value)).toEqual([INHERIT_VALUE, "off", "immediate"]);
+  });
+
+  it("stacks the restriction on top of the inherit line", () => {
+    const display = cellDisplay(
+      cell({ user_choice: null, default_mode: "immediate", mode_restriction_reason: "Because." })
+    );
+    expect(display.hint).toBe("Following the server default (As it happens). Because.");
+  });
+
+  it("says only the administrator's reason on a locked entry", () => {
+    // A lock is something an administrator did and could undo; a restriction is
+    // a property of the type. When both apply, the lock is what is in force.
+    const display = cellDisplay(
+      cell({
+        locked: true,
+        locked_reason: "This server does not send email.",
+        mode_restriction_reason: "A reminder cannot go into a digest.",
+      })
+    );
+    expect(display.hint).toBe("This server does not send email.");
+  });
+
   it("falls back to a generic reason when the server sends none", () => {
     const display = cellDisplay(cell({ mode: "off", locked: true, locked_reason: null }));
     expect(display.hint).toBe("Your administrator decided this.");
@@ -117,9 +154,16 @@ describe("typeRows", () => {
 
   it("humanises a notification type this build has never heard of", () => {
     // A type added server-side needs no frontend release to be configurable.
-    expect(typeWording("reminder_due").title).toBe("Reminder due");
-    const rows = typeRows([{ type: "reminder_due", channels: { in_app: cell() } }]);
-    expect(rows[0]!.title).toBe("Reminder due");
+    // `reminder_due` used to be the example here and is real wording now (R4),
+    // so this uses a type that does not exist, the way the backend suite does.
+    expect(typeWording("card_commented").title).toBe("Card commented");
+    const rows = typeRows([{ type: "card_commented", channels: { in_app: cell() } }]);
+    expect(rows[0]!.title).toBe("Card commented");
+  });
+
+  it("words the reminder type as something the user set, not as an event", () => {
+    expect(typeWording("reminder_due").title).toBe("A reminder I set comes due");
+    expect(typeWording("reminder_due").description).toContain("Nobody else is told");
   });
 
   it("tolerates a missing matrix", () => {

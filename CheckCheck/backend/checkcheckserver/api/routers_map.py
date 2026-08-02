@@ -60,6 +60,16 @@ def mount_fast_api_routers(fastapi_app: FastAPI):
         fast_api_notification_settings_router, tags=["Notifications"], prefix="/api"
     )
 
+    ### REMINDERS (card reminders plus the self-service /user/me/reminders list,
+    ### which belongs with the other "me" routes, before /user/{user_id})
+    from checkcheckserver.api.routes.routes_reminder import (
+        fast_api_reminder_router,
+    )
+
+    fastapi_app.include_router(
+        fast_api_reminder_router, tags=["Reminders"], prefix="/api"
+    )
+
     ### USER MANAGEMENT
     from checkcheckserver.api.routes.routes_user_management import (
         fast_api_user_manage_router,

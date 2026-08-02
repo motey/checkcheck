@@ -129,6 +129,8 @@ function iconFor(type: NotificationType): string {
       return "i-lucide-user-plus";
     case "public_link_opened":
       return "i-lucide-eye";
+    case "reminder_due":
+      return "i-lucide-alarm-clock";
     default:
       return "i-lucide-bell";
   }
@@ -140,6 +142,9 @@ function messageFor(n: NotificationReadType): string {
   const payload = (n.payload ?? {}) as Record<string, unknown>;
   const actor = typeof payload.actor_display_name === "string" ? payload.actor_display_name : null;
   const listName = typeof payload.checklist_name === "string" ? payload.checklist_name : null;
+  // Reminders carry the user's own note (R2). No actor: a reminder is something
+  // you set for yourself, so there is nobody to name.
+  const note = typeof payload.note === "string" && payload.note.trim() ? payload.note.trim() : null;
   const who = actor ?? "Someone";
   const list = listName ? `"${listName}"` : "a list";
 
@@ -150,6 +155,10 @@ function messageFor(n: NotificationReadType): string {
       return `${who} invited you to ${list}`;
     case "public_link_opened":
       return `${who} opened the public link for ${list}`;
+    case "reminder_due":
+      // The note leads when there is one, as it does in the mail subject: it is
+      // the only part of this the user wrote themselves.
+      return note ? `Reminder about ${list}: ${note}` : `Reminder about ${list}`;
     default:
       return `Update on ${list}`;
   }

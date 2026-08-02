@@ -18,6 +18,12 @@
 //     is then whatever the administrator's cap produced (always `off` today),
 //     regardless of any override the user saved earlier, so a locked cell shows
 //     `mode`, not `user_choice`.
+//   * `allowed_modes` is a property of the *cell*, not of the channel. Some
+//     types narrow what their channel would otherwise accept (`reminder_due`
+//     offers only `off` and `immediate` on email, R3 / plan decision 8), and
+//     `mode_restriction_reason` says why. That reason is distinct from
+//     `locked_reason`: a lock is something an administrator did and could undo,
+//     a restriction is a property of the notification type.
 
 export type NotificationModeValue = "off" | "immediate" | "hourly" | "daily";
 
@@ -34,6 +40,7 @@ export type ChannelCell = {
   locked: boolean;
   locked_reason?: string | null;
   allowed_modes: NotificationModeValue[];
+  mode_restriction_reason?: string | null;
 };
 
 export type TypeCells = {
@@ -110,6 +117,10 @@ const TYPE_WORDING: Record<string, { title: string; description: string }> = {
     title: "One of my links is opened",
     description: "The first time somebody opens a link you shared.",
   },
+  reminder_due: {
+    title: "A reminder I set comes due",
+    description: "The reminders you set on a card, at the time you picked. Nobody else is told.",
+  },
 };
 
 export function typeWording(type: string): { title: string; description: string } {
@@ -148,6 +159,24 @@ export type CellDisplay = {
   hint: string | null;
 };
 
+/**
+ * What this cell says under its select.
+ *
+ * A locked entry says only that, because the administrator's decision is the
+ * whole story there. Otherwise the two things that can be worth saying stack:
+ * what an inherited entry falls back to, and why this type offers fewer modes
+ * than its channel would. The restriction wording comes from the server rather
+ * than being hardcoded here, so a rule added later needs no frontend release.
+ */
+function cellHint(cell: ChannelCell, inheriting: boolean): string | null {
+  if (cell.locked) return cell.locked_reason || "Your administrator decided this.";
+  const lines = [
+    inheriting ? `Following the server default (${modeLabel(cell.default_mode)}).` : null,
+    cell.mode_restriction_reason || null,
+  ].filter(Boolean);
+  return lines.length ? lines.join(" ") : null;
+}
+
 export function cellDisplay(cell: ChannelCell): CellDisplay {
   const inheriting = cell.user_choice == null;
   // A locked cell shows what the administrator's cap produced, not the override
@@ -164,11 +193,7 @@ export function cellDisplay(cell: ChannelCell): CellDisplay {
     disabled: cell.locked,
     inheriting,
     effectiveLabel: modeLabel(cell.mode),
-    hint: cell.locked
-      ? cell.locked_reason || "Your administrator decided this."
-      : inheriting
-      ? `Following the server default (${modeLabel(cell.default_mode)}).`
-      : null,
+    hint: cellHint(cell, inheriting),
   };
 }
 

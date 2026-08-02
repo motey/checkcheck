@@ -98,6 +98,25 @@ as email is opt-in per instance and takes a mail server: see
   the credential: a user whose receiver needs to trust the request should put an
   unguessable token in the path. See
   [configuration.md](configuration.md#webhooks).
+- **Date reminders are a notification type like any other** (`reminder_due`), so
+  a user's own choices in that dialog decide whether a due reminder reaches them
+  in the app, by mail, or by webhook. Two things about it differ from the rest:
+  it is the one type whose instance default sends mail immediately (a reminder
+  the user only sees next time they open the app is not a reminder), and it
+  refuses the digest modes, since a reminder held back until tomorrow morning is
+  not one either. Adding `reminder_due` to `NOTIFY_DISABLED_TYPES` is the whole
+  off switch: it locks the type in the dialog, stops the loop that watches for
+  due rows, and makes the app refuse to store new reminders. Existing rows are
+  kept and resume if you switch it back on.
+- **"My reminder never arrived" is usually one of four things**: the card was
+  deleted or the share was revoked (a reminder is dropped silently at fire time
+  when the user can no longer open the card), the type is in
+  `NOTIFY_DISABLED_TYPES`, `NOTIFY_DISPATCH_IN_PROCESS` is off with nothing else
+  draining the outbox, or the user set the reminder in a timezone they have since
+  changed (the reminder keeps the timezone it was created with, on purpose, so
+  that moving does not shift every existing repeat). Reminders are personal: only
+  the user who set one is ever notified, so "my collaborator did not get it" is
+  the feature working.
 - **Mailing a public link** to someone without an account is a separate switch
   (`SHARING_PUBLIC_LINK_EMAIL_ENABLED`, off by default) and is rate-limited per
   sender, since it lets an account holder make your server mail an address of

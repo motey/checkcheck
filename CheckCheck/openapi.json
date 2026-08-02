@@ -1252,6 +1252,282 @@
         }
       }
     },
+    "/api/checklist/{checklist_id}/reminders": {
+      "get": {
+        "tags": [
+          "Reminders"
+        ],
+        "summary": "List Card Reminders",
+        "description": "The current user's own reminders on this card, soonest first. Never anybody else's: a reminder is personal, and a card shared with five people can carry five independent reminders that none of them can see. Needs `view` permission on the card.",
+        "operationId": "list_card_reminders_api_checklist__checklist_id__reminders_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "checklist_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Checklist Id"
+            }
+          },
+          {
+            "name": "include_finished",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "description": "Also return reminders that have already fired or were cancelled. They are kept for 30 days and are not going to fire again.",
+              "default": false,
+              "title": "Include Finished"
+            },
+            "description": "Also return reminders that have already fired or were cancelled. They are kept for 30 days and are not going to fire again."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ReminderRead"
+                  },
+                  "title": "Response List Card Reminders Api Checklist  Checklist Id  Reminders Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Reminders"
+        ],
+        "summary": "Create Card Reminder",
+        "description": "Set a reminder on this card for yourself. Needs `view` permission, since reminding yourself about a card you can only read changes nothing for anybody else, and notifies nobody but you.\n\nReturns 400 for a time that has passed or a time zone that is not an IANA name, and 409 when you are at the per-card or per-account limit, or when an administrator has switched reminders off on this server.",
+        "operationId": "create_card_reminder_api_checklist__checklist_id__reminders_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "checklist_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Checklist Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReminderCreate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReminderRead"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/reminder/{reminder_id}": {
+      "patch": {
+        "tags": [
+          "Reminders"
+        ],
+        "summary": "Update Reminder",
+        "description": "Change the time, the repeat rule or the note of one of your own reminders. Partial: a field you leave out keeps its stored value.\n\nSending a new `remind_at` also revives a reminder that had already fired or been cancelled, which is how a snooze works; that counts against the limits again, so it can return 409. Returns 400 for a time that has passed, and **404 for a reminder that is not yours**, exactly as for one that does not exist.",
+        "operationId": "update_reminder_api_reminder__reminder_id__patch",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "reminder_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Reminder Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReminderUpdate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReminderRead"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Reminders"
+        ],
+        "summary": "Remove Reminder",
+        "description": "Remove one of your own reminders. A real delete, not a tombstone: this table is not part of the sync feed, so there is no offline client that could resurrect the row. 404 for a reminder that is not yours, exactly as for one that does not exist.",
+        "operationId": "remove_reminder_api_reminder__reminder_id__delete",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "reminder_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Reminder Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/user/me/reminders": {
+      "get": {
+        "tags": [
+          "Reminders"
+        ],
+        "summary": "List My Reminders",
+        "description": "Every reminder the current user still has coming, across all cards, soonest first. Reminders on cards the user can no longer open are left out: they will be cancelled the moment they would have fired, so showing them would only promise something that is not going to happen.",
+        "operationId": "list_my_reminders_api_user_me_reminders_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 200,
+              "minimum": 1,
+              "default": 100,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ReminderRead"
+                  },
+                  "title": "Response List My Reminders Api User Me Reminders Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/user": {
       "post": {
         "tags": [
@@ -7609,7 +7885,19 @@
             },
             "type": "array",
             "title": "Allowed Modes",
-            "description": "The modes this channel accepts. A digest is email-only."
+            "description": "The modes this entry accepts. A digest is email-only, and some types narrow it further: `reminder_due` offers only `off` and `immediate` on email, because a reminder held back for a digest is not a reminder."
+          },
+          "mode_restriction_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mode Restriction Reason",
+            "description": "Plain-language reason why this type offers fewer modes than its channel otherwise would, or null when it offers all of them. Unlike `locked_reason` this is a property of the notification type, not something an administrator configured."
           }
         },
         "type": "object",
@@ -7772,7 +8060,7 @@
               }
             ],
             "title": "Prefs",
-            "description": "Partial matrix as {type: {channel: mode}}. Modes are `off`, `immediate`, `hourly` and `daily`; `in_app` and `webhook` accept only `off` and `immediate`. A null mode restores the instance default for that entry.",
+            "description": "Partial matrix as {type: {channel: mode}}. Modes are `off`, `immediate`, `hourly` and `daily`; `in_app` and `webhook` accept only `off` and `immediate`, and `reminder_due` accepts only those two on email as well. A null mode restores the instance default for that entry.",
             "examples": [
               {
                 "card_shared": {
@@ -8419,6 +8707,220 @@
         },
         "type": "object",
         "title": "PublicLinkUpdateRequest"
+      },
+      "ReminderCreate": {
+        "properties": {
+          "remind_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Remind At",
+            "description": "When to remind. Send it with an offset (`2026-08-03T09:00:00+02:00`) or as UTC; a value without an offset is read as UTC. Must be in the future.",
+            "examples": [
+              "2026-08-03T09:00:00+02:00"
+            ]
+          },
+          "recurrence": {
+            "$ref": "#/components/schemas/ReminderRecurrence",
+            "description": "`none` fires once and is then done. The repeating rules are computed on the wall clock of the reminder's own time zone, so `daily` stays at the same local hour across a daylight-saving change.",
+            "default": "none"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note",
+            "description": "Optional text of your own, shown in the notification.",
+            "examples": [
+              "Call the plumber"
+            ]
+          },
+          "timezone": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Timezone",
+            "description": "IANA zone to compute the recurrence in. Only used when the account has no time zone in its notification settings, which is where this normally comes from; ignored otherwise. Null means UTC.",
+            "examples": [
+              "Europe/Berlin"
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "remind_at"
+        ],
+        "title": "ReminderCreate"
+      },
+      "ReminderRead": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "checklist_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Checklist Id",
+            "description": "The card this reminder is about."
+          },
+          "checklist_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Checklist Name",
+            "description": "Name of that card, or null when the caller can no longer see it (the card was deleted, or the share was revoked). Such a reminder is cancelled the moment it would have fired."
+          },
+          "remind_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Remind At",
+            "description": "Naive UTC. The next (or only) time this fires."
+          },
+          "timezone": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Timezone",
+            "description": "IANA zone the recurrence is computed in, snapshotted when the reminder was created. Null means UTC."
+          },
+          "recurrence": {
+            "$ref": "#/components/schemas/ReminderRecurrence"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note",
+            "description": "The user's own text."
+          },
+          "status": {
+            "$ref": "#/components/schemas/ReminderStatus"
+          },
+          "last_fired_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Fired At"
+          },
+          "fire_count": {
+            "type": "integer",
+            "title": "Fire Count"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "checklist_id",
+          "remind_at",
+          "recurrence",
+          "status",
+          "fire_count",
+          "created_at"
+        ],
+        "title": "ReminderRead",
+        "description": "One reminder, plus the name of the card it is about.\n\nThe name is resolved here rather than left to the client (plan section 7):\nthe \"my reminders\" list spans cards, and a second round trip per row to\nrender a heading is the kind of thing that is easy to add and impossible to\ntake back."
+      },
+      "ReminderRecurrence": {
+        "type": "string",
+        "enum": [
+          "none",
+          "daily",
+          "weekly",
+          "monthly"
+        ],
+        "title": "ReminderRecurrence",
+        "description": "How often a reminder repeats (enum-as-string, like the rest).\n\nDeliberately three simple rules rather than an RRULE: \"every second Tuesday\"\nmeans adopting a calendar library, which is a decision on its own and not one\na checklist app has earned yet. All three are computed in the row's own time\nzone, see ``notify/recurrence.py``."
+      },
+      "ReminderStatus": {
+        "type": "string",
+        "enum": [
+          "pending",
+          "done",
+          "cancelled"
+        ],
+        "title": "ReminderStatus",
+        "description": "Lifecycle of one reminder row.\n\n``pending``\n    Waiting for ``remind_at``. A recurring reminder stays here forever,\n    rolling its ``remind_at`` forward after each fire.\n``done``\n    A one-off that fired. Kept for a while so the user can see it happened,\n    then pruned by the dispatcher's hourly housekeeping.\n``cancelled``\n    Will not fire: the fire-time check found the card tombstoned or the\n    user's access gone (plan decision 2). Not an error, and deliberately\n    silent, since it usually follows something the user did on purpose."
+      },
+      "ReminderUpdate": {
+        "properties": {
+          "remind_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Remind At",
+            "description": "A new time, in the future. Sending one also puts a reminder that had already finished back to `pending`, which is what a snooze is."
+          },
+          "recurrence": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ReminderRecurrence"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note",
+            "description": "Null clears the note."
+          }
+        },
+        "type": "object",
+        "title": "ReminderUpdate",
+        "description": "A partial update. A field that is absent keeps its stored value.\n\nThe card and the time zone are not in here on purpose: a reminder is about\none card for its whole life, and its zone is a snapshot taken at creation\n(plan decision 5) so that changing the account's zone later does not shift\nevery existing recurring reminder."
       },
       "SharePermission": {
         "type": "string",

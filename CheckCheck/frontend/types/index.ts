@@ -89,6 +89,16 @@ declare global {
     type NotificationModeType = components["schemas"]["NotificationMode"]  // off|immediate|hourly|daily
     type TestEmailResultType = components["schemas"]["TestEmailResult"]
     type TestWebhookResultType = components["schemas"]["TestWebhookResult"]
+    // Date reminders (chunks R1-R4). A reminder is personal: it belongs to the
+    // user who set it, so every one of these endpoints is scoped to the caller.
+    // `remind_at` on the read model is naive UTC — see utils/reminders.ts,
+    // which is the only place a server timestamp is parsed.
+    type ReminderReadType = components["schemas"]["ReminderRead"]
+    type ReminderCreateType = components["schemas"]["ReminderCreate"]
+    type ReminderUpdateType = components["schemas"]["ReminderUpdate"]
+    type ReminderRecurrenceType = components["schemas"]["ReminderRecurrence"]  // none|daily|weekly|monthly
+    type ReminderStatusType = components["schemas"]["ReminderStatus"]          // pending|done|cancelled
+
     type UserSearchResult = components["schemas"]["UserSearchResult"]
     type UserType = components["schemas"]["User"]
 
