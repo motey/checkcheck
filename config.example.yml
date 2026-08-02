@@ -359,14 +359,6 @@ NOTIFY_EMAIL_CONTENT_MODE: full
 # Description: How long a message waits before being sent. If the user reads the notification in the app within that window, no mail is sent at all. Keeps people who are looking at the app right now out of their own inbox. Set to 0 to send without delay.
 NOTIFY_EMAIL_SUPPRESS_WINDOW_SECONDS: 120
 
-# ## NOTIFY_PUBLIC_LINK_THROTTLE_MINUTES - Throttle for public-link-opened mail (minutes) ###
-# Type:        int
-# Required:    False
-# Default:     60
-# Env-var:     'NOTIFY_PUBLIC_LINK_THROTTLE_MINUTES'
-# Description: At most one `public_link_opened` mail per card per recipient in this window. Anyone holding a public link can trigger that event, so without a throttle a reload loop would flood the owner's inbox.
-NOTIFY_PUBLIC_LINK_THROTTLE_MINUTES: 60
-
 # ## NOTIFY_DEFAULT_MODES - Instance default notification modes ###
 # Type:        Dictionary of (str, Dictionary of (str, str))
 # Required:    False
@@ -446,7 +438,7 @@ NOTIFY_DEFAULT_MODES:
     # Type:      str
     # Required:  True
     # Env-var:   'NOTIFY_DEFAULT_MODES__<dict-key>__<dict-key>'
-    email: off
+    email: immediate
 
 # ## NOTIFY_DISABLED_TYPES - Notification types disabled instance-wide ###
 # Type:        List of str

@@ -160,9 +160,25 @@ so the settings dialog can say that an administrator decided it. A user who neve
 opens the dialog is stored nowhere and simply follows the instance defaults, which
 is also why adding a notification type in a later release needs no migration.
 
-Note that notifications themselves do not produce mail yet: transports, the queue,
-the sender and the preferences are in place, the fan-out and the message templates
-are being built (see `docs/plans/EMAIL_NOTIFICATIONS.md`).
+A user's choice per type is one of four modes. `off` sends nothing. `immediate`
+sends as it happens, but not instantly: a message waits
+`NOTIFY_EMAIL_SUPPRESS_WINDOW_SECONDS` first, and if the user reads the
+notification in the app inside that window no mail is sent at all, so somebody
+working in the app does not get mail about what they are looking at. `hourly` and
+`daily` collect everything in one window into a single summary; a daily summary
+goes out at 08:00 in the user's own time zone, and a window in which nothing
+happened sends nothing. Messages that would otherwise arrive together are merged
+anyway: one person sharing thirty cards produces one mail, not thirty.
+`NOTIFY_EMAIL_MAX_PER_USER_PER_HOUR` is a last backstop on top of all that.
+
+Every message carries an unsubscribe link (and the `List-Unsubscribe` headers
+that let a mail client offer its own unsubscribe button). Following it switches
+off email for exactly that one notification type, for that one recipient, and
+nothing else; the in-app notification is untouched.
+
+Recipients without an email address are skipped silently, which is normal on an
+instance where accounts come from an identity provider that does not send an
+email claim.
 
 ## Logging in with an external provider (OIDC)
 

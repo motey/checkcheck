@@ -30,6 +30,16 @@ Retry policy (section 4.2 of the plan): a transient failure leaves the row
 it becomes ``failed``. A permanent failure becomes ``failed`` immediately.
 Anything unexpected counts as transient, because retrying a message a few times
 is cheaper than dropping it.
+
+**Coalescing** (chunk E4, section 4.1.2). When a claimed row carries a
+``dedupe_key``, every other pending row with the same key that is *also* due is
+claimed alongside it and the whole group leaves as one message: thirty cards
+shared by one person become one mail, and a digest is nothing more than a group
+whose key is the time window (see ``notify/schedule.py``). Only rows carrying a
+render context are grouped, so a complete stand-alone message (the test mail)
+can never be swallowed into somebody's digest. If the send fails, every member
+keeps its own retry budget and its own backoff, so a group that cannot go out
+now simply re-forms, or splits, at the next attempt.
 """
 
 from __future__ import annotations
@@ -51,6 +61,7 @@ from checkcheckserver.model.notification_outbox import (
     NotificationOutbox,
     NotificationOutboxStatus,
 )
+from checkcheckserver.notify import render
 from checkcheckserver.notify.transports import (
     EmailTransport,
     OutgoingEmail,
@@ -73,6 +84,12 @@ RETRY_MAX_SECONDS = 3600
 # into a minutes-long loop; the dispatcher simply drains again.
 DRAIN_BATCH_SIZE = 50
 
+# How many queued messages may collapse into one. A digest of a very busy day is
+# still one message (it lists the first ``render.MAX_LISTED`` and counts the
+# rest); anything beyond this limit stays queued and forms a second message on a
+# later drain, which is the right failure mode for an absurd backlog.
+COALESCE_LIMIT = 50
+
 
 class OutboxPayloadError(ValueError):
     """The producer queued something the transport cannot possibly send."""
@@ -87,6 +104,9 @@ class DrainResult:
     retried: int = 0
     failed: int = 0
     cancelled: int = 0
+    # How many messages actually left, which is not ``sent`` once coalescing is
+    # in play: five queued rows delivered as one mail count as sent=5, messages=1.
+    messages: int = 0
     ids_sent: List[uuid.UUID] = field(default_factory=list)
 
     @property
@@ -269,15 +289,7 @@ async def _deliver_claimed(
     transport: EmailTransport,
     result: DrainResult,
 ) -> None:
-    """Send one claimed row and write down what happened."""
-    if await _is_already_read(session, row):
-        # Suppression rule 1 (section 4.1): the recipient saw it in the app
-        # before the mail became due, so sending it now would only be noise.
-        await _finish(session, row, NotificationOutboxStatus.cancelled, now=now)
-        result.cancelled += 1
-        log.debug("[notify] %s cancelled, notification already read", row.id)
-        return
-
+    """Send one claimed row, together with anything that coalesces with it."""
     if row.channel != NotificationChannel.email.value:
         # The webhook channel arrives in chunk E6. Until then a row for it is a
         # bug in a producer, not something to retry forever.
@@ -291,39 +303,134 @@ async def _deliver_claimed(
         result.failed += 1
         return
 
-    try:
-        await transport.send(_email_from_row(row, config))
-    except PermanentEmailError as exc:
-        await _finish(
-            session, row, NotificationOutboxStatus.failed, now=now, error=str(exc)
-        )
-        result.failed += 1
-        log.warning("[notify] %s permanently failed: %s", row.id, exc)
+    group = [row] + await _claim_siblings(session, row, now=now, config=config)
+    result.claimed += len(group) - 1
+
+    alive: List[NotificationOutbox] = []
+    for member in group:
+        if await _is_already_read(session, member):
+            # Suppression rule 1 (section 4.1): the recipient saw it in the app
+            # before the mail became due, so sending it now would only be noise.
+            # Checked per member, so one read notification drops out of a group
+            # without taking the others with it.
+            await _finish(session, member, NotificationOutboxStatus.cancelled, now=now)
+            result.cancelled += 1
+            log.debug("[notify] %s cancelled, notification already read", member.id)
+        else:
+            alive.append(member)
+    if not alive:
         return
-    except OutboxPayloadError as exc:
+
+    try:
+        message = _email_from_group(alive, config)
+    except (OutboxPayloadError, ValueError) as exc:
         # An unsendable payload cannot become sendable on a retry.
-        await _finish(
-            session, row, NotificationOutboxStatus.failed, now=now, error=str(exc)
-        )
-        result.failed += 1
+        await _fail_group(session, alive, now=now, error=str(exc), result=result)
         log.warning("[notify] %s has an unusable payload: %s", row.id, exc)
+        return
+
+    try:
+        await transport.send(message)
+    except PermanentEmailError as exc:
+        # The address is the same for every member, so a refusal refuses all.
+        await _fail_group(session, alive, now=now, error=str(exc), result=result)
+        log.warning("[notify] %s permanently failed: %s", row.id, exc)
         return
     except Exception as exc:  # includes TransientEmailError
         if not isinstance(exc, TransientEmailError):
             # Never let an unexpected error from a transport kill the dispatcher
             # loop, and never drop the message over it either.
             log.exception("[notify] unexpected error delivering %s", row.id)
-        await _record_transient_failure(session, row, config=config, now=now, error=exc)
-        if row.attempts >= config.NOTIFY_MAX_ATTEMPTS:
-            result.failed += 1
-        else:
-            result.retried += 1
+        for member in alive:
+            await _record_transient_failure(
+                session, member, config=config, now=now, error=exc
+            )
+            if member.attempts >= config.NOTIFY_MAX_ATTEMPTS:
+                result.failed += 1
+            else:
+                result.retried += 1
         return
 
-    await _finish(session, row, NotificationOutboxStatus.sent, now=now)
-    result.sent += 1
-    result.ids_sent.append(row.id)
-    log.debug("[notify] delivered %s to user %s", row.id, row.user_id)
+    for member in alive:
+        await _finish(session, member, NotificationOutboxStatus.sent, now=now)
+        result.sent += 1
+        result.ids_sent.append(member.id)
+    result.messages += 1
+    log.debug(
+        "[notify] delivered %s (%s queued message(s)) to user %s",
+        row.id,
+        len(alive),
+        row.user_id,
+    )
+
+
+async def _fail_group(
+    session: AsyncSession,
+    rows: List[NotificationOutbox],
+    *,
+    now: datetime.datetime,
+    error: str,
+    result: DrainResult,
+) -> None:
+    for member in rows:
+        await _finish(
+            session, member, NotificationOutboxStatus.failed, now=now, error=error
+        )
+        result.failed += 1
+
+
+async def _claim_siblings(
+    session: AsyncSession,
+    row: NotificationOutbox,
+    *,
+    now: datetime.datetime,
+    config: Config,
+) -> List[NotificationOutbox]:
+    """Claim every other due row that belongs in the same message.
+
+    Same recipient, same channel, same ``dedupe_key``, already due. A row the
+    drain loop was going to reach on its own is simply claimed here first: when
+    the loop gets to it, the conditional claim finds the attempt count moved on
+    and skips it, which is the same mechanism that stops two drains double-sending.
+    """
+    if not row.dedupe_key or not _is_coalescable(row):
+        return []
+
+    query = (
+        select(NotificationOutbox)
+        .where(NotificationOutbox.status == NotificationOutboxStatus.pending.value)
+        .where(NotificationOutbox.user_id == row.user_id)
+        .where(NotificationOutbox.channel == row.channel)
+        .where(NotificationOutbox.dedupe_key == row.dedupe_key)
+        .where(col(NotificationOutbox.id) != row.id)
+        .where(col(NotificationOutbox.not_before) <= now)
+        .order_by(col(NotificationOutbox.created_at))
+        .limit(COALESCE_LIMIT - 1)
+    )
+    if config.db_backend == DbBackend.POSTGRES:
+        query = query.with_for_update(skip_locked=True)
+    candidates = list((await session.exec(query)).all())
+    await session.commit()
+
+    claimed = []
+    for candidate in candidates:
+        if not _is_coalescable(candidate):
+            continue
+        taken = await _claim(session, candidate, now=now)
+        if taken is not None:
+            claimed.append(taken)
+    return claimed
+
+
+def _is_coalescable(row: NotificationOutbox) -> bool:
+    """Whether this row may be merged into a message with others.
+
+    Only rows carrying a render context can be, because merging means
+    re-rendering from those contexts. It also keeps a complete stand-alone
+    message (the test mail, whose dedupe key exists purely for rate limiting)
+    from being folded into an unrelated one.
+    """
+    return bool((row.payload or {}).get(render.CONTEXT_KEY))
 
 
 async def _is_already_read(session: AsyncSession, row: NotificationOutbox) -> bool:
@@ -352,6 +459,30 @@ def _email_from_row(row: NotificationOutbox, config: Config) -> OutgoingEmail:
         text_body=payload["text_body"],
         html_body=payload.get("html_body"),
         message_id=stable_message_id(str(row.id), config),
+        headers=dict(payload.get("headers") or {}),
+    )
+
+
+def _email_from_group(
+    rows: List[NotificationOutbox], config: Config
+) -> OutgoingEmail:
+    """One message for the whole group.
+
+    A single row is sent exactly as it was rendered when it was queued. Two or
+    more are re-rendered together from their stored contexts, and the message
+    keeps the oldest row's identity, so a retry of the same group is recognised
+    as a duplicate rather than shown twice.
+    """
+    if len(rows) == 1:
+        return _email_from_row(rows[0], config)
+    payload = render.render_group_payload([row.payload or {} for row in rows], config)
+    _validate_email_payload(payload)
+    return OutgoingEmail(
+        to=payload["to"],
+        subject=payload["subject"],
+        text_body=payload["text_body"],
+        html_body=payload.get("html_body"),
+        message_id=stable_message_id(str(rows[0].id), config),
         headers=dict(payload.get("headers") or {}),
     )
 
@@ -474,6 +605,30 @@ async def count_recent(
         .select_from(NotificationOutbox)
         .where(NotificationOutbox.user_id == user_id)
         .where(NotificationOutbox.dedupe_key == dedupe_key)
+        .where(col(NotificationOutbox.created_at) >= since)
+    )
+    return (await session.exec(query)).one()
+
+
+async def count_recent_for_user(
+    session: AsyncSession,
+    *,
+    user_id: uuid.UUID,
+    channel: NotificationChannel,
+    since: datetime.datetime,
+) -> int:
+    """How many deliveries a user has been queued on *channel* since *since*.
+
+    The backstop behind ``NOTIFY_EMAIL_MAX_PER_USER_PER_HOUR``, and deliberately
+    across every dedupe key: the thing being limited is what one person's inbox
+    receives, whatever produced it. Counts queued rows rather than sent ones, so
+    a mail server that is temporarily down cannot let a flood build up behind it.
+    """
+    query = (
+        select(func.count())
+        .select_from(NotificationOutbox)
+        .where(NotificationOutbox.user_id == user_id)
+        .where(NotificationOutbox.channel == channel.value)
         .where(col(NotificationOutbox.created_at) >= since)
     )
     return (await session.exec(query)).one()

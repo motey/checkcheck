@@ -401,20 +401,11 @@ class Config(BaseSettings):
             "at the app right now out of their own inbox. Set to 0 to send without delay."
         ),
     )
-    NOTIFY_PUBLIC_LINK_THROTTLE_MINUTES: int = Field(
-        default=60,
-        title="Throttle for public-link-opened mail (minutes)",
-        description=(
-            "At most one `public_link_opened` mail per card per recipient in this window. "
-            "Anyone holding a public link can trigger that event, so without a throttle a "
-            "reload loop would flood the owner's inbox."
-        ),
-    )
     NOTIFY_DEFAULT_MODES: Dict[str, Dict[str, str]] = Field(
         default_factory=lambda: {
             "card_shared": {"in_app": "immediate", "email": "immediate"},
             "card_invited": {"in_app": "immediate", "email": "immediate"},
-            "public_link_opened": {"in_app": "immediate", "email": "off"},
+            "public_link_opened": {"in_app": "immediate", "email": "immediate"},
         },
         title="Instance default notification modes",
         description=(

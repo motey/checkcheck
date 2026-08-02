@@ -766,21 +766,6 @@ How long a message waits before being sent. If the user reads the notification i
 
 ---
 
-## `NOTIFY_PUBLIC_LINK_THROTTLE_MINUTES`
-
-*Throttle for public-link-opened mail (minutes)*
-
-At most one `public_link_opened` mail per card per recipient in this window. Anyone holding a public link can trigger that event, so without a throttle a reload loop would flood the owner's inbox.
-
-| Property | Value |
-|---|---|
-| Type | int |
-| Required | No |
-| Default | `60` |
-| Environment variable | `NOTIFY_PUBLIC_LINK_THROTTLE_MINUTES` |
-
----
-
 ## `NOTIFY_DEFAULT_MODES`
 
 *Instance default notification modes*

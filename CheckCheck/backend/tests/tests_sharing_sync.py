@@ -69,9 +69,15 @@ class _SSECollector:
                 self._url,
                 headers={"Authorization": f"Bearer {self._token}"},
                 stream=True,
-                # Short read timeout: between events the read unblocks quickly so
-                # the _stop flag is honoured and the thread doesn't linger.
-                timeout=(5, 3),
+                # The read timeout has to outlast a quiet stretch of the
+                # stream, because a timeout does not just unblock the read, it
+                # ends collection for good (see the except below). The SQLite
+                # drain loop sleeps a second when it finds nothing, so a
+                # collector opened a few seconds before the event it waits for
+                # used to die just before that event arrived. It exceeds the
+                # default wait_for window; the thread is a daemon, so lingering
+                # costs nothing.
+                timeout=(5, 12),
             )
             self._ready.set()
             for raw in self._resp.iter_lines(decode_unicode=True):

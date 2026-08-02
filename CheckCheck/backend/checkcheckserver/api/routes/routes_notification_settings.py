@@ -1,6 +1,6 @@
 """Notification settings API (self-service, ``/user/me/notification-settings``).
 
-Three endpoints:
+Five endpoints:
 
 * ``GET`` returns the **effective** preference matrix, which is what the user's
   own choices, the instance defaults and the administrator's caps add up to,
@@ -10,6 +10,9 @@ Three endpoints:
   webhook target.
 * ``POST .../test-email`` queues a message to the caller's own address, so the
   whole delivery path can be checked by hand on a real instance.
+* ``GET`` and ``POST /notifications/unsubscribe`` are the link at the bottom of
+  every message. They are **public**: a mail client has no session. See the
+  section further down for why the acting half is the ``POST``.
 
 The resolution rules live in ``notify/prefs.py``, not here; this module is the
 HTTP shape around them, and the place where a rejected write becomes a status
@@ -26,7 +29,8 @@ import html
 import uuid
 from typing import Dict, List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Security, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Security, status
+from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, Field
 from sqlmodel.ext.asyncio.session import AsyncSession
 
@@ -42,7 +46,7 @@ from checkcheckserver.log import get_logger
 from checkcheckserver.model._base_model import naive_utc_now
 from checkcheckserver.model.notification_outbox import NotificationChannel
 from checkcheckserver.model.user_notification_settings import UserNotificationSettings
-from checkcheckserver.notify import outbox, prefs
+from checkcheckserver.notify import outbox, prefs, unsubscribe
 from checkcheckserver.notify.dispatcher import lifespan as dispatcher_lifespan
 from checkcheckserver.notify.dispatcher import nudge
 from checkcheckserver.notify.prefs import (
@@ -51,6 +55,7 @@ from checkcheckserver.notify.prefs import (
     PreferenceChannel,
     UnknownPreferenceError,
 )
+from checkcheckserver.notify.unsubscribe import InvalidUnsubscribeToken
 
 
 config = Config()
@@ -387,3 +392,156 @@ def _test_email_payload(user: User) -> dict:
         "text_body": text_body,
         "html_body": html_body,
     }
+
+
+# ── unsubscribe ───────────────────────────────────────────────────────────────
+#
+# Public, sessionless, and split in two on purpose:
+#
+# * ``GET`` only *shows* what would happen, with a button. Mail security scanners
+#   and link previewers fetch every URL in a message before the human sees it, so
+#   a GET that acted would unsubscribe people who never clicked anything. Same
+#   reasoning as decision 3 of the plan, where marking a notification read moved
+#   out of a redirect endpoint and into the SPA.
+# * ``POST`` acts. That is also exactly what RFC 8058 one-click asks for, so the
+#   ``List-Unsubscribe-Post`` header on every message lets a mail client do it
+#   directly, with no browser and no confirmation step.
+#
+# Every failure, whatever it was, produces the same neutral page: a probe must
+# not be able to tell a forged token from an expired one, or learn whether an
+# account exists.
+
+# Wording for the notification type on the confirmation page. Falls back to the
+# raw type name for anything a later release adds without touching this.
+_TYPE_WORDING = {
+    "card_shared": "cards being shared with you",
+    "card_invited": "invitations to cards",
+    "public_link_opened": "your public links being opened",
+}
+
+
+def _unsubscribe_page(title: str, body: str, *, status_code: int = 200) -> HTMLResponse:
+    """A tiny self-contained page. No app assets: this is reached from an inbox,
+    possibly on a device that has never loaded the client."""
+    app_name = html.escape(config.APP_NAME)
+    public_url = html.escape((config.SERVER_PUBLIC_URL or "").rstrip("/") + "/", quote=True)
+    return HTMLResponse(
+        status_code=status_code,
+        content=(
+            "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\">"
+            '<meta name="viewport" content="width=device-width,initial-scale=1">'
+            '<meta name="robots" content="noindex">'
+            f"<title>{html.escape(title)} - {app_name}</title></head>"
+            '<body style="font-family:system-ui,-apple-system,Segoe UI,Helvetica,Arial,'
+            'sans-serif;line-height:1.5;color:#1f2328;max-width:34rem;margin:4rem auto;'
+            'padding:0 1.5rem">'
+            f"<h1 style=\"font-size:1.25rem\">{html.escape(title)}</h1>"
+            f"{body}"
+            f'<p style="font-size:.85rem;color:#59636e;margin-top:2rem">'
+            f'<a href="{public_url}">Back to {app_name}</a></p>'
+            "</body></html>"
+        ),
+    )
+
+
+def _unsubscribe_failed() -> HTMLResponse:
+    return _unsubscribe_page(
+        "This link is not valid",
+        "<p>This unsubscribe link is expired or was not issued by this server. "
+        "You can change what you receive in your notification settings instead.</p>",
+        status_code=status.HTTP_400_BAD_REQUEST,
+    )
+
+
+async def _claims_for(
+    session: AsyncSession, token: str
+) -> "tuple[UserNotificationSettings, str]":
+    """Verify *token* and return whose it is, or raise :class:`InvalidUnsubscribeToken`.
+
+    Two steps, because the signing key is the user's own secret: read the
+    (unverified) claims to find out which row to load, then check the signature
+    against that row. A user with no settings row has no secret and therefore no
+    token can ever have been minted for them.
+    """
+    asserted = unsubscribe.read_claims(token)
+    settings = await get_settings(session, asserted.user_id)
+    if settings is None or not settings.unsubscribe_secret:
+        raise InvalidUnsubscribeToken("No such recipient.")
+    claims = unsubscribe.verify_token(token, secret=settings.unsubscribe_secret)
+    if claims.type not in prefs.known_types():
+        raise InvalidUnsubscribeToken("Unknown notification type.")
+    return settings, claims.type
+
+
+@fast_api_notification_settings_router.get(
+    "/notifications/unsubscribe",
+    response_class=HTMLResponse,
+    description=(
+        "The unsubscribe link carried by every notification email. Shows what "
+        "would be switched off and a button that does it; nothing changes on this "
+        "request, so a mail scanner following the link cannot unsubscribe anybody. "
+        "An invalid, forged or expired token gets the same neutral page as any "
+        "other failure."
+    ),
+)
+async def unsubscribe_confirm(
+    token: str = Query(description="The signed token from the message."),
+    session: AsyncSession = Depends(get_async_session),
+) -> HTMLResponse:
+    try:
+        _settings, type = await _claims_for(session, token)
+    except InvalidUnsubscribeToken as exc:
+        log.debug("[notify] unsubscribe link rejected: %s", exc)
+        return _unsubscribe_failed()
+
+    wording = html.escape(_TYPE_WORDING.get(type, type))
+    escaped_token = html.escape(token, quote=True)
+    return _unsubscribe_page(
+        "Stop these emails?",
+        f"<p>You will no longer receive email about <strong>{wording}</strong>. "
+        "Everything else, including the notifications inside the app, stays as it "
+        "is.</p>"
+        f'<form method="post" action="{unsubscribe.UNSUBSCRIBE_PATH}?token={escaped_token}">'
+        '<button type="submit" style="font:inherit;padding:.6rem 1.1rem;border:0;'
+        'border-radius:.4rem;background:#1f2328;color:#fff;cursor:pointer">'
+        "Yes, stop these emails</button></form>",
+    )
+
+
+@fast_api_notification_settings_router.post(
+    "/notifications/unsubscribe",
+    response_class=HTMLResponse,
+    description=(
+        "Switches the email channel off for exactly one notification type and one "
+        "user, named by the signed token. Also the RFC 8058 one-click target "
+        "advertised by the List-Unsubscribe-Post header, so a mail client can do it "
+        "without opening a browser. Never touches any other type, any other "
+        "channel, or anybody else's settings."
+    ),
+)
+async def unsubscribe_apply(
+    token: str = Query(description="The signed token from the message."),
+    session: AsyncSession = Depends(get_async_session),
+) -> HTMLResponse:
+    try:
+        settings, type = await _claims_for(session, token)
+    except InvalidUnsubscribeToken as exc:
+        log.debug("[notify] unsubscribe request rejected: %s", exc)
+        return _unsubscribe_failed()
+
+    # Deliberately not through `validate_prefs_patch`: switching a channel *off*
+    # is always allowed, including for an entry an administrator has locked on,
+    # and this path must keep working whatever the instance configuration is.
+    settings.prefs = prefs.apply_prefs_patch(
+        settings.prefs, {type: {PreferenceChannel.email.value: NotificationMode.off.value}}
+    )
+    session.add(settings)
+    await session.commit()
+    log.info("[notify] user %s unsubscribed from '%s' email", settings.user_id, type)
+
+    wording = html.escape(_TYPE_WORDING.get(type, type))
+    return _unsubscribe_page(
+        "Done",
+        f"<p>You will no longer receive email about <strong>{wording}</strong>. "
+        "You can turn it back on any time in your notification settings.</p>",
+    )

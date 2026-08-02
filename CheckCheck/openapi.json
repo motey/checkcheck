@@ -1137,6 +1137,94 @@
         ]
       }
     },
+    "/api/notifications/unsubscribe": {
+      "get": {
+        "tags": [
+          "Notifications"
+        ],
+        "summary": "Unsubscribe Confirm",
+        "description": "The unsubscribe link carried by every notification email. Shows what would be switched off and a button that does it; nothing changes on this request, so a mail scanner following the link cannot unsubscribe anybody. An invalid, forged or expired token gets the same neutral page as any other failure.",
+        "operationId": "unsubscribe_confirm_api_notifications_unsubscribe_get",
+        "parameters": [
+          {
+            "name": "token",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "The signed token from the message.",
+              "title": "Token"
+            },
+            "description": "The signed token from the message."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "text/html": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Notifications"
+        ],
+        "summary": "Unsubscribe Apply",
+        "description": "Switches the email channel off for exactly one notification type and one user, named by the signed token. Also the RFC 8058 one-click target advertised by the List-Unsubscribe-Post header, so a mail client can do it without opening a browser. Never touches any other type, any other channel, or anybody else's settings.",
+        "operationId": "unsubscribe_apply_api_notifications_unsubscribe_post",
+        "parameters": [
+          {
+            "name": "token",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "The signed token from the message.",
+              "title": "Token"
+            },
+            "description": "The signed token from the message."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "text/html": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/user": {
       "post": {
         "tags": [

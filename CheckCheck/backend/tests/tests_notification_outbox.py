@@ -672,9 +672,16 @@ def test_test_email_endpoint_queues_a_message_that_really_gets_sent(mail_capture
     row = _run(body)
 
     assert row.status == NotificationOutboxStatus.sent.value
-    sent = [email for email in mail_capture.sent if email.to == ADMIN_USER_EMAIL]
+    # Filtered by subject as well as recipient: since chunk E4 every share in the
+    # suite queues real mail too, and this drain (unlike the ones above, which
+    # work in a time window far in the past) runs at the real now, so it delivers
+    # whatever else has come due.
+    sent = [
+        email
+        for email in mail_capture.sent
+        if email.to == ADMIN_USER_EMAIL and "test message" in email.subject
+    ]
     assert len(sent) == 1
-    assert "test message" in sent[0].subject
     assert sent[0].html_body
 
 
