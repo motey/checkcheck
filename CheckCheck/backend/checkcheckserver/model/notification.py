@@ -34,6 +34,10 @@ class NotificationType(str, enum.Enum):
     card_shared = "card_shared"  # a card was instantly shared with the user
     card_invited = "card_invited"  # the user was invited to a card (invite flow)
     public_link_opened = "public_link_opened"  # a public link was opened (to owner)
+    # A reminder the user set on a card came due (chunk R2 of the date-reminder
+    # plan). The only type with no actor: the recipient asked for it themselves,
+    # which is also why it is the only one that ships with email on by default.
+    reminder_due = "reminder_due"
 
 
 class NotificationCreate(TimestampedModel, table=False):

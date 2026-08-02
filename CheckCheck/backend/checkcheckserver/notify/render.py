@@ -18,8 +18,8 @@ missing row. The snapshot is taken when the access check has just passed.
 instance. ``full`` names the card and the person who acted, which is what makes
 the message useful in an inbox. ``minimal`` says only that something happened
 and links back to the app, for instances where a card title is sensitive. In
-``minimal`` neither a card name nor a person's name appears anywhere in the
-message, including the subject and the HTML part.
+``minimal`` neither a card name, nor a person's name, nor the note on a reminder
+appears anywhere in the message, including the subject and the HTML part.
 
 **Links come from ``SERVER_PUBLIC_URL`` only**, never from request headers, and
 always in the shape ``/?card={cl_id}&n={notification_id}``. The ``n`` parameter
@@ -78,6 +78,10 @@ def notification_context(
         "cl_id": str(cl_id) if cl_id else None,
         "actor": actor or None,
         "checklist_name": payload.get("checklist_name") or None,
+        # The user's own text on a reminder (chunk R2). Null for every other
+        # type, and stripped in `minimal` exactly like a card title: it is text
+        # somebody typed about a card, and it leaves the instance the same way.
+        "note": payload.get("note") or None,
         "created_at": created_at.isoformat(),
         "digest": digest,
     }
@@ -121,10 +125,32 @@ def _actor_name(context: dict, config: Config) -> Optional[str]:
     return context.get("actor")
 
 
+def _note(context: dict, config: Config) -> Optional[str]:
+    """The reminder's own text, or None when it must not be told.
+
+    Held to the same rule as a card title even though the recipient wrote it
+    themselves: ``minimal`` is the operator's answer to how much may leave the
+    instance, and a note is exactly the kind of thing ("call the clinic about
+    the results") that made them pick it.
+    """
+    if _minimal(config):
+        return None
+    return context.get("note")
+
+
 def _subject_for_one(context: dict, config: Config) -> str:
     type = context.get("type")
     actor = _actor_name(context, config)
     card = _card_name(context, config)
+    if type == "reminder_due":
+        # The note first when there is one: it is what the user wrote to their
+        # future self, and it is the only part of the subject they chose.
+        note = _note(context, config)
+        if note:
+            return f"Reminder: {note}"
+        if card:
+            return f'Reminder: "{card}"'
+        return "Reminder"
     if type == "card_invited":
         if actor and card:
             return f'{actor} invited you to "{card}"'
@@ -156,6 +182,10 @@ def _subject_for_many(contexts: List[dict], config: Config) -> str:
     if len(types) > 1:
         return f"{count} new notifications"
     type = types.pop()
+    if type == "reminder_due":
+        # No note in the plural subject: several reminders have several notes,
+        # and picking one of them to stand for all would be a lie.
+        return f"{count} reminders"
     if type == "card_invited":
         if actor:
             return f"{actor} invited you to {count} cards"
@@ -173,6 +203,11 @@ def _line_for(context: dict, config: Config) -> str:
     actor = _actor_name(context, config)
     card = _card_name(context, config)
     subject_card = f'the card "{card}"' if card else "a card"
+    if type == "reminder_due":
+        note = _note(context, config)
+        if note:
+            return f"Reminder about {subject_card}: {note}"
+        return f"You asked to be reminded about {subject_card}."
     if type == "card_invited":
         who = actor or "Someone"
         return f"{who} invited you to {subject_card}."
@@ -274,6 +309,9 @@ def webhook_body(context: dict, config: Config) -> dict:
         "checklist_id": context.get("cl_id"),
         "checklist_name": _card_name(context, config),
         "actor": _actor_name(context, config),
+        # Null for everything except a reminder, and null there too under
+        # `minimal`. Present either way, like every other key here.
+        "note": _note(context, config),
         "created_at": context.get("created_at"),
         "url": card_url(context, config),
         "app": config.APP_NAME,

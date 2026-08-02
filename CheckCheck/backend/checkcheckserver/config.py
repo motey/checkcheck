@@ -431,21 +431,23 @@ class Config(BaseSettings):
             "card_shared": {"in_app": "immediate", "email": "immediate"},
             "card_invited": {"in_app": "immediate", "email": "immediate"},
             "public_link_opened": {"in_app": "immediate", "email": "immediate"},
+            "reminder_due": {"in_app": "immediate", "email": "immediate"},
         },
         title="Instance default notification modes",
         description=(
             "The delivery mode used for a notification type and channel when the user has not "
             "chosen one. Keyed by notification type (`card_shared`, `card_invited`, "
-            "`public_link_opened`), then by channel (`in_app`, `email`, `webhook`). Modes are "
-            "`off`, `immediate`, `hourly` and `daily`; `in_app` and `webhook` accept only "
-            "`off` and `immediate`. Users can override every entry unless it is listed in "
-            "NOTIFY_DISABLED_TYPES."
+            "`public_link_opened`, `reminder_due`), then by channel (`in_app`, `email`, "
+            "`webhook`). Modes are `off`, `immediate`, `hourly` and `daily`; `in_app` and "
+            "`webhook` accept only `off` and `immediate`. Users can override every entry "
+            "unless it is listed in NOTIFY_DISABLED_TYPES."
         ),
         examples=[
             {
                 "card_shared": {"in_app": "immediate", "email": "immediate"},
                 "card_invited": {"in_app": "immediate", "email": "immediate"},
                 "public_link_opened": {"in_app": "immediate", "email": "off"},
+                "reminder_due": {"in_app": "immediate", "email": "immediate"},
             }
         ],
     )
@@ -453,8 +455,11 @@ class Config(BaseSettings):
         default_factory=list,
         title="Notification types disabled instance-wide",
         description=(
-            "Notification types nobody may receive, whatever their personal settings say. The "
-            "settings UI shows those entries as locked by the administrator. Empty by default."
+            "Notification types nobody may receive, whatever their personal settings say. Known "
+            "types are `card_shared`, `card_invited`, `public_link_opened` and `reminder_due`. "
+            "The settings UI shows those entries as locked by the administrator. Listing "
+            "`reminder_due` also stops the reminder scan, so due reminders are not delivered on "
+            "any channel. Empty by default."
         ),
         examples=[["public_link_opened"]],
     )

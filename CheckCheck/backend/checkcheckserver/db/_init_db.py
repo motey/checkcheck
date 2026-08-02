@@ -42,6 +42,15 @@ def init_schema_and_migrations():
     migrations. Uses its own short-lived asyncio.run() for create_all, disposing
     the pool inside that loop so the main event loop starts with clean connections.
     """
+    # `create_all` builds whatever is in SQLModel.metadata, and a model only lands
+    # there when its module has been imported. Relying on the route graph to pull
+    # every model in transitively means a table can go missing on a fresh database
+    # for no better reason than "nothing imports it yet", and a fresh database is
+    # stamped at head below without ever running the migration that would have
+    # created it. Importing the registry makes the schema depend on the registry
+    # instead of on import order.
+    import checkcheckserver.model._tables  # noqa: F401
+
     async def _create_schema_and_check_rev():
         async with db_engine.begin() as conn:
             await conn.run_sync(SQLModel.metadata.create_all)

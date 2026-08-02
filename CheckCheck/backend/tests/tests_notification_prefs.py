@@ -234,7 +234,10 @@ def test_a_new_notification_type_needs_no_migration_and_no_backfill():
     # A row saved long before the new type was invented.
     settings = _settings({"card_shared": {"email": "daily"}})
     stored_before = dict(settings.prefs)
-    new_type = "reminder_due"  # the date-reminder feature, section 8 of the plan
+    # A type that does not exist yet. This used to be `reminder_due`, which has
+    # since shipped (and, being a type the user asked for themselves, ships with
+    # mail on), so the case needs a type nobody has configured again.
+    new_type = "card_commented"
 
     plain = _config()
     # Code default: the bell is on, mail is off. A type nobody configured must
@@ -406,7 +409,13 @@ def test_a_user_who_never_saved_anything_gets_the_defaults_and_no_row(fresh_user
     )
 
     types = {entry["type"] for entry in settings["types"]}
-    assert types == {"card_shared", "card_invited", "public_link_opened"}
+    # `reminder_due` joined the matrix in chunk R2 of the date-reminder plan.
+    assert types == {
+        "card_shared",
+        "card_invited",
+        "public_link_opened",
+        "reminder_due",
+    }
     assert settings["timezone"] is None
     assert settings["email_enabled"] is True  # the test instance has mail on
 

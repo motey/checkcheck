@@ -1,5 +1,10 @@
 """The background sender: one in-process loop that drains the outbox.
 
+Since chunk R2 of the date-reminder plan the same tick also **scans for due
+reminders** (``notify/reminders.py``), because a reminder coming due is the one
+notification nothing else in the process notices. Both halves are per-tick work;
+housekeeping still runs hourly beside them.
+
 Started from a router lifespan and cancelled on shutdown, exactly like the SSE
 listener in ``api/routes/routes_sync_notification.py``. The shape is
 ``while True: drain; wait for a nudge or the tick``, so a message queued by a
@@ -31,6 +36,7 @@ from checkcheckserver.config import Config
 from checkcheckserver.db._session import get_async_session_context
 from checkcheckserver.log import get_logger
 from checkcheckserver.notify.outbox import DrainResult, drain_once, prune_once
+from checkcheckserver.notify.reminders import reminders_enabled, scan_due_once
 
 log = get_logger()
 config = Config()
@@ -66,42 +72,70 @@ def dispatch_enabled(cfg: Optional[Config] = None) -> bool:
     """Whether this process should run the loop at all.
 
     Off when the operator moved delivery elsewhere. Otherwise on when there is
-    either something to deliver or something to tidy up: feed retention (chunk
-    E6) runs in the same loop, and an instance with neither mail nor webhooks
-    still accumulates in-app notifications. The drain itself is skipped in that
-    case (see :func:`dispatch_once`), so the loop never polls a table nothing
-    can write to.
+    anything for the loop to do: something to deliver, something to tidy up
+    (feed retention, chunk E6), or reminders to watch for. That last one is why
+    an instance with neither mail nor webhooks still runs the loop by default:
+    an in-app-only reminder is a perfectly good reminder, and nothing else in
+    the process notices that a reminder came due. The drain itself is skipped
+    when no channel is enabled (see :func:`dispatch_once`), so the loop never
+    polls a table nothing can write to.
     """
     cfg = cfg or config
     if not cfg.NOTIFY_DISPATCH_IN_PROCESS:
         return False
-    return channels_enabled(cfg) or cfg.NOTIFY_FEED_RETENTION_DAYS > 0
+    return (
+        channels_enabled(cfg)
+        or cfg.NOTIFY_FEED_RETENTION_DAYS > 0
+        or reminders_enabled(cfg)
+    )
 
 
 async def dispatch_once(cfg: Optional[Config] = None) -> DrainResult:
-    """One drain against a fresh session. The unit the loop repeats."""
+    """One scan and one drain against a fresh session. The unit the loop repeats.
+
+    A session is opened whenever there is *either* kind of work, because the
+    reminder scan needs one even on an instance that sends nothing at all: it
+    reads a table the app writes, and delivers in-app. The drain stays skipped
+    without a channel, since nothing could have queued anything.
+    """
     cfg = cfg or config
-    if not channels_enabled(cfg):
-        # Nothing can have queued anything, so do not open a session to find out.
+    scan_wanted = reminders_enabled(cfg)
+    if not channels_enabled(cfg) and not scan_wanted:
+        # Nothing can have queued anything and no reminder can be waiting, so do
+        # not open a session to find out.
         return DrainResult()
     async with get_async_session_context() as session:
+        if scan_wanted:
+            try:
+                await scan_due_once(session, config=cfg)
+            except Exception:
+                # The two halves of a tick are independent, and mail is the older
+                # and more critical path: a reminder the scan cannot handle must
+                # not stop everything else from going out, tick after tick. The
+                # rollback leaves the session usable for the drain below.
+                log.exception("[reminders] scan failed")
+                await session.rollback()
+        if not channels_enabled(cfg):
+            return DrainResult()
         return await drain_once(session, config=cfg)
 
 
 async def _prune(cfg: Config) -> None:
-    """The hourly housekeeping pass: the delivery queue, then the feed itself.
+    """The hourly housekeeping pass: the delivery queue, the feed, the reminders.
 
-    Two different tables with two different retentions, run together because
-    they are the same kind of chore and neither is worth its own timer. The feed
-    prune is imported here rather than at module import time to keep this module
-    free of a cycle (``db.notification`` imports the outbox, which is where the
-    other half of this pass lives).
+    Three tables with three retentions, run together because they are the same
+    kind of chore and none is worth its own timer. The feed prune is imported
+    here rather than at module import time to keep this module free of a cycle
+    (``db.notification`` imports the outbox, which is where the other half of
+    this pass lives).
     """
     from checkcheckserver.db.notification import prune_feed_once
+    from checkcheckserver.db.scheduled_notification import prune_reminders_once
 
     async with get_async_session_context() as session:
         await prune_once(session, config=cfg)
         await prune_feed_once(session, config=cfg)
+        await prune_reminders_once(session)
 
 
 async def dispatcher_loop(

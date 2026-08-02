@@ -382,7 +382,7 @@ NOTIFY_EMAIL_SUPPRESS_WINDOW_SECONDS: 120
 # Type:        Dictionary of (str, Dictionary of (str, str))
 # Required:    False
 # Env-var:     'NOTIFY_DEFAULT_MODES'
-# Description: The delivery mode used for a notification type and channel when the user has not chosen one. Keyed by notification type (`card_shared`, `card_invited`, `public_link_opened`), then by channel (`in_app`, `email`, `webhook`). Modes are `off`, `immediate`, `hourly` and `daily`; `in_app` and `webhook` accept only `off` and `immediate`. Users can override every entry unless it is listed in NOTIFY_DISABLED_TYPES.
+# Description: The delivery mode used for a notification type and channel when the user has not chosen one. Keyed by notification type (`card_shared`, `card_invited`, `public_link_opened`, `reminder_due`), then by channel (`in_app`, `email`, `webhook`). Modes are `off`, `immediate`, `hourly` and `daily`; `in_app` and `webhook` accept only `off` and `immediate`. Users can override every entry unless it is listed in NOTIFY_DISABLED_TYPES.
 # Example:
 #  >NOTIFY_DEFAULT_MODES:
 #  >  card_shared:
@@ -394,6 +394,9 @@ NOTIFY_EMAIL_SUPPRESS_WINDOW_SECONDS: 120
 #  >  public_link_opened:
 #  >    in_app: immediate
 #  >    email: 'off'
+#  >  reminder_due:
+#  >    in_app: immediate
+#  >    email: immediate
 NOTIFY_DEFAULT_MODES:
 
   # ## card_shared ###
@@ -459,11 +462,32 @@ NOTIFY_DEFAULT_MODES:
     # Env-var:   'NOTIFY_DEFAULT_MODES__<dict-key>__<dict-key>'
     email: immediate
 
+  # ## reminder_due ###
+  # YAML-path: NOTIFY_DEFAULT_MODES.['reminder_due']
+  # Type:      Dictionary of (str, str)
+  # Required:  True
+  # Env-var:   'NOTIFY_DEFAULT_MODES__<dict-key>'
+  reminder_due:
+
+    # ## in_app ###
+    # YAML-path: NOTIFY_DEFAULT_MODES.['reminder_due'].['in_app']
+    # Type:      str
+    # Required:  True
+    # Env-var:   'NOTIFY_DEFAULT_MODES__<dict-key>__<dict-key>'
+    in_app: immediate
+
+    # ## email ###
+    # YAML-path: NOTIFY_DEFAULT_MODES.['reminder_due'].['email']
+    # Type:      str
+    # Required:  True
+    # Env-var:   'NOTIFY_DEFAULT_MODES__<dict-key>__<dict-key>'
+    email: immediate
+
 # ## NOTIFY_DISABLED_TYPES - Notification types disabled instance-wide ###
 # Type:        List of str
 # Required:    False
 # Env-var:     'NOTIFY_DISABLED_TYPES'
-# Description: Notification types nobody may receive, whatever their personal settings say. The settings UI shows those entries as locked by the administrator. Empty by default.
+# Description: Notification types nobody may receive, whatever their personal settings say. Known types are `card_shared`, `card_invited`, `public_link_opened` and `reminder_due`. The settings UI shows those entries as locked by the administrator. Listing `reminder_due` also stops the reminder scan, so due reminders are not delivered on any channel. Empty by default.
 # Example:
 #  >NOTIFY_DISABLED_TYPES:
 #  >- public_link_opened

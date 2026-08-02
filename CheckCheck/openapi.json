@@ -7818,7 +7818,8 @@
         "enum": [
           "card_shared",
           "card_invited",
-          "public_link_opened"
+          "public_link_opened",
+          "reminder_due"
         ],
         "title": "NotificationType",
         "description": "What a notification is about. Stored as a string (enum-as-string like\n``SharePermission`` / ``ShareStatus``)."
