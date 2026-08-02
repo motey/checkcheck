@@ -147,18 +147,25 @@ after `NOTIFY_MAX_ATTEMPTS` and keeps those failures for
 inspection. `NOTIFY_DISPATCH_IN_PROCESS: false` switches the task off, for the
 rare case that something else drains the queue.
 
-To check a fresh setup, use the "send test email" endpoint
-(`POST /api/user/me/notification-settings/test-email`), which mails the signed-in
-user's own address, at most once a minute.
+To check a fresh setup, open the avatar menu, pick **Notifications** and use
+**Send test email**. It mails the signed-in user's own address, at most once a
+minute, and nobody else gets a copy. The same thing over the API is
+`POST /api/user/me/notification-settings/test-email`.
 
 Every user can decide, per notification type, whether it reaches them in the app,
-by email, or not at all. `NOTIFY_DEFAULT_MODES` sets what a user gets before they
-choose anything, and `NOTIFY_DISABLED_TYPES` lists the types nobody on this
-instance may receive, whatever their personal settings say. A type in that list,
-and every channel whose master switch is off, is reported to the client as locked,
-so the settings dialog can say that an administrator decided it. A user who never
-opens the dialog is stored nowhere and simply follows the instance defaults, which
-is also why adding a notification type in a later release needs no migration.
+by email, or not at all, in that same dialog. `NOTIFY_DEFAULT_MODES` sets what a
+user gets before they choose anything, and `NOTIFY_DISABLED_TYPES` lists the types
+nobody on this instance may receive, whatever their personal settings say. A type
+in that list, and every channel whose master switch is off, shows in the dialog as
+a disabled control with the reason next to it. A user who never opens the dialog is
+stored nowhere and simply follows the instance defaults, which is also why adding a
+notification type in a later release needs no migration. On an instance with
+`EMAIL_ENABLED: false` the dialog shows the in-app column only: there is nothing
+to configure about mail that is never sent.
+
+The dialog also carries the user's time zone, which is what a daily summary is
+timed against (08:00 local). It is empty until somebody sets it, and an unset zone
+means UTC.
 
 A user's choice per type is one of four modes. `off` sends nothing. `immediate`
 sends as it happens, but not instantly: a message waits
@@ -170,6 +177,12 @@ goes out at 08:00 in the user's own time zone, and a window in which nothing
 happened sends nothing. Messages that would otherwise arrive together are merged
 anyway: one person sharing thirty cards produces one mail, not thirty.
 `NOTIFY_EMAIL_MAX_PER_USER_PER_HOUR` is a last backstop on top of all that.
+
+Every message links to the card it is about. Following that link opens the card
+in the app and marks that one notification read, so the bell does not keep an
+item the recipient has already dealt with in their inbox. The marking happens in
+the app once the card is on screen, never on the link itself, so a mail scanner
+that fetches every URL in a message cannot clear anybody's notifications.
 
 Every message carries an unsubscribe link (and the `List-Unsubscribe` headers
 that let a mail client offer its own unsubscribe button). Following it switches

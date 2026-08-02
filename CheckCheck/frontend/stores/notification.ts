@@ -22,6 +22,10 @@ export type NotificationState = {
   items: NotificationReadType[];
   // Whether the dropdown is open (drives useSync's live re-list).
   open: boolean;
+  // The effective preference matrix behind the settings dialog (E5). Null until
+  // the dialog has opened once; never snapshotted to IndexedDB, since this is an
+  // online-only surface that must always show what the server actually holds.
+  settings: NotificationSettingsType | null;
 };
 
 export const useNotificationStore = defineStore("notification", {
@@ -30,6 +34,7 @@ export const useNotificationStore = defineStore("notification", {
       unreadCount: 0,
       items: [],
       open: false,
+      settings: null,
     } as NotificationState),
   actions: {
     async refreshUnread(): Promise<number> {
@@ -102,6 +107,57 @@ export const useNotificationStore = defineStore("notification", {
     // can re-list (the visible feed) in addition to refreshing the badge.
     setOpen(open: boolean) {
       this.open = open;
+    },
+
+    // ── Preferences (E5) ────────────────────────────────────────────────────
+    //
+    // Online-only, like every other notification mutation (WI-12): the matrix is
+    // resolved server-side out of the user's choices *and* the instance
+    // configuration, so a queued write would be replaying a decision taken
+    // against a matrix nobody can see. `assertOnline` throws before any request
+    // is made and nothing reaches the outbox; the dialog disables its controls
+    // while offline, this is the backstop.
+    //
+    // These three pass `skipErrorToast` because the dialog owns their error
+    // wording (a 409 on the test mail means something specific and useful).
+
+    async fetchSettings(): Promise<NotificationSettingsType> {
+      assertOnline("Notification settings can't be loaded offline.");
+      const { $checkapi } = useNuxtApp();
+      const res = await $checkapi("/api/user/me/notification-settings", {
+        method: "get",
+        skipErrorToast: true,
+      });
+      this.settings = res;
+      return res;
+    },
+
+    // A partial patch: the body names only what changed, and the response is the
+    // whole effective matrix afterwards, which is what we store. That makes the
+    // dialog self-correcting: a rejected or capped entry comes back as the
+    // server sees it rather than as the UI hoped.
+    async saveSettings(update: NotificationSettingsUpdateType): Promise<NotificationSettingsType> {
+      assertOnline("Notification settings can't be changed offline.");
+      const { $checkapi } = useNuxtApp();
+      const res = await $checkapi("/api/user/me/notification-settings", {
+        method: "put",
+        body: update,
+        skipErrorToast: true,
+      });
+      this.settings = res;
+      return res;
+    },
+
+    // 202 means queued, not delivered: the dispatcher sends it within its next
+    // tick. 409 (no address / mail off) and 429 (one a minute) are the useful
+    // failures and reach the caller as thrown FetchErrors.
+    async sendTestEmail(): Promise<TestEmailResultType> {
+      assertOnline("A test message needs a connection.");
+      const { $checkapi } = useNuxtApp();
+      return await $checkapi("/api/user/me/notification-settings/test-email", {
+        method: "post",
+        skipErrorToast: true,
+      });
     },
   },
 });

@@ -71,6 +71,18 @@ def _configure_env() -> None:
     os.environ["AUTH_ACCESS_TOKEN_EXPIRES_MINUTES"] = "1000"
     os.environ["LOG_LEVEL"] = "WARNING"
     os.environ["APP_PROVISIONING_DATA_YAML_FILES"] = json.dumps([str(PROVISIONING)])
+    # Notification settings (chunk E5) only show their email half on an instance
+    # that can send mail, so this one can: the `null` transport accepts every
+    # message and discards it, which exercises the whole queue-and-dispatch path
+    # without a mail server and without anything leaving the process.
+    os.environ.setdefault("EMAIL_ENABLED", "true")
+    os.environ.setdefault("EMAIL_TRANSPORT", "null")
+    os.environ.setdefault("EMAIL_FROM_ADDRESS", "checkcheck-e2e@test.de")
+    # One notification type is administrator-disabled, so the dialog's locked
+    # state has something real to render. Nothing in the suite depends on
+    # `public_link_opened` notifications (opening a public link still works; only
+    # the owner's notification about it is suppressed).
+    os.environ.setdefault("NOTIFY_DISABLED_TYPES", json.dumps(["public_link_opened"]))
     # Invite-mode E2E pass: SHARING_REQUIRE_INVITE_ACCEPT is left untouched here so
     # the caller's environment wins. The default pass leaves it unset (→ False, the
     # production default: shares are accepted instantly). The invite-flow pass —

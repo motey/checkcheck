@@ -29,6 +29,7 @@
 import { computed, ref, watch } from "vue";
 import { useSync } from "~/composables/useSync";
 import { useAppRoute } from "~/composables/useAppRoute";
+import { useNotificationDeepLink } from "~/composables/useNotificationDeepLink";
 import { useCheckListsStore } from "@/stores/checklist";
 import { useUserStore } from "@/stores/user";
 import { usePublicConfigStore } from "@/stores/publicConfig";
@@ -113,6 +114,16 @@ const cardModalOpen = computed({
     if (!open) closeCard();
   },
 });
+
+// --- Email deep links: /?card=<cl_id>&n=<notification_id> (E5) --------------
+// Notification mail links here. `?card=` becomes the app's own card route and
+// `?n=` marks that one notification read, once the card is really on screen.
+// "On screen" is the overlay open *and* its card resolved in the store, so a
+// card still being fetched does not count as read.
+const cardRendered = computed(
+  () => cardModalOpen.value && !!cardModalId.value && !!checkListStore.get(cardModalId.value)
+);
+useNotificationDeepLink(cardRendered);
 
 // --- Label editor modal, driven by ?editlabels=true ------------------------
 const labelEditorOpen = computed({

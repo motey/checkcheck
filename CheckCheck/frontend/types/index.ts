@@ -72,6 +72,17 @@ declare global {
     type NotificationReadType = components["schemas"]["NotificationRead"]
     type NotificationType = components["schemas"]["NotificationType"]   // card_shared|card_invited|public_link_opened
     type UnreadCountResultType = components["schemas"]["UnreadCountResult"]
+
+    // Notification preferences (email notifications, chunks E3-E5). The GET
+    // response is the whole contract for the settings dialog: per type, per
+    // channel, what is in force, what the user picked, what it falls back to,
+    // and whether an administrator locked it.
+    type NotificationSettingsType = components["schemas"]["NotificationSettings"]
+    type NotificationSettingsUpdateType = components["schemas"]["NotificationSettingsUpdate"]
+    type NotificationTypeSettingsType = components["schemas"]["NotificationTypeSettings"]
+    type NotificationChannelSettingType = components["schemas"]["NotificationChannelSetting"]
+    type NotificationModeType = components["schemas"]["NotificationMode"]  // off|immediate|hourly|daily
+    type TestEmailResultType = components["schemas"]["TestEmailResult"]
     type UserSearchResult = components["schemas"]["UserSearchResult"]
     type UserType = components["schemas"]["User"]
 

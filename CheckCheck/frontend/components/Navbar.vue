@@ -53,6 +53,14 @@
             </div>
           </template>
 
+          <template #notification-settings-leading>
+            <UIcon name="i-lucide-bell-ring" class="size-5 shrink-0 text-muted" />
+          </template>
+          <template #notification-settings-label>
+            <span data-testid="menu-notification-settings">Notifications</span>
+            <span v-if="!online" class="ml-1 text-xs text-muted">(offline)</span>
+          </template>
+
           <template #api-keys-leading>
             <UIcon name="i-lucide-key-round" class="size-5 shrink-0 text-muted" />
           </template>
@@ -74,12 +82,16 @@
     <!-- API keys manager, opened from the user menu (declarative v-model:open
          so it mounts once and can't double-dialog). -->
     <ApiKeysModal v-model:open="apiKeysOpen" />
+
+    <!-- Notification preferences (E5), same pattern, same menu. -->
+    <NotificationSettingsModal v-model:open="notificationSettingsOpen" />
   </div>
 </template>
 
 <script setup lang="ts">
 import type { DropdownMenuItem } from "@nuxt/ui";
 import { useUserStore } from "@/stores/user";
+import { usePublicConfigStore } from "@/stores/publicConfig";
 import { useConnectivity } from "@/composables/useConnectivity";
 import { isLocalFirstEnabled } from "@/utils/localFirst";
 import { clearLocalState } from "@/utils/localSnapshot";
@@ -107,10 +119,30 @@ const initials = computed(() => {
 });
 
 const apiKeysOpen = ref(false);
+const notificationSettingsOpen = ref(false);
+
+// Notifications only exist where sharing does (nothing else emits any), so the
+// entry follows the same feature gate as the bell itself: an instance with
+// sharing off has no preferences worth a dialog.
+const publicConfig = usePublicConfigStore();
 
 const userMenuItems = computed(
   () =>
     [
+      ...(publicConfig.sharingEnabled
+        ? [
+            {
+              label: "Notifications",
+              slot: "notification-settings" as const,
+              // Deliberately NOT disabled offline: the dialog opens and explains
+              // that its controls need a connection (WI-12), which is more use
+              // than a menu entry that does nothing.
+              onSelect: () => {
+                notificationSettingsOpen.value = true;
+              },
+            },
+          ]
+        : []),
       {
         label: "API keys",
         slot: "api-keys" as const,
