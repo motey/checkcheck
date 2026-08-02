@@ -110,6 +110,34 @@ Sharing is on by default. A few switches let an operator narrow it:
   an email address from inside the app. Off by default, and it needs email
   configured (see below).
 
+### Sending a public link by email
+
+With `SHARING_PUBLIC_LINK_EMAIL_ENABLED` on, the owner of a card can have the
+server mail one of its **existing** public links to any address. The recipient
+needs no account: the link is a capability and grants exactly what it was created
+at, so an `edit` link really does let somebody work on the card straight from the
+message. The link is never created, enabled or upgraded by that call, and a
+passphrase-protected link is announced as protected without the passphrase ever
+being in the message.
+
+This is the only place where a signed-in user decides who the server writes to,
+so leave it off unless you want it, and keep an eye on two settings when you turn
+it on:
+
+- `SHARING_PUBLIC_LINK_EMAIL_MAX_PER_HOUR` (10 by default) is how many links one
+  user may send per hour. It is what keeps an account from being a mail relay.
+- `SHARING_INTERNAL_EMAIL_DOMAINS` (empty by default) lists the email domains of
+  your own organisation. When somebody types an address on one of them, the app
+  points out that the person probably has an account here and that adding them as
+  a collaborator is what was meant. It never blocks the send: a colleague's
+  private address, or a device they are not signed in on, is a real case. This is
+  the one thing that stops the mistake people make with this kind of field, which
+  is handing out an anonymous link when they meant a per-user grant.
+
+Nothing here tells anybody whether an address has an account on this server. No
+response repeats the address that was entered, and the hint is driven purely by
+the domain list you declared.
+
 ## Email
 
 Email is off by default and nothing is sent while `EMAIL_ENABLED` is false. To
@@ -192,6 +220,37 @@ nothing else; the in-app notification is untouched.
 Recipients without an email address are skipped silently, which is normal on an
 instance where accounts come from an identity provider that does not send an
 email claim.
+
+### Webhooks
+
+`NOTIFY_WEBHOOK_ENABLED` adds a third channel next to the bell and email: each
+user can save a URL of their own, and every notification type they switch on for
+it is POSTed there as a small JSON body (the type, the card, the actor, a link
+and a ready-made sentence). It is off by default, because it lets signed-in users
+make the server issue outbound HTTP requests.
+
+That is also why the server refuses a URL that resolves into a private, loopback
+or link-local range: without it, an account here would be a probe into networks
+only the server can reach, including cloud metadata services. The check happens
+when the request is made, not when the URL is saved, and the request then goes to
+the address that was checked, so a name that changes its answer in between gains
+nothing. Redirects are not followed for the same reason. On a single-user
+instance on a private network, `NOTIFY_WEBHOOK_ALLOW_PRIVATE_IPS: true` turns
+that guard off.
+
+The notification settings dialog has a **Send test webhook** button, the webhook
+twin of the test message, and the same limit of one a minute. A refused URL fails
+in the queue with the reason in the server log; there is no delivery receipt in
+the API.
+
+### Keeping the in-app feed from growing forever
+
+`NOTIFY_FEED_RETENTION_DAYS` (180 by default) is how long a notification the user
+has already read stays in the feed. Unread ones are always kept, whatever their
+age: an unread notification is still somebody's inbox and its badge is the only
+sign the event happened. `0` keeps everything. The tidy-up runs about once an
+hour in the same background task that sends messages, together with
+`NOTIFY_OUTBOX_RETENTION_DAYS` for the delivery queue.
 
 ## Logging in with an external provider (OIDC)
 

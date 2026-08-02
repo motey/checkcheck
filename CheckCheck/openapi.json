@@ -1137,6 +1137,33 @@
         ]
       }
     },
+    "/api/user/me/notification-settings/test-webhook": {
+      "post": {
+        "tags": [
+          "Notifications"
+        ],
+        "summary": "Send Test Webhook",
+        "description": "Queue a test POST to the current user's own webhook URL, to check that it is reachable and that the guard against private addresses is not in the way. The request is made by the background dispatcher, so a 202 means queued, not delivered; a URL this server refuses to call fails in the queue and the reason is in the server log. Returns 409 when the instance has webhooks switched off or the account has no URL saved, and 429 at most once a minute.",
+        "operationId": "send_test_webhook_api_user_me_notification_settings_test_webhook_post",
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TestWebhookResult"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
     "/api/notifications/unsubscribe": {
       "get": {
         "tags": [
@@ -2855,6 +2882,92 @@
         "responses": {
           "204": {
             "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/sharing/public-link-email-options": {
+      "get": {
+        "tags": [
+          "Checklist Sharing"
+        ],
+        "summary": "Get Public Link Email Options",
+        "description": "What the client needs to render the 'send this link to someone without an account' field: whether the instance accepts it at all, the limits it enforces, and the email domains the operator declared as their own organisation's (for a soft 'add them as a collaborator instead' hint). Requires a session, unlike /public-config: the domain list is the operator's information, not the internet's.",
+        "operationId": "get_public_link_email_options_api_sharing_public_link_email_options_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicLinkEmailOptions"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/checklist/{checklist_id}/public-share/email": {
+      "post": {
+        "tags": [
+          "Checklist Sharing"
+        ],
+        "summary": "Send Public Link By Email",
+        "description": "Mail one of this card's existing public links to an address. The recipient needs no account: the link is a capability and grants whatever level it was created at. Owner only. Never creates, enables or upgrades a link, never includes the link's passphrase, and never repeats the recipient's address in a response. 202 means queued, not delivered. Returns 409 when the instance cannot send mail or the link is disabled or expired, and 429 once the sender's hourly limit is reached.",
+        "operationId": "send_public_link_by_email_api_checklist__checklist_id__public_share_email_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "checklist_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Checklist Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PublicLinkEmailRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicLinkEmailResult"
+                }
+              }
+            }
           },
           "422": {
             "description": "Validation Error",
@@ -7612,7 +7725,7 @@
               }
             ],
             "title": "Webhook Url",
-            "description": "The user's webhook target, or null. Not called before chunk E6."
+            "description": "Where this user's notification webhooks are POSTed, or null. Only called for types whose webhook mode is not `off`."
           },
           "email_enabled": {
             "type": "boolean",
@@ -7693,7 +7806,7 @@
               }
             ],
             "title": "Webhook Url",
-            "description": "Where this user's webhooks go (chunk E6). Null clears it. Rejected while the instance has webhooks switched off."
+            "description": "Where this user's webhooks are POSTed. Null clears it. Rejected while the instance has webhooks switched off. Whether the URL may actually be called is decided again at delivery time, since a host name's address can change in between."
           }
         },
         "type": "object",
@@ -7959,6 +8072,11 @@
             "title": "Sharing Require Invite Accept",
             "description": "Whether a share creates a pending invite the target must accept before gaining access (invite mode)."
           },
+          "sharing_public_link_email_enabled": {
+            "type": "boolean",
+            "title": "Sharing Public Link Email Enabled",
+            "description": "Whether an owner may mail an existing public link to an address of their choosing. When false, hide that field inside the public-links section. True only when the instance can also send mail at all."
+          },
           "api_token_default_expiry_days": {
             "anyOf": [
               {
@@ -7998,6 +8116,7 @@
           "sharing_public_links_enabled",
           "sharing_user_search_enabled",
           "sharing_require_invite_accept",
+          "sharing_public_link_email_enabled",
           "api_token_allow_never_expire",
           "server_version",
           "email_enabled",
@@ -8101,6 +8220,98 @@
         ],
         "title": "PublicLinkCreateResult",
         "description": "Returned only by create \u2014 the one and only time the token is exposed."
+      },
+      "PublicLinkEmailOptions": {
+        "properties": {
+          "enabled": {
+            "type": "boolean",
+            "title": "Enabled",
+            "description": "Whether this instance accepts the send-a-link-by-email call at all."
+          },
+          "internal_email_domains": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Internal Email Domains",
+            "description": "Domains whose addresses probably belong to people who already have an account here. The client uses them for a soft 'add them as a collaborator instead' hint. Never a block: sending anyway is always allowed."
+          },
+          "max_message_length": {
+            "type": "integer",
+            "title": "Max Message Length",
+            "description": "Longest personal note the server accepts, in characters."
+          },
+          "max_per_hour": {
+            "type": "integer",
+            "title": "Max Per Hour",
+            "description": "How many links one user may mail per hour. 0 means no limit."
+          }
+        },
+        "type": "object",
+        "required": [
+          "enabled",
+          "internal_email_domains",
+          "max_message_length",
+          "max_per_hour"
+        ],
+        "title": "PublicLinkEmailOptions",
+        "description": "What the client needs to render the field, and nothing more.\n\nAuthenticated on purpose. ``internal_email_domains`` is what an operator\ndeclared about their own organisation; it drives a hint in the client and has\nno business on the unauthenticated bootstrap endpoint."
+      },
+      "PublicLinkEmailRequest": {
+        "properties": {
+          "link_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Link Id",
+            "description": "Which of the card's existing public links to send. It must already exist, be enabled and not have expired."
+          },
+          "to": {
+            "type": "string",
+            "title": "To",
+            "description": "The recipient's email address. Never echoed back, in any response."
+          },
+          "message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Message",
+            "description": "Optional personal note, included as a quotation. Capped at 500 characters."
+          }
+        },
+        "type": "object",
+        "required": [
+          "link_id",
+          "to"
+        ],
+        "title": "PublicLinkEmailRequest"
+      },
+      "PublicLinkEmailResult": {
+        "properties": {
+          "queued_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Queued Id",
+            "description": "Id of the queued delivery, for support and log correlation."
+          },
+          "queued_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Queued At",
+            "description": "Naive UTC time the message entered the queue."
+          }
+        },
+        "type": "object",
+        "required": [
+          "queued_id",
+          "queued_at"
+        ],
+        "title": "PublicLinkEmailResult",
+        "description": "Deliberately says nothing about the recipient.\n\nA 202 means the message is queued; the background dispatcher sends it. There\nis no delivery receipt here on purpose: reporting one would turn this into an\naddress validator for anybody with an account."
       },
       "PublicLinkRead": {
         "properties": {
@@ -8443,6 +8654,34 @@
           "queued_at"
         ],
         "title": "TestEmailResult"
+      },
+      "TestWebhookResult": {
+        "properties": {
+          "queued_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Queued Id",
+            "description": "Id of the queued delivery, for support and log correlation."
+          },
+          "url": {
+            "type": "string",
+            "title": "Url",
+            "description": "The URL it was queued for (the caller's own)."
+          },
+          "queued_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Queued At",
+            "description": "Naive UTC time the message entered the queue."
+          }
+        },
+        "type": "object",
+        "required": [
+          "queued_id",
+          "url",
+          "queued_at"
+        ],
+        "title": "TestWebhookResult"
       },
       "TransferOwnershipRequest": {
         "properties": {

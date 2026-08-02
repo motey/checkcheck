@@ -588,10 +588,12 @@ def test_lifespan_starts_the_dispatcher_and_stops_it_again(monkeypatch):
     assert dispatcher._dispatcher_task is None
 
 
-def test_dispatcher_is_off_when_no_channel_can_deliver():
+def test_dispatcher_is_off_when_it_would_have_nothing_to_do():
     """With mail and webhooks both disabled nothing can ever reach the outbox, so
-    the loop would only poll an empty table forever."""
-    from checkcheckserver.notify.dispatcher import dispatch_enabled
+    the drain would only poll an empty table forever. Since chunk E6 the loop is
+    also where feed retention runs, which is a reason to keep it alive even
+    then — but only when feed retention is actually switched on."""
+    from checkcheckserver.notify.dispatcher import channels_enabled, dispatch_enabled
 
     # (the test environment itself runs with NOTIFY_DISPATCH_IN_PROCESS off, so
     # every case that expects the loop to run has to ask for it explicitly)
@@ -609,7 +611,21 @@ def test_dispatcher_is_off_when_no_channel_can_deliver():
         )
         is True
     )
-    assert dispatch_enabled(cfg(EMAIL_ENABLED=False, EMAIL_FROM_ADDRESS=None)) is False
+    # No channel, but there is still a feed to prune.
+    no_channel = cfg(EMAIL_ENABLED=False, EMAIL_FROM_ADDRESS=None)
+    assert channels_enabled(no_channel) is False
+    assert dispatch_enabled(no_channel) is True
+    # Nothing to send and nothing to tidy: the loop stays down.
+    assert (
+        dispatch_enabled(
+            cfg(
+                EMAIL_ENABLED=False,
+                EMAIL_FROM_ADDRESS=None,
+                NOTIFY_FEED_RETENTION_DAYS=0,
+            )
+        )
+        is False
+    )
     # The escape hatch for "something else drains the queue" (decision 2 of the
     # plan), and what the test server runs with.
     assert dispatch_enabled(_config(NOTIFY_DISPATCH_IN_PROCESS=False)) is False

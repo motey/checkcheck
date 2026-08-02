@@ -63,6 +63,11 @@ declare global {
     type PublicLinkCreateRes = components["schemas"]["PublicLinkCreateResult"]  // carries token ONCE
     type PublicLinkCreateReq = components["schemas"]["PublicLinkCreateRequest"]
     type PublicLinkUpdateReq = components["schemas"]["PublicLinkUpdateRequest"]
+    // Mailing an existing public link to somebody without an account (E6). The
+    // result carries no address: the server never repeats it, not even on success.
+    type PublicLinkEmailReq = components["schemas"]["PublicLinkEmailRequest"]
+    type PublicLinkEmailResultType = components["schemas"]["PublicLinkEmailResult"]
+    type PublicLinkEmailOptionsType = components["schemas"]["PublicLinkEmailOptions"]
     type UnlockRequestType = components["schemas"]["UnlockRequest"]          // {password}
     type UnlockResultType = components["schemas"]["UnlockResult"]            // {grant, expires_in}
     type GroupShareResult = components["schemas"]["GroupShareResult"]
@@ -83,6 +88,7 @@ declare global {
     type NotificationChannelSettingType = components["schemas"]["NotificationChannelSetting"]
     type NotificationModeType = components["schemas"]["NotificationMode"]  // off|immediate|hourly|daily
     type TestEmailResultType = components["schemas"]["TestEmailResult"]
+    type TestWebhookResultType = components["schemas"]["TestWebhookResult"]
     type UserSearchResult = components["schemas"]["UserSearchResult"]
     type UserType = components["schemas"]["User"]
 

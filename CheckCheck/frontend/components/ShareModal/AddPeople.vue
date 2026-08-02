@@ -3,9 +3,10 @@
        detection here and can't pair this box with the public-link password
        field elsewhere in the modal. The field also carries no login signals
        (no "user"/"username" in name, id or placeholder) for the same reason. -->
-  <form class="flex flex-col gap-2" autocomplete="off" @submit.prevent>
+  <form ref="form" class="flex flex-col gap-2" autocomplete="off" @submit.prevent>
     <div class="flex gap-2">
       <UInput
+        ref="searchField"
         v-model="query"
         class="flex-1"
         type="search"
@@ -65,7 +66,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch } from "vue";
+import { nextTick, ref, watch } from "vue";
 import { useDebounceFn } from "@vueuse/core";
 import { useShareStore } from "@/stores/share";
 import { useUserStore } from "@/stores/user";
@@ -87,8 +88,32 @@ const shareStore = useShareStore();
 const userStore = useUserStore();
 const toast = useToast();
 
+const form = ref<HTMLFormElement | null>(null);
+const searchField = ref<{ $el?: HTMLElement } | null>(null);
+
 const query = ref("");
 const level = ref<SharePermission>("edit");
+
+/**
+ * Start a search from elsewhere in the dialog, and bring the box into view.
+ *
+ * Called by the public-link block when somebody types a colleague's address into
+ * "send this link to someone without an account": the hint's whole purpose is to
+ * offer the thing they probably meant, so it has to land here rather than just
+ * point.
+ */
+function startSearch(term: string) {
+  query.value = term;
+  form.value?.scrollIntoView({ behavior: "smooth", block: "center" });
+  // Focus after the scroll is scheduled, so the caret sits where the user is
+  // now looking and they can correct the guessed term straight away.
+  nextTick(() => {
+    const input = searchField.value?.$el?.querySelector?.("input");
+    (input as HTMLInputElement | null)?.focus();
+  });
+}
+
+defineExpose({ startSearch });
 const results = ref<UserSearchResult[]>([]);
 const searching = ref(false);
 const addingId = ref<string | null>(null);

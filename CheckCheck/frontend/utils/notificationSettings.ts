@@ -54,11 +54,29 @@ export function modeLabel(mode: string): string {
   return MODE_LABELS[mode as NotificationModeValue] ?? mode;
 }
 
-// The dialog covers in-app and email. `webhook` is deliberately absent: chunk E6
-// owns that channel, and a control for something nothing sends yet would be a
-// lie. Anything the server adds later shows up here only once it is listed.
-export const VISIBLE_CHANNELS = ["in_app", "email"] as const;
+// Every channel the dialog can render. The caller drops the ones this instance
+// cannot deliver on (see `visibleChannels`), where every entry is locked off
+// anyway and a control would only be something to explain.
+export const VISIBLE_CHANNELS = ["in_app", "email", "webhook"] as const;
 export type VisibleChannel = (typeof VISIBLE_CHANNELS)[number];
+
+/**
+ * Which channel columns to show, given what the instance can actually do.
+ *
+ * `in_app` is always there: the bell is the base feature and has no master
+ * switch. The other two follow the flags on the settings response itself rather
+ * than the public-config copy, because those are what decided whether the
+ * entries in the matrix being rendered are locked.
+ */
+export function visibleChannels(flags: {
+  email_enabled?: boolean;
+  webhook_enabled?: boolean;
+}): VisibleChannel[] {
+  const channels: VisibleChannel[] = ["in_app"];
+  if (flags.email_enabled) channels.push("email");
+  if (flags.webhook_enabled) channels.push("webhook");
+  return channels;
+}
 
 const CHANNEL_WORDING: Record<string, { title: string; description: string }> = {
   in_app: {
@@ -71,7 +89,7 @@ const CHANNEL_WORDING: Record<string, { title: string; description: string }> = 
   },
   webhook: {
     title: "Webhook",
-    description: "Posted to your own endpoint.",
+    description: "POSTed to a URL of your own.",
   },
 };
 
@@ -260,4 +278,37 @@ export function timezoneItems(
 /** Select value -> what the PUT sends (`null` clears the stored zone). */
 export function timezonePatchValue(value: string): string | null {
   return value === UTC_VALUE ? null : value;
+}
+
+// ── webhook target (chunk E6) ────────────────────────────────────────────────
+//
+// The same shallow check the server does on the way in. What actually matters,
+// refusing a URL that resolves into the server's own network, cannot be decided
+// here and is not attempted: it happens when the request is made, because a host
+// name's address can change in between.
+
+/** Whether *url* is worth sending to the server at all. */
+export function looksLikeWebhookUrl(url: string): boolean {
+  const value = (url ?? "").trim();
+  if (!value || value.length > 2048) return false;
+  return /^https?:\/\/[^\s/]+/i.test(value);
+}
+
+/** Select value -> what the PUT sends (`null` clears the stored URL). */
+export function webhookUrlPatchValue(url: string): string | null {
+  return url.trim() ? url.trim() : null;
+}
+
+/** Wording for a failed "send test webhook". */
+export function testWebhookMessage(status: number | undefined, url?: string): string {
+  if (status === undefined) {
+    return `Queued a request to ${url}. If it does not arrive, check the server log: a URL pointing into a private network is refused there, not here.`;
+  }
+  if (status === 409) {
+    return "There is nowhere to send it: save a webhook URL first, or this server does not send webhooks.";
+  }
+  if (status === 429) {
+    return "A test webhook was queued less than a minute ago. Try again shortly.";
+  }
+  return "Could not queue the test webhook.";
 }

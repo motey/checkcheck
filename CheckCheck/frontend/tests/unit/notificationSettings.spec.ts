@@ -10,6 +10,10 @@ import {
   timezonePatchValue,
   typeRows,
   typeWording,
+  looksLikeWebhookUrl,
+  testWebhookMessage,
+  visibleChannels,
+  webhookUrlPatchValue,
   type ChannelCell,
 } from "@/utils/notificationSettings";
 
@@ -94,10 +98,10 @@ describe("typeRows", () => {
     { type: "card_invited", channels: { in_app: cell(), email: cell(), webhook: cell() } },
   ];
 
-  it("renders in-app and email only, in that order, never the webhook", () => {
+  it("renders every channel it is given, in that order", () => {
     const rows = typeRows(types);
     expect(rows.map((r) => r.type)).toEqual(["card_shared", "card_invited"]);
-    expect(rows[0]!.cells.map((c) => c.channel)).toEqual(["in_app", "email"]);
+    expect(rows[0]!.cells.map((c) => c.channel)).toEqual(["in_app", "email", "webhook"]);
     expect(rows[0]!.title).toBe("A card is shared with me");
   });
 
@@ -161,5 +165,63 @@ describe("timezone picker", () => {
   it("maps the UTC entry back to a null timezone, which clears it", () => {
     expect(timezonePatchValue(UTC_VALUE)).toBeNull();
     expect(timezonePatchValue("Europe/Berlin")).toBe("Europe/Berlin");
+  });
+});
+
+
+describe("visibleChannels", () => {
+  // A channel the instance cannot deliver on is locked off in the matrix
+  // anyway, so a control for it would only be something else to explain.
+  it("always keeps the bell, which has no master switch", () => {
+    expect(visibleChannels({})).toEqual(["in_app"]);
+    expect(visibleChannels({ email_enabled: false, webhook_enabled: false })).toEqual([
+      "in_app",
+    ]);
+  });
+
+  it("adds each channel the instance can actually deliver on", () => {
+    expect(visibleChannels({ email_enabled: true })).toEqual(["in_app", "email"]);
+    expect(visibleChannels({ webhook_enabled: true })).toEqual(["in_app", "webhook"]);
+    expect(visibleChannels({ email_enabled: true, webhook_enabled: true })).toEqual([
+      "in_app",
+      "email",
+      "webhook",
+    ]);
+  });
+});
+
+describe("the webhook target", () => {
+  it("accepts an http(s) URL and rejects everything else", () => {
+    expect(looksLikeWebhookUrl("https://example.com/hooks/x")).toBe(true);
+    expect(looksLikeWebhookUrl("http://example.com")).toBe(true);
+    expect(looksLikeWebhookUrl("HTTPS://EXAMPLE.COM/x")).toBe(true);
+    expect(looksLikeWebhookUrl("ftp://example.com")).toBe(false);
+    expect(looksLikeWebhookUrl("example.com/hook")).toBe(false);
+    expect(looksLikeWebhookUrl("")).toBe(false);
+    expect(looksLikeWebhookUrl(`https://example.com/${"x".repeat(3000)}`)).toBe(false);
+  });
+
+  it("does NOT try to judge where the URL points", () => {
+    // Deliberate: whether a URL resolves into the server's own network can only
+    // be decided at delivery time, because a host name's address can change in
+    // between. Blocking it here would be a check the client cannot honour.
+    expect(looksLikeWebhookUrl("http://127.0.0.1:9000/hook")).toBe(true);
+    expect(looksLikeWebhookUrl("http://169.254.169.254/latest")).toBe(true);
+  });
+
+  it("sends null for an emptied field, which clears the stored URL", () => {
+    expect(webhookUrlPatchValue("  ")).toBeNull();
+    expect(webhookUrlPatchValue(" https://example.com/x ")).toBe("https://example.com/x");
+  });
+
+  it("explains each way a test webhook can fail", () => {
+    expect(testWebhookMessage(409)).toContain("nowhere to send it");
+    expect(testWebhookMessage(429)).toContain("less than a minute ago");
+    expect(testWebhookMessage(500)).toBe("Could not queue the test webhook.");
+    // No status means it was queued: the wording must not promise delivery.
+    const queued = testWebhookMessage(undefined, "https://example.com/x");
+    expect(queued).toContain("Queued");
+    expect(queued).toContain("https://example.com/x");
+    expect(queued).not.toContain("delivered");
   });
 });

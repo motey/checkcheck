@@ -83,6 +83,22 @@ def _configure_env() -> None:
     # `public_link_opened` notifications (opening a public link still works; only
     # the owner's notification about it is suppressed).
     os.environ.setdefault("NOTIFY_DISABLED_TYPES", json.dumps(["public_link_opened"]))
+    # Chunk E6: mailing a public link is off in production by default, so the E2E
+    # instance switches it on and declares one internal domain, which is what
+    # gives the "that address looks like a colleague's" callout something real to
+    # fire on. Both are setdefault, so a spec run can override either — an empty
+    # domain list is how the "no callout ever appears" case would be driven, and
+    # the pure-function version of it lives in tests/unit/publicLinkEmail.spec.ts.
+    os.environ.setdefault("SHARING_PUBLIC_LINK_EMAIL_ENABLED", "true")
+    os.environ.setdefault(
+        "SHARING_INTERNAL_EMAIL_DOMAINS", json.dumps(["internal-e2e.example"])
+    )
+    # The webhook channel is on here too, so its column and its URL field are
+    # real in the settings dialog. Nothing is ever actually POSTed by the suite:
+    # a saved URL is only called once a notification of a type the user switched
+    # the channel on for happens, and no spec does that. The "instance without
+    # webhooks" case is covered by the unit test of `visibleChannels`.
+    os.environ.setdefault("NOTIFY_WEBHOOK_ENABLED", "true")
     # Invite-mode E2E pass: SHARING_REQUIRE_INVITE_ACCEPT is left untouched here so
     # the caller's environment wins. The default pass leaves it unset (→ False, the
     # production default: shares are accepted instantly). The invite-flow pass —

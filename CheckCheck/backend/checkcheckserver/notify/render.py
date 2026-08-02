@@ -256,6 +256,33 @@ def render_group_payload(payloads: List[dict], config: Config) -> dict:
     )
 
 
+def webhook_body(context: dict, config: Config) -> dict:
+    """The JSON one notification becomes on the webhook channel (chunk E6).
+
+    Flat and boring on purpose: a receiver is somebody's script, so the shape has
+    to be readable without this file, and every key is always present (null
+    rather than absent) so a consumer can index it without guarding.
+
+    ``NOTIFY_EMAIL_CONTENT_MODE`` is honoured here too, despite its name. It is
+    the operator's answer to "how much may leave this instance", and a webhook
+    leaves it just as thoroughly as an email does; an instance set to ``minimal``
+    would be surprised to find card titles in an outbound POST body.
+    """
+    return {
+        "type": context.get("type"),
+        "notification_id": context.get("notification_id"),
+        "checklist_id": context.get("cl_id"),
+        "checklist_name": _card_name(context, config),
+        "actor": _actor_name(context, config),
+        "created_at": context.get("created_at"),
+        "url": card_url(context, config),
+        "app": config.APP_NAME,
+        # The wording the same notification uses in an inbox, so a receiver that
+        # just wants to print something has it without a lookup table.
+        "text": _line_for(context, config),
+    }
+
+
 def _unsubscribe_url_of(payload: dict) -> Optional[str]:
     raw = (payload.get("headers") or {}).get("List-Unsubscribe")
     return raw[1:-1] if raw and raw.startswith("<") and raw.endswith(">") else raw

@@ -4,8 +4,8 @@
 notification row is created here, so the "notification transports" sub-project
 fans the same event out to email without touching any caller. It persists the
 row, pushes a lightweight ``upd_prop="notification"`` over the existing SSE so a
-connected client refreshes its feed/badge live, and (chunk E4) queues whatever
-mail the recipient's preferences ask for.
+connected client refreshes its feed/badge live, and queues whatever mail (chunk
+E4) and whatever webhook (chunk E6) the recipient's preferences ask for.
 
 The fan-out at the bottom of this module is where a notification meets the
 preference resolver. Its rules, all from section 4.1 of
@@ -20,6 +20,9 @@ preference resolver. Its rules, all from section 4.1 of
 * ``NOTIFY_EMAIL_MAX_PER_USER_PER_HOUR`` is a backstop: over the limit, the mail
   is dropped rather than queued, since a queue that keeps growing would deliver
   the flood later instead of preventing it.
+* The webhook channel follows the same resolver but none of the mail-shaped
+  rules: no address to be missing, no suppression delay, no coalescing and no
+  hourly cap. A user without a stored URL simply produces no row.
 * Nothing here sends anything. Queuing is all it does, and it never raises at a
   caller: a share must not fail because a message could not be rendered.
 """
@@ -28,7 +31,7 @@ import datetime
 import uuid
 from typing import List, Optional
 
-from sqlmodel import select, update, and_, col, func
+from sqlmodel import delete, select, update, and_, col, func
 
 from checkcheckserver.config import Config
 from checkcheckserver.log import get_logger
@@ -142,6 +145,49 @@ class NotificationCRUD(
         await self.session.commit()
 
 
+async def prune_feed_once(
+    session,
+    *,
+    config: Optional[Config] = None,
+    now: Optional[datetime.datetime] = None,
+) -> int:
+    """Delete old, already-read notifications. Returns the row count (chunk E6).
+
+    The in-app feed has grown forever until now: every share, invite and opened
+    link has left a row that nothing removes. ``NOTIFY_FEED_RETENTION_DAYS`` puts
+    a bound on it, and ``0`` keeps everything.
+
+    **Only rows the user has read** are pruned, which is what the setting says
+    and what makes this safe to run unattended: an unread notification is still
+    somebody's inbox, however old it is, and deleting it would silently drop the
+    badge that is the only sign the event ever happened. The trade-off is that an
+    account that never opens the bell still accumulates rows; that is a bounded
+    number of events per card, and the feed endpoint reads a limited window
+    anyway.
+
+    Deleting a row also drops any outbox delivery still pointing at it (the
+    foreign key cascades), which is the right outcome: nothing that old is
+    waiting to be sent, and a message about a notification that no longer exists
+    would only be confusing.
+    """
+    config = config or _default_config()
+    days = config.NOTIFY_FEED_RETENTION_DAYS
+    if days <= 0:
+        return 0
+    now = now or _utcnow()
+    cutoff = now - datetime.timedelta(days=days)
+    statement = (
+        delete(Notification)
+        .where(col(Notification.read_at).is_not(None))
+        .where(col(Notification.created_at) < cutoff)
+    )
+    removed = (await session.exec(statement)).rowcount
+    await session.commit()
+    if removed:
+        log.debug("[notify] pruned %s read notifications older than %s", removed, cutoff)
+    return removed
+
+
 async def emit_notification(
     notification_crud: NotificationCRUD,
     sync_crud: SyncNotifiationCRUD,
@@ -210,12 +256,22 @@ async def emit_notification(
             settings=settings,
             config=cfg,
         )
+        await _queue_webhook(
+            session,
+            user_id=user_id,
+            type=type_value,
+            cl_id=cl_id,
+            payload=payload,
+            notification=noti,
+            settings=settings,
+            config=cfg,
+        )
     except Exception:
         # A share, an invite or a public-link open must not fail because a
         # message could not be queued. The notification itself is already
         # committed at this point, so the user still learns about it in the app.
         log.exception(
-            "[notify] could not queue mail for the '%s' notification to user %s",
+            "[notify] could not queue delivery for the '%s' notification to user %s",
             type_value,
             user_id,
         )
@@ -236,13 +292,7 @@ async def _queue_email(
     settings: Optional[UserNotificationSettings],
     config: Config,
 ) -> None:
-    """Queue at most one message for this notification, or explain why not.
-
-    The webhook channel is deliberately not handled here: it arrives in chunk E6,
-    and until its sender exists a queued webhook row would only be retried and
-    then dead-lettered. It resolves to ``off`` on every instance anyway while
-    ``NOTIFY_WEBHOOK_ENABLED`` is false, which is the default.
-    """
+    """Queue at most one message for this notification, or explain why not."""
     mode = resolve_mode(settings, type, PreferenceChannel.email, config=config)
     if mode == NotificationMode.off:
         return
@@ -330,6 +380,67 @@ async def _queue_email(
         dedupe_key=dedupe_key,
         # The row joins the caller's transaction and is committed here, once,
         # together with anything else the request has pending.
+        commit=False,
+    )
+    await session.commit()
+
+
+async def _queue_webhook(
+    session,
+    *,
+    user_id: uuid.UUID,
+    type: str,
+    cl_id: Optional[uuid.UUID],
+    payload: Optional[dict],
+    notification: Optional[Notification],
+    settings: Optional[UserNotificationSettings],
+    config: Config,
+) -> None:
+    """Queue the same notification for the user's own endpoint (chunk E6).
+
+    Three differences from the mail path above, all of them because the
+    recipient is a program rather than a person:
+
+    * **No delay and no coalescing.** The webhook channel only offers ``off`` and
+      ``immediate``, so the row is due now and carries no dedupe key: a receiver
+      wants one request per event, not a summary of five.
+    * **No hourly cap.** ``NOTIFY_EMAIL_MAX_PER_USER_PER_HOUR`` protects an inbox
+      somebody has to read; a user pointing a webhook at their own service has
+      already decided how much traffic they want.
+    * **No unsubscribe link.** There is nowhere to put one, and the same user
+      owns both ends.
+
+    The URL is snapshotted into the row. A user who changes or clears it in the
+    meantime does not redirect messages that were already addressed.
+    """
+    mode = resolve_mode(settings, type, PreferenceChannel.webhook, config=config)
+    if mode == NotificationMode.off:
+        return
+    # `resolve_mode` already returns `off` when the instance has webhooks
+    # switched off, so reaching here means the channel is live and the user
+    # opted in. What can still be missing is the target itself.
+    if settings is None or not settings.webhook_url:
+        log.debug("[notify] user %s has no webhook URL, queueing nothing", user_id)
+        return
+
+    now = _utcnow()
+    context = render.notification_context(
+        type=type,
+        notification_id=notification.id if notification else None,
+        cl_id=cl_id,
+        payload=payload,
+        created_at=now,
+    )
+    await outbox.enqueue(
+        session,
+        user_id=user_id,
+        channel=NotificationChannel.webhook,
+        payload={
+            "url": settings.webhook_url,
+            "body": render.webhook_body(context, config),
+        },
+        notification_id=notification.id if notification else None,
+        not_before=now,
         commit=False,
     )
     await session.commit()

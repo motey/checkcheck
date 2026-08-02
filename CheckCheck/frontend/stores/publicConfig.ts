@@ -43,6 +43,11 @@ export const usePublicConfigStore = defineStore("publicConfig", {
     emailEnabled: (state): boolean => state.config?.email_enabled ?? false,
     // Whether per-user notification webhooks are allowed (hides that column too).
     webhookEnabled: (state): boolean => state.config?.webhook_enabled ?? false,
+    // Whether an owner may mail an existing public link to an address (E6). The
+    // server already ANDs this with sharing, public links and email being on, so
+    // the client can read it as "render that field or not".
+    publicLinkEmailEnabled: (state): boolean =>
+      state.config?.sharing_public_link_email_enabled ?? false,
   },
   actions: {
     async fetch(): Promise<PublicConfigType | null> {

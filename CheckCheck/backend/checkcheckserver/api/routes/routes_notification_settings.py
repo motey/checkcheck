@@ -1,6 +1,6 @@
 """Notification settings API (self-service, ``/user/me/notification-settings``).
 
-Five endpoints:
+Six endpoints:
 
 * ``GET`` returns the **effective** preference matrix, which is what the user's
   own choices, the instance defaults and the administrator's caps add up to,
@@ -8,8 +8,9 @@ Five endpoints:
   each entry would fall back to, which entries are locked and why).
 * ``PUT`` writes a partial patch of that matrix, plus the time zone and the
   webhook target.
-* ``POST .../test-email`` queues a message to the caller's own address, so the
-  whole delivery path can be checked by hand on a real instance.
+* ``POST .../test-email`` queues a message to the caller's own address, and
+  ``POST .../test-webhook`` a request to their own endpoint, so either delivery
+  path can be checked by hand on a real instance.
 * ``GET`` and ``POST /notifications/unsubscribe`` are the link at the bottom of
   every message. They are **public**: a mail client has no session. See the
   section further down for why the acting half is the ``POST``.
@@ -67,14 +68,18 @@ fast_api_notification_settings_router: APIRouter = APIRouter()
 # router keeps it next to the endpoint that first fills the queue.
 fast_api_notification_settings_router.lifespan_context = dispatcher_lifespan
 
-# One test mail per user per minute. Enforced against the outbox rather than an
-# in-memory counter, so a restart does not hand out a fresh allowance and a
-# second replica would share the same limit.
+# One test message per user per minute, per channel. Enforced against the outbox
+# rather than an in-memory counter, so a restart does not hand out a fresh
+# allowance and a second replica would share the same limit.
 TEST_EMAIL_RATE_LIMIT_SECONDS = 60
 
 
 def test_email_dedupe_key(user_id: uuid.UUID) -> str:
     return f"{user_id}:test_email"
+
+
+def test_webhook_dedupe_key(user_id: uuid.UUID) -> str:
+    return f"{user_id}:test_webhook"
 
 
 # ── the preference matrix ─────────────────────────────────────────────────────
@@ -129,7 +134,10 @@ class NotificationSettings(BaseModel):
     )
     webhook_url: Optional[str] = Field(
         default=None,
-        description="The user's webhook target, or null. Not called before chunk E6.",
+        description=(
+            "Where this user's notification webhooks are POSTed, or null. Only "
+            "called for types whose webhook mode is not `off`."
+        ),
     )
     email_enabled: bool = Field(
         description="Whether this instance sends email at all. When false, every "
@@ -171,8 +179,10 @@ class NotificationSettingsUpdate(BaseModel):
     webhook_url: Optional[str] = Field(
         default=None,
         description=(
-            "Where this user's webhooks go (chunk E6). Null clears it. Rejected "
-            "while the instance has webhooks switched off."
+            "Where this user's webhooks are POSTed. Null clears it. Rejected while "
+            "the instance has webhooks switched off. Whether the URL may actually be "
+            "called is decided again at delivery time, since a host name's address "
+            "can change in between."
         ),
     )
 
@@ -392,6 +402,92 @@ def _test_email_payload(user: User) -> dict:
         "text_body": text_body,
         "html_body": html_body,
     }
+
+
+# ── the test webhook ──────────────────────────────────────────────────────────
+
+
+class TestWebhookResult(BaseModel):
+    queued_id: uuid.UUID = Field(
+        description="Id of the queued delivery, for support and log correlation."
+    )
+    url: str = Field(description="The URL it was queued for (the caller's own).")
+    queued_at: datetime.datetime = Field(
+        description="Naive UTC time the message entered the queue."
+    )
+
+
+@fast_api_notification_settings_router.post(
+    "/user/me/notification-settings/test-webhook",
+    response_model=TestWebhookResult,
+    status_code=status.HTTP_202_ACCEPTED,
+    description=(
+        "Queue a test POST to the current user's own webhook URL, to check that it is "
+        "reachable and that the guard against private addresses is not in the way. The "
+        "request is made by the background dispatcher, so a 202 means queued, not "
+        "delivered; a URL this server refuses to call fails in the queue and the reason "
+        "is in the server log. Returns 409 when the instance has webhooks switched off "
+        "or the account has no URL saved, and 429 at most once a minute."
+    ),
+)
+async def send_test_webhook(
+    current_user: User = Security(get_current_user),
+    session: AsyncSession = Depends(get_async_session),
+) -> TestWebhookResult:
+    if not config.NOTIFY_WEBHOOK_ENABLED:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="This instance does not send webhooks.",
+        )
+    settings = await get_settings(session, current_user.id)
+    if settings is None or not settings.webhook_url:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Save a webhook URL first, so there is somewhere to send it.",
+        )
+
+    now = naive_utc_now()
+    dedupe_key = test_webhook_dedupe_key(current_user.id)
+    recent = await outbox.count_recent(
+        session,
+        user_id=current_user.id,
+        dedupe_key=dedupe_key,
+        since=now - datetime.timedelta(seconds=TEST_EMAIL_RATE_LIMIT_SECONDS),
+    )
+    if recent:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="A test webhook was already queued in the last minute.",
+            headers={"Retry-After": str(TEST_EMAIL_RATE_LIMIT_SECONDS)},
+        )
+
+    row = await outbox.enqueue(
+        session,
+        user_id=current_user.id,
+        channel=NotificationChannel.webhook,
+        payload={
+            "url": settings.webhook_url,
+            # Same shape as a real one, so a receiver written against this test
+            # keeps working when the real events start arriving. `type` names it
+            # as the test it is, rather than borrowing a notification type.
+            "body": {
+                "type": "test",
+                "notification_id": None,
+                "checklist_id": None,
+                "checklist_name": None,
+                "actor": None,
+                "created_at": now.isoformat(),
+                "url": (config.SERVER_PUBLIC_URL or "").rstrip("/") + "/",
+                "app": config.APP_NAME,
+                "text": f"This is a test webhook from {config.APP_NAME}.",
+            },
+        },
+        dedupe_key=dedupe_key,
+    )
+    nudge()
+    return TestWebhookResult(
+        queued_id=row.id, url=settings.webhook_url, queued_at=row.created_at
+    )
 
 
 # ── unsubscribe ───────────────────────────────────────────────────────────────

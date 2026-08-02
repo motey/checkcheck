@@ -124,10 +124,6 @@ test.describe("E5 notification settings", () => {
 
     await expect(dialog.locator("[data-testid=notification-mode-card_shared-email]")).toBeVisible();
     await expect(dialog.locator("[data-testid=notification-email-disabled]")).toHaveCount(0);
-    // The webhook channel exists server-side but has no UI before chunk E6.
-    await expect(
-      dialog.locator("[data-testid=notification-mode-card_shared-webhook]")
-    ).toHaveCount(0);
     await expect(dialog.locator("[data-testid=notification-timezone]")).toBeVisible();
 
     // First click: queued (202), unless a retry of this spec already used this
@@ -142,6 +138,59 @@ test.describe("E5 notification settings", () => {
     // dialog says what happened rather than showing a generic failure.
     await dialog.locator("[data-testid=notification-test-email]").click();
     await expect(result).toContainText("less than a minute ago", { timeout: 10_000 });
+  });
+
+  test("the webhook channel has a column, a URL field and a test button", async ({
+    page,
+  }) => {
+    // Chunk E6. The E2E instance runs with NOTIFY_WEBHOOK_ENABLED, so this is
+    // the whole channel: a mode select per type, somewhere to put the URL, and
+    // a way to prove the target answers.
+    await page.goto("/");
+    const dialog = await openSettings(page);
+
+    await expect(
+      dialog.locator("[data-testid=notification-mode-card_shared-webhook]")
+    ).toBeVisible();
+
+    const block = dialog.locator("[data-testid=notification-webhook]");
+    await expect(block).toBeVisible();
+
+    // Nothing to send while no URL is saved, so the test button stays out of
+    // the way rather than producing a 409 the user could have been spared.
+    await expect(block.locator("[data-testid=notification-webhook-test]")).toBeDisabled();
+
+    const url = `https://hooks.example.org/e2e-${Date.now()}`;
+    await block.locator("[data-testid=notification-webhook-url]").fill(url);
+    await block.locator("[data-testid=notification-webhook-save]").click();
+    await expect(dialog.locator("[data-testid=notification-settings-saved]")).toBeVisible({
+      timeout: 5_000,
+    });
+
+    // It survives a close and reopen, which means it reached the server.
+    await page.keyboard.press("Escape");
+    const reopened = await openSettings(page);
+    await expect(reopened.locator("[data-testid=notification-webhook-url]")).toHaveValue(url, {
+      timeout: 5_000,
+    });
+
+    // Queued, not delivered: this URL goes nowhere, and the dialog must not
+    // claim otherwise.
+    await reopened.locator("[data-testid=notification-webhook-test]").click();
+    const result = reopened.locator("[data-testid=notification-webhook-result]");
+    await expect(result).toContainText(/Queued a request to|less than a minute ago/, {
+      timeout: 10_000,
+    });
+
+    // Clearing the field clears the stored URL.
+    await reopened.locator("[data-testid=notification-webhook-url]").fill("");
+    await reopened.locator("[data-testid=notification-webhook-save]").click();
+    await expect(reopened.locator("[data-testid=notification-webhook-test]")).toBeDisabled({
+      timeout: 5_000,
+    });
+
+    await expect(page.getByText(/Error 4\d\d/)).toHaveCount(0);
+    await page.keyboard.press("Escape");
   });
 
   test("offline: the dialog explains itself and changes nothing", async ({ page, context }) => {

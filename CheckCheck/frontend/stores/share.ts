@@ -38,6 +38,10 @@ export type ShareState = {
   // are first-class, living group shares (see backend group_share_reconcile):
   // members gain/lose access as the group changes.
   groupShares: Record<string, GroupShareReadType[]>;
+  // Limits and internal-domain hints for mailing a public link (E6). Null until
+  // the public-link block asks for them; never snapshotted, since this is an
+  // online-only surface.
+  publicLinkEmailOptions: PublicLinkEmailOptionsType | null;
 };
 
 export const useShareStore = defineStore("share", {
@@ -49,6 +53,7 @@ export const useShareStore = defineStore("share", {
       openForChecklistId: null,
       myGroups: null,
       groupShares: {},
+      publicLinkEmailOptions: null,
     } as ShareState),
   getters: {
     // The cached collaborator list for a checklist (empty until listShares runs).
@@ -353,6 +358,54 @@ export const useShareStore = defineStore("share", {
         if (idx !== -1) list.splice(idx, 1);
       }
       delete this.linkTokens[linkId];
+    },
+
+    // ── Mailing a public link (chunk E6) ────────────────────────────────────
+
+    // The instance's limits plus the operator's own email domains, fetched once
+    // per session. Authenticated (unlike /public-config) because the domain list
+    // is the operator's information about their organisation, so it cannot be
+    // hydrated from the public-config snapshot.
+    async fetchPublicLinkEmailOptions(): Promise<PublicLinkEmailOptionsType | null> {
+      if (this.publicLinkEmailOptions) return this.publicLinkEmailOptions;
+      const { $checkapi } = useNuxtApp();
+      try {
+        this.publicLinkEmailOptions = await $checkapi(
+          "/api/sharing/public-link-email-options",
+          { method: "get", skipErrorToast: true }
+        );
+      } catch (error) {
+        // A read the UI can do without: with no options the field simply shows
+        // no hint and leaves the length cap to the server.
+        console.error("Could not fetch 'GET /api/sharing/public-link-email-options'", error);
+      }
+      return this.publicLinkEmailOptions;
+    },
+
+    // Mail an existing link to an address. Online-only, like the rest of sharing:
+    // there is nothing sensible to queue offline, and the send is not idempotent,
+    // so a replayed outbox op would mail the same person twice.
+    //
+    // The response deliberately carries no address, and neither does anything
+    // logged here: the server refuses to repeat it, and a console line would
+    // undo that on the one machine that has it.
+    async sendPublicLinkEmail(
+      checkListId: string,
+      body: PublicLinkEmailReq
+    ): Promise<PublicLinkEmailResultType> {
+      assertOnline("Sending a link isn't available offline.");
+      const { $checkapi } = useNuxtApp();
+      try {
+        return await $checkapi("/api/checklist/{checklist_id}/public-share/email", {
+          path: { checklist_id: checkListId },
+          method: "post",
+          body,
+          skipErrorToast: true,
+        });
+      } catch (error) {
+        console.error("Could not send a public link 'POST .../public-share/email'");
+        throw error;
+      }
     },
 
     // ── ShareModal open-state plumbing (for live SSE refresh) ───────────────

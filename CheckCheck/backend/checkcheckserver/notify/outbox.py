@@ -70,6 +70,13 @@ from checkcheckserver.notify.transports import (
     get_email_transport,
     stable_message_id,
 )
+from checkcheckserver.notify.webhooks import (
+    OutgoingWebhook,
+    PermanentWebhookError,
+    TransientWebhookError,
+    WebhookSender,
+    get_webhook_sender,
+)
 
 log = get_logger()
 
@@ -148,6 +155,8 @@ async def enqueue(
     """
     if channel == NotificationChannel.email:
         _validate_email_payload(payload)
+    elif channel == NotificationChannel.webhook:
+        _validate_webhook_payload(payload)
 
     row = NotificationOutbox(
         user_id=user_id,
@@ -182,6 +191,19 @@ def _validate_email_payload(payload: dict) -> None:
         )
 
 
+def _validate_webhook_payload(payload: dict) -> None:
+    """A webhook row carries the target and the body, nothing else.
+
+    The URL is snapshotted here for the same reason the email body is: the user
+    may change or clear it between enqueue and delivery, and a message must go
+    where it was addressed when it was queued, not somewhere decided later.
+    """
+    if not payload.get("url"):
+        raise OutboxPayloadError("Webhook payload is missing the target 'url'.")
+    if not isinstance(payload.get("body"), dict):
+        raise OutboxPayloadError("Webhook payload needs a 'body' object.")
+
+
 async def drain_once(
     session: AsyncSession,
     *,
@@ -189,6 +211,7 @@ async def drain_once(
     now: Optional[datetime.datetime] = None,
     limit: int = DRAIN_BATCH_SIZE,
     transport: Optional[EmailTransport] = None,
+    webhook_sender: Optional[WebhookSender] = None,
 ) -> DrainResult:
     """Deliver every row that is due, once.
 
@@ -202,6 +225,7 @@ async def drain_once(
     config = config or Config()
     now = now or naive_utc_now()
     transport = transport or get_email_transport(config)
+    webhook_sender = webhook_sender or get_webhook_sender()
     result = DrainResult()
 
     for row in await _due_rows(session, now=now, limit=limit, config=config):
@@ -211,7 +235,13 @@ async def drain_once(
             continue
         result.claimed += 1
         await _deliver_claimed(
-            session, claimed, config=config, now=now, transport=transport, result=result
+            session,
+            claimed,
+            config=config,
+            now=now,
+            transport=transport,
+            webhook_sender=webhook_sender,
+            result=result,
         )
     return result
 
@@ -287,18 +317,24 @@ async def _deliver_claimed(
     config: Config,
     now: datetime.datetime,
     transport: EmailTransport,
+    webhook_sender: WebhookSender,
     result: DrainResult,
 ) -> None:
     """Send one claimed row, together with anything that coalesces with it."""
+    if row.channel == NotificationChannel.webhook.value:
+        await _deliver_webhook(
+            session, row, config=config, now=now, sender=webhook_sender, result=result
+        )
+        return
     if row.channel != NotificationChannel.email.value:
-        # The webhook channel arrives in chunk E6. Until then a row for it is a
-        # bug in a producer, not something to retry forever.
+        # A channel no sender knows about is a bug in a producer, not something
+        # to retry forever.
         await _finish(
             session,
             row,
             NotificationOutboxStatus.failed,
             now=now,
-            error=f"Channel '{row.channel}' is not implemented yet.",
+            error=f"Channel '{row.channel}' is not implemented.",
         )
         result.failed += 1
         return
@@ -362,6 +398,69 @@ async def _deliver_claimed(
         len(alive),
         row.user_id,
     )
+
+
+async def _deliver_webhook(
+    session: AsyncSession,
+    row: NotificationOutbox,
+    *,
+    config: Config,
+    now: datetime.datetime,
+    sender: WebhookSender,
+    result: DrainResult,
+) -> None:
+    """Send one claimed webhook row (chunk E6).
+
+    Alone, always: a webhook row never coalesces with anything. Merging is a
+    kindness to a human inbox, while a receiver is a program that wants one
+    event per request, and the mode matrix only offers ``off`` and ``immediate``
+    for this channel anyway.
+
+    The read-suppression rule is not applied either. Cancelling because the
+    recipient opened the app first makes sense for mail that would otherwise
+    arrive after they already knew; a webhook is an integration and is expected
+    to fire whatever the human did.
+    """
+    try:
+        payload = row.payload or {}
+        _validate_webhook_payload(payload)
+        webhook = OutgoingWebhook(
+            url=payload["url"],
+            body=payload["body"],
+            headers=dict(payload.get("headers") or {}),
+        )
+    except (OutboxPayloadError, KeyError, TypeError) as exc:
+        await _finish(
+            session, row, NotificationOutboxStatus.failed, now=now, error=str(exc)
+        )
+        result.failed += 1
+        log.warning("[notify] webhook %s has an unusable payload: %s", row.id, exc)
+        return
+
+    try:
+        await sender.send(webhook, config)
+    except PermanentWebhookError as exc:
+        await _finish(
+            session, row, NotificationOutboxStatus.failed, now=now, error=str(exc)
+        )
+        result.failed += 1
+        log.warning("[notify] webhook %s permanently failed: %s", row.id, exc)
+        return
+    except Exception as exc:  # includes TransientWebhookError
+        if not isinstance(exc, TransientWebhookError):
+            log.exception("[notify] unexpected error delivering webhook %s", row.id)
+        await _record_transient_failure(session, row, config=config, now=now, error=exc)
+        if row.attempts >= config.NOTIFY_MAX_ATTEMPTS:
+            result.failed += 1
+        else:
+            result.retried += 1
+        return
+
+    await _finish(session, row, NotificationOutboxStatus.sent, now=now)
+    result.sent += 1
+    result.messages += 1
+    result.ids_sent.append(row.id)
+    log.debug("[notify] delivered webhook %s for user %s", row.id, row.user_id)
 
 
 async def _fail_group(

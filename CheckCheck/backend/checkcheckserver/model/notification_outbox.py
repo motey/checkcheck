@@ -41,7 +41,7 @@ class NotificationChannel(str, enum.Enum):
     """Where a queued message is delivered (enum-as-string, like the rest)."""
 
     email = "email"
-    webhook = "webhook"  # chunk E6; the dispatcher rejects it until then
+    webhook = "webhook"  # a JSON POST to the user's own endpoint (chunk E6)
 
 
 class NotificationOutboxStatus(str, enum.Enum):

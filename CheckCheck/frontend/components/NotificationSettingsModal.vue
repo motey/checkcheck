@@ -161,10 +161,66 @@
             </div>
           </template>
 
-          <p v-else class="text-xs text-muted italic" data-testid="notification-email-disabled">
+          <p v-if="!emailEnabled" class="text-xs text-muted italic" data-testid="notification-email-disabled">
             This server does not send email, so only the in-app notifications can
             be configured here.
           </p>
+
+          <!-- Webhook extras (E6): where to POST, and a way to prove it works.
+               Only on an instance that allows webhooks at all, where the column
+               above is rendered too. -->
+          <div
+            v-if="webhookEnabled"
+            class="flex flex-col gap-2 rounded-lg border border-default p-3"
+            data-testid="notification-webhook"
+          >
+            <div class="flex flex-col">
+              <h3 class="text-sm font-semibold">Webhook</h3>
+              <p class="text-xs text-muted">
+                Where the notifications you switched on for the webhook channel are
+                POSTed, as a small JSON body. A URL pointing into a private network
+                is refused unless this server was configured to allow it.
+              </p>
+            </div>
+            <div class="flex flex-wrap items-center gap-2">
+              <UInput
+                v-model="webhookUrl"
+                type="url"
+                size="sm"
+                class="w-full sm:w-96"
+                placeholder="https://example.com/hooks/checkcheck"
+                autocomplete="off"
+                :disabled="busyCell === WEBHOOK_KEY"
+                data-testid="notification-webhook-url"
+              />
+              <UButton
+                label="Save"
+                size="sm"
+                variant="soft"
+                :loading="busyCell === WEBHOOK_KEY"
+                :disabled="!webhookUrlChanged"
+                data-testid="notification-webhook-save"
+                @click="onWebhookUrlSave"
+              />
+              <UButton
+                icon="i-lucide-webhook"
+                label="Send test webhook"
+                size="sm"
+                variant="soft"
+                :loading="testingWebhook"
+                :disabled="!settings?.webhook_url"
+                data-testid="notification-webhook-test"
+                @click="sendTestWebhook"
+              />
+            </div>
+            <p
+              v-if="webhookResult"
+              :class="['text-xs', webhookResult.ok ? 'text-success' : 'text-error']"
+              data-testid="notification-webhook-result"
+            >
+              {{ webhookResult.message }}
+            </p>
+          </div>
         </div>
       </div>
     </template>
@@ -177,10 +233,14 @@ import { useNotificationStore } from "@/stores/notification";
 import { useConnectivity } from "@/composables/useConnectivity";
 import {
   UTC_VALUE,
+  looksLikeWebhookUrl,
   prefsPatch,
+  testWebhookMessage,
   timezoneItems,
   timezonePatchValue,
   typeRows,
+  visibleChannels,
+  webhookUrlPatchValue,
   type ModeChoice,
 } from "@/utils/notificationSettings";
 
@@ -204,6 +264,7 @@ const toast = useToast();
 // server-side, so there is nothing to fetch.
 const DAILY_DIGEST_WORDING = "08:00";
 const TIMEZONE_KEY = "timezone";
+const WEBHOOK_KEY = "webhook_url";
 
 const loading = ref(false);
 const loadError = ref(false);
@@ -213,15 +274,31 @@ const saved = ref(false);
 const testing = ref(false);
 const testResult = ref<{ ok: boolean; message: string } | null>(null);
 const timezone = ref<string>(UTC_VALUE);
+const webhookUrl = ref<string>("");
+const testingWebhook = ref(false);
+const webhookResult = ref<{ ok: boolean; message: string } | null>(null);
 
 let savedTimer: ReturnType<typeof setTimeout> | null = null;
 
 const settings = computed(() => store.settings);
-// The response's own flag, not the public-config one: it is what actually
-// decided whether the email entries are locked in the matrix we are rendering.
+// The response's own flags, not the public-config ones: they are what actually
+// decided whether the email and webhook entries are locked in the matrix we are
+// rendering.
 const emailEnabled = computed(() => settings.value?.email_enabled ?? false);
+const webhookEnabled = computed(() => settings.value?.webhook_enabled ?? false);
 const rows = computed(() =>
-  typeRows(settings.value?.types, emailEnabled.value ? ["in_app", "email"] : ["in_app"])
+  typeRows(
+    settings.value?.types,
+    visibleChannels({
+      email_enabled: emailEnabled.value,
+      webhook_enabled: webhookEnabled.value,
+    })
+  )
+);
+// Nothing to save until the field differs from what the server holds, which also
+// keeps the button from re-sending the same URL on every click.
+const webhookUrlChanged = computed(
+  () => webhookUrl.value.trim() !== (settings.value?.webhook_url ?? "")
 );
 const timezoneOptions = computed(() => timezoneItems(settings.value?.timezone ?? null));
 
@@ -234,6 +311,7 @@ function cellKey(type: string, channel: string): string {
 watch(open, (isOpen) => {
   if (!isOpen) {
     testResult.value = null;
+    webhookResult.value = null;
     return;
   }
   void load();
@@ -252,6 +330,7 @@ async function load(): Promise<void> {
   try {
     const res = await store.fetchSettings();
     timezone.value = res.timezone ?? UTC_VALUE;
+    webhookUrl.value = res.webhook_url ?? "";
   } catch {
     loadError.value = true;
   } finally {
@@ -277,11 +356,41 @@ async function onTimezoneChange(value: string): Promise<void> {
   await save(TIMEZONE_KEY, { timezone: timezonePatchValue(value) });
 }
 
+async function onWebhookUrlSave(): Promise<void> {
+  const url = webhookUrl.value.trim();
+  if (url && !looksLikeWebhookUrl(url)) {
+    webhookResult.value = {
+      ok: false,
+      message: "A webhook URL has to start with http:// or https://.",
+    };
+    return;
+  }
+  webhookResult.value = null;
+  await save(WEBHOOK_KEY, { webhook_url: webhookUrlPatchValue(webhookUrl.value) });
+}
+
+async function sendTestWebhook(): Promise<void> {
+  testingWebhook.value = true;
+  webhookResult.value = null;
+  try {
+    const res = await store.sendTestWebhook();
+    // Queued, not delivered, and deliberately so: a URL this server refuses to
+    // call fails in the queue with the reason in the server log, which is the
+    // only place it belongs.
+    webhookResult.value = { ok: true, message: testWebhookMessage(undefined, res.url) };
+  } catch (err) {
+    webhookResult.value = { ok: false, message: testWebhookMessage(errorStatus(err)) };
+  } finally {
+    testingWebhook.value = false;
+  }
+}
+
 async function save(key: string, update: NotificationSettingsUpdateType): Promise<void> {
   busyCell.value = key;
   try {
     const res = await store.saveSettings(update);
     timezone.value = res.timezone ?? UTC_VALUE;
+    webhookUrl.value = res.webhook_url ?? "";
     flashSaved();
   } catch (err) {
     const status = errorStatus(err);
@@ -297,6 +406,7 @@ async function save(key: string, update: NotificationSettingsUpdateType): Promis
     // Show what the server actually holds rather than the control's guess.
     await store.fetchSettings().catch(() => {});
     timezone.value = settings.value?.timezone ?? UTC_VALUE;
+    webhookUrl.value = settings.value?.webhook_url ?? "";
   } finally {
     busyCell.value = null;
   }

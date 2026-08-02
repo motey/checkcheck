@@ -50,6 +50,7 @@ from statics import (
     OIDC_TEST_ROLE_GROUP,
     OIDC_TEST_MAPPED_ROLE,
     MAIL_CAPTURE_FROM_ADDRESS,
+    INTERNAL_TEST_EMAIL_DOMAIN,
 )
 
 PROVISIONING_DATA_PATH = TESTS_DIR / "provisioning_data" / "test_users.yaml"
@@ -96,6 +97,20 @@ def set_config_for_test_env():
     os.environ["EMAIL_TRANSPORT"] = "null"
     os.environ["EMAIL_FROM_ADDRESS"] = MAIL_CAPTURE_FROM_ADDRESS
     os.environ["NOTIFY_DISPATCH_IN_PROCESS"] = "False"
+
+    # Chunk E6: mailing a public link is off by default in production, so the
+    # test instance has to switch it on for those endpoints to be reachable at
+    # all. The "…but not on an instance that disabled it" case cannot be an HTTP
+    # test for the same reason the invite gate cannot (it is a process-level
+    # flag), so it is asserted against the gate dependency directly.
+    # One internal domain is declared so the client's "that address looks like a
+    # colleague" hint has something real to be driven by.
+    os.environ["SHARING_PUBLIC_LINK_EMAIL_ENABLED"] = "True"
+    os.environ["SHARING_INTERNAL_EMAIL_DOMAINS"] = json.dumps([INTERNAL_TEST_EMAIL_DOMAIN])
+    # Webhooks stay OFF here: tests_notification_prefs.py asserts what a locked
+    # channel looks like against this instance, and the webhook channel is the
+    # one that is locked. Everything about the channel itself is driven in-process
+    # with a substituted Config (tests_notification_webhooks.py).
 
 
 # Set at module level so it is in place during pytest's collection phase.

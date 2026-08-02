@@ -38,6 +38,13 @@ class PublicConfig(BaseModel):
     sharing_require_invite_accept: bool = Field(
         description="Whether a share creates a pending invite the target must accept before gaining access (invite mode).",
     )
+    sharing_public_link_email_enabled: bool = Field(
+        description=(
+            "Whether an owner may mail an existing public link to an address of their "
+            "choosing. When false, hide that field inside the public-links section. True "
+            "only when the instance can also send mail at all."
+        ),
+    )
     api_token_default_expiry_days: Optional[int] = Field(
         default=None,
         description="Default API-key validity in whole days, surfaced so the token manager can pre-select it. Null when the server default is no expiry.",
@@ -77,6 +84,15 @@ async def get_public_config() -> PublicConfig:
         sharing_public_links_enabled=config.SHARING_PUBLIC_LINKS_ENABLED,
         sharing_user_search_enabled=config.SHARING_USER_SEARCH_ENABLED,
         sharing_require_invite_accept=config.SHARING_REQUIRE_INVITE_ACCEPT,
+        # Reported as the *endpoint* behaves: it needs the sharing switches, its
+        # own switch and a working mailer, so a client that only saw its own flag
+        # would render a field that 404s.
+        sharing_public_link_email_enabled=(
+            config.SHARING_ENABLED
+            and config.SHARING_PUBLIC_LINKS_ENABLED
+            and config.SHARING_PUBLIC_LINK_EMAIL_ENABLED
+            and config.EMAIL_ENABLED
+        ),
         api_token_default_expiry_days=_default_api_token_expiry_days(),
         api_token_allow_never_expire=config.API_TOKEN_ALLOW_NEVER_EXPIRE,
         server_version=server_version,

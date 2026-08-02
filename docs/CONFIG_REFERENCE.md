@@ -410,6 +410,43 @@ Allow a card owner to send an existing public share link to an arbitrary email a
 
 ---
 
+## `SHARING_PUBLIC_LINK_EMAIL_MAX_PER_HOUR`
+
+*Maximum mailed links per sender per hour*
+
+How many public links one signed-in user may mail out per hour. This is the anti-abuse limit on SHARING_PUBLIC_LINK_EMAIL_ENABLED: without it, an account on this server is a mail relay. Set to 0 to allow an unlimited number, which is only sensible on a single-user instance.
+
+| Property | Value |
+|---|---|
+| Type | int |
+| Required | No |
+| Default | `10` |
+| Environment variable | `SHARING_PUBLIC_LINK_EMAIL_MAX_PER_HOUR` |
+
+---
+
+## `SHARING_INTERNAL_EMAIL_DOMAINS`
+
+*Email domains that belong to your organisation*
+
+Domains whose addresses probably belong to people who already have an account here. When someone types such an address into 'send this link to someone without an account', the client points out that adding them as a collaborator is probably what was meant. It is only a hint: sending the link anyway is always allowed, since a colleague's private address or a device they are not signed in on is a real case. Compared bare and case-insensitively, subdomains included, so `example.com` also matches `alice@mail.example.com`. Empty by default, which means the hint never appears.
+
+| Property | Value |
+|---|---|
+| Type | List of str |
+| Required | No |
+| Environment variable | `SHARING_INTERNAL_EMAIL_DOMAINS` |
+
+**Examples:**
+
+```yaml
+SHARING_INTERNAL_EMAIL_DOMAINS:
+- example.com
+- example.org
+```
+
+---
+
 ## `EMAIL_ENABLED`
 
 *Enable email sending*

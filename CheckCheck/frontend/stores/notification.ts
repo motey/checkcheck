@@ -159,5 +159,19 @@ export const useNotificationStore = defineStore("notification", {
         skipErrorToast: true,
       });
     },
+
+    // The webhook twin (E6), with the same contract: 202 queued, 409 nowhere to
+    // send it, 429 one a minute. A URL the server refuses to call (one resolving
+    // into a private network) still gets a 202 here and fails in the queue: the
+    // check happens at delivery time, since a host name's address can change
+    // between saving it and using it.
+    async sendTestWebhook(): Promise<TestWebhookResultType> {
+      assertOnline("A test webhook needs a connection.");
+      const { $checkapi } = useNuxtApp();
+      return await $checkapi("/api/user/me/notification-settings/test-webhook", {
+        method: "post",
+        skipErrorToast: true,
+      });
+    },
   },
 });
