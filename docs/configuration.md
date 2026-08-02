@@ -162,6 +162,9 @@ task where nobody notices.
 For local development `EMAIL_TRANSPORT` can avoid a mail server entirely:
 `console` logs each message, `file` writes it as an `.eml` file into
 `EMAIL_FILE_TRANSPORT_DIR` (open it in any mail client), and `null` discards it.
+The dev scripts wire all of this up for you behind a `--mail` flag, including a
+throwaway Mailpit inbox: see
+[development.md](development.md#reading-the-notification-email-you-just-triggered).
 
 The `NOTIFY_*` settings decide which notifications turn into mail, how much a
 message may reveal (`NOTIFY_EMAIL_CONTENT_MODE`) and how the background sender

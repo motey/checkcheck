@@ -399,4 +399,8 @@ CheckCheck/frontend/test-results/
 CheckCheck/frontend/tests/e2e/.auth/
 CheckCheck/frontend/tests/e2e/.e2e-server.pid
 NEXT_SESSION.md
+
+# Dev mail sink: .eml files written by EMAIL_TRANSPORT=file
+# (./run_dev_backend_server_with_oidc*.sh --mail=file)
+dev_mail/
 CheckCheck/frontend/tests/screenshots/.auth/

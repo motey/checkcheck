@@ -75,6 +75,11 @@ frontend dev server proxies `/api` to it on port 8181.
 ./run_dev_backend_server_with_oidc_on_postgres.sh  # same, against PostgreSQL
 ```
 
+Both also boot a local email sink so notification mail has somewhere to go, by
+default a Mailpit container with a web inbox on <http://localhost:8025>. Pass
+`--mail=file` to keep the SQLite script docker-free; see
+[Reading the notification email you just triggered](#reading-the-notification-email-you-just-triggered).
+
 ```bash
 ./run_dev_frontend.sh          # dev frontend on :3000, proxying /api to :8181
 ./run_dev_frontend.sh --reset  # same, but wipe node_modules and .nuxt first
@@ -114,6 +119,72 @@ run it directly for more knobs (`--seed`, `--owned-lists`, `--shared-with-me`,
 cd CheckCheck/backend
 pdm run python -m checkcheckserver.dev.seed_dev_data --help
 ```
+
+### Reading the notification email you just triggered
+
+Email is off in production defaults, so both backend scripts switch it on and
+point it at a local sink. Pick one with `--mail`:
+
+```bash
+./run_dev_backend_server_with_oidc.sh                  # mailpit if docker is usable, else file
+./run_dev_backend_server_with_oidc.sh --mail=file      # .eml files, no docker
+./run_dev_backend_server_with_oidc.sh --mail=console   # messages logged by the server
+./run_dev_backend_server_with_oidc.sh --mail=off       # production behaviour: no mail at all
+```
+
+| Sink | Where the mail lands | Notes |
+|---|---|---|
+| `mailpit` | web inbox on <http://localhost:8025> | Default. A `checkcheck-dev-mailpit` container, SMTP on 1025. The only sink that runs the real `smtp` transport, and the only one that shows you rendered HTML, threading and the unsubscribe header the way a mail client does. It also has a REST API (`curl localhost:8025/api/v1/messages`). Messages live in memory: `docker restart checkcheck-dev-mailpit` empties the inbox, and `--reset` on the Postgres script removes the container along with the database. |
+| `file` | `dev_mail/` in the repo root | Docker-free fallback, one timestamped `.eml` per message, openable in any mail client. Gitignored. |
+| `console` | the backend's own log | Nothing to set up, unreadable HTML, and it competes with the log you are watching. |
+| `off` | nowhere | For checking that an instance without mail behaves (the settings dialog drops its email column). |
+
+Alongside the sink, the scripts shorten the two timings that otherwise make a
+hand-driven test look broken, and switch on two surfaces that ship off:
+
+| Setting | Dev value | Production default |
+|---|---|---|
+| `NOTIFY_EMAIL_SUPPRESS_WINDOW_SECONDS` | 5 | 120 |
+| `NOTIFY_DISPATCH_TICK_SECONDS` | 5 | 30 |
+| `SHARING_PUBLIC_LINK_EMAIL_ENABLED` | true | false |
+| `SHARING_INTERNAL_EMAIL_DOMAINS` | `["test.com"]` | empty |
+| `NOTIFY_WEBHOOK_ENABLED` | true | false |
+| `NOTIFY_WEBHOOK_ALLOW_PRIVATE_IPS` | true | false |
+
+The suppress window is the one to know about: an `immediate` message waits that
+long before going out and is **cancelled entirely** if you read the notification
+in the app first. That is deliberate (nobody wants mail about what they are
+looking at), and at the production default of two minutes it looks exactly like
+mail being broken. Every value above is an `${VAR:-default}`, so exporting the
+variable before you call the script wins:
+
+```bash
+NOTIFY_EMAIL_SUPPRESS_WINDOW_SECONDS=0 ./run_dev_backend_server_with_oidc.sh
+MAILPIT_UI_PORT=8026 ./run_dev_backend_server_with_oidc.sh   # if 8025 is taken
+```
+
+All five OIDC mock users have addresses (`admin@test.com`, `user1@test.com`, …),
+and `NOTIFY_EMAIL_REQUIRE_VERIFIED` is off, so every recipient resolves without
+extra setup. Things to trigger, cheapest first:
+
+1. **Avatar menu → Notifications → Send test email.** One click, no second user.
+   Rate-limited to once a minute.
+2. **Open a public link** in a private window: `public_link_opened` mail to the
+   owner. The only multi-party notification you can trigger on your own.
+3. **Send a public link by email** from the share modal (this is what
+   `SHARING_PUBLIC_LINK_EMAIL_ENABLED` above turns on). Typing an `@test.com`
+   address also shows the internal-domain hint.
+4. **Share or invite a card** to `user1` for `card_shared` / `card_invited`; add
+   `SHARING_REQUIRE_INVITE_ACCEPT=true` for the invite variant.
+5. **Set a type to `hourly`** in the dialog, then fire two events, to watch
+   coalescing. `daily` is not worth driving by hand: it goes out at 08:00 in the
+   user's own time zone.
+6. **The webhook channel**, pointing at any listener on this machine.
+
+When something does *not* arrive, the sink is the wrong place to look. Read the
+`notification_outbox` table instead: `status`, `attempts`, `next_attempt_at` and
+`dedupe_key` are where suppression, coalescing, retries and dead-lettering are
+visible, and no inbox can show you those.
 
 ## How a request flows
 
