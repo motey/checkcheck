@@ -31,13 +31,13 @@ that pre-fetches links mark everything read before the human ever looked.
 from __future__ import annotations
 
 import datetime
-import html
 import uuid
 from typing import Dict, List, Optional
 from urllib.parse import quote
 
 from checkcheckserver.config import Config
 from checkcheckserver.log import get_logger
+from checkcheckserver.notify import branding, templating
 from checkcheckserver.notify.transports import message_id_domain
 
 
@@ -350,6 +350,65 @@ def _greeting(recipient_name: Optional[str]) -> str:
     return f"Hello {recipient_name}," if recipient_name else "Hello,"
 
 
+def _heading(contexts: List[dict]) -> Optional[str]:
+    """The digest heading, or None for a single message or a plain coalesced one."""
+    if len(contexts) <= 1:
+        return None
+    digest = contexts[0].get("digest")
+    if digest == "hourly":
+        return "Your hourly summary"
+    if digest == "daily":
+        return "Your daily summary"
+    return None
+
+
+def _item_context(context: dict, config: Config) -> dict:
+    """One notification as a template-ready dict.
+
+    ``line`` and ``url`` are fully resolved sentences: a bundled template never
+    needs anything else. ``card_name``, ``actor`` and ``note`` are included only
+    in ``full`` mode, as an escape hatch for an operator override that wants
+    the raw fields rather than the precomputed sentence; the keys are simply
+    absent under ``minimal``, which is what keeps such an override from
+    printing a card title on an instance that said it may not leave (see the
+    module docstring and ``templating.render``'s fallback).
+    """
+    glyph, color = branding.accent_for(context.get("type"))
+    item = {
+        "type": context.get("type"),
+        "line": _line_for(context, config),
+        "url": card_url(context, config),
+        "glyph": glyph,
+        "color": color,
+    }
+    if not _minimal(config):
+        item["card_name"] = context.get("checklist_name")
+        item["actor"] = context.get("actor")
+        item["note"] = context.get("note")
+    return item
+
+
+def _message_context(
+    contexts: List[dict],
+    *,
+    recipient_name: Optional[str],
+    unsubscribe_url: Optional[str],
+    config: Config,
+) -> dict:
+    listed = contexts[:MAX_LISTED]
+    context = branding.brand_context(config)
+    context.update(
+        {
+            "greeting": _greeting(recipient_name),
+            "heading": _heading(contexts),
+            "items": [_item_context(c, config) for c in listed],
+            "more_count": max(0, len(contexts) - len(listed)),
+            "unsubscribe_url": unsubscribe_url,
+        }
+    )
+    return context
+
+
 def _text_body(
     contexts: List[dict],
     *,
@@ -357,22 +416,10 @@ def _text_body(
     unsubscribe_url: Optional[str],
     config: Config,
 ) -> str:
-    app_name = config.APP_NAME
-    listed = contexts[:MAX_LISTED]
-    lines = [_greeting(recipient_name), ""]
-    for context in listed:
-        lines.append(_line_for(context, config))
-        lines.append(card_url(context, config))
-        lines.append("")
-    if len(contexts) > len(listed):
-        lines.append(f"...and {len(contexts) - len(listed)} more.")
-        lines.append("")
-    lines.append("-- ")
-    lines.append(f"You are receiving this because of your notification settings in {app_name}.")
-    lines.append(f"Change them here: {(config.SERVER_PUBLIC_URL or '').rstrip('/')}/")
-    if unsubscribe_url:
-        lines.append(f"Stop receiving mail like this: {unsubscribe_url}")
-    return "\n".join(lines) + "\n"
+    context = _message_context(
+        contexts, recipient_name=recipient_name, unsubscribe_url=unsubscribe_url, config=config
+    )
+    return templating.render("message.txt", context, config=config)
 
 
 def _html_body(
@@ -382,38 +429,7 @@ def _html_body(
     unsubscribe_url: Optional[str],
     config: Config,
 ) -> str:
-    """The HTML alternative.
-
-    Inline styles and a table-free layout on purpose: mail clients strip
-    stylesheets, and this message has to stay readable in all of them. Every
-    piece of user-controlled text (a display name, a card title) is escaped,
-    even though the recipient is entitled to see it: it is still text somebody
-    else typed.
-    """
-    app_name = html.escape(config.APP_NAME)
-    public_url = (config.SERVER_PUBLIC_URL or "").rstrip("/") + "/"
-    listed = contexts[:MAX_LISTED]
-    parts = [
-        '<div style="font-family:system-ui,-apple-system,Segoe UI,Helvetica,Arial,'
-        'sans-serif;font-size:15px;line-height:1.5;color:#1f2328">',
-        f"<p>{html.escape(_greeting(recipient_name))}</p>",
-    ]
-    for context in listed:
-        url = html.escape(card_url(context, config), quote=True)
-        parts.append(
-            f"<p>{html.escape(_line_for(context, config))}<br>"
-            f'<a href="{url}">Open it in {app_name}</a></p>'
-        )
-    if len(contexts) > len(listed):
-        parts.append(f"<p>...and {len(contexts) - len(listed)} more.</p>")
-    parts.append('<hr style="border:none;border-top:1px solid #d8dee4;margin:24px 0">')
-    footer = (
-        f"You are receiving this because of your notification settings in "
-        f'<a href="{html.escape(public_url, quote=True)}">{app_name}</a>.'
+    context = _message_context(
+        contexts, recipient_name=recipient_name, unsubscribe_url=unsubscribe_url, config=config
     )
-    if unsubscribe_url:
-        escaped = html.escape(unsubscribe_url, quote=True)
-        footer += f' <a href="{escaped}">Stop receiving mail like this</a>.'
-    parts.append(f'<p style="font-size:13px;color:#59636e">{footer}</p>')
-    parts.append("</div>")
-    return "".join(parts)
+    return templating.render("message.html", context, config=config)

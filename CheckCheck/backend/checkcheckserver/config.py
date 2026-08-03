@@ -2,6 +2,7 @@ import os
 from enum import Enum
 from pathlib import Path
 from typing import Dict, List, Literal, Optional, Tuple, Type
+from urllib.parse import urlparse
 
 from pydantic import (
     Field,
@@ -391,6 +392,47 @@ class Config(BaseSettings):
             "How long to wait for the mail server before giving up on a message. The attempt "
             "is retried later, so a short timeout is safer than a long stall."
         ),
+    )
+
+    # ── Email design and branding (chunk E7) ──────────────────────────────────
+    EMAIL_TEMPLATE_DIR: Optional[str] = Field(
+        default=None,
+        title="Email template override directory",
+        description=(
+            "Directory whose templates take priority over the bundled ones, matched by file "
+            "name (for example base.html). Any template you do not provide keeps using the "
+            "bundled version, so overriding just base.html is enough to rebrand every "
+            "message. Every bundled template name is rendered against a dummy context at "
+            "startup, from this directory if set, so a broken override fails loudly here "
+            "rather than at delivery time; an override that only fails on real data is "
+            "logged and the bundled template is used for that one message instead."
+        ),
+    )
+    EMAIL_BRAND_COLOR: str = Field(
+        default="#059669",
+        title="Brand colour",
+        description=(
+            "Header and button colour for outgoing email and the unsubscribe page. A hex "
+            "triplet such as #059669, validated at startup because it is interpolated "
+            "straight into the message markup. The header text and button label colour "
+            "(black or white) is chosen automatically for contrast against it."
+        ),
+        examples=["#059669", "#1d4ed8"],
+    )
+    EMAIL_LOGO_URL: Optional[str] = Field(
+        default=None,
+        title="Logo URL",
+        description=(
+            "Absolute http(s) URL of a logo shown in the header of outgoing email and the "
+            "unsubscribe page. Unset shows a text wordmark instead, which is the default for "
+            "two reasons: most mail clients block remote images until the reader allows "
+            "them, so the design has to work without one anyway, and a remote logo is "
+            "fetched by the recipient's own mail client, which tells this instance when a "
+            "message was opened. That is your own choice to make about your own users, but "
+            "the public-link invitation goes to people who never signed up here, so weigh "
+            "that before setting this."
+        ),
+        examples=["https://example.com/logo.png"],
     )
 
     # ── Notification delivery ─────────────────────────────────────────────────
@@ -864,6 +906,46 @@ class Config(BaseSettings):
                 "not set. Point it at your mail server, or pick another EMAIL_TRANSPORT "
                 "('console' or 'file' for local development)."
             )
+        return self
+
+    @model_validator(mode="after")
+    def _validate_and_check_email_branding(self) -> "Config":
+        """Validate the chunk E7 branding settings and render every template.
+
+        EMAIL_BRAND_COLOR and EMAIL_LOGO_URL land straight in message markup, so a
+        malformed value must not reach the mailer. Rendering every bundled
+        template name here (through the override directory when one is set) is
+        section 0.5's "fail loudly at startup" rule applied to templates: a
+        broken operator override, or a bug in a bundled template, must stop the
+        instance from starting rather than dead-lettering mail the first time
+        somebody's card gets shared.
+        """
+        from checkcheckserver.notify import branding as _branding
+
+        try:
+            _branding.validate_hex_color(self.EMAIL_BRAND_COLOR)
+        except ValueError as exc:
+            raise ValueError(
+                f"EMAIL_BRAND_COLOR must be a hex color in the form #rrggbb, got "
+                f"{self.EMAIL_BRAND_COLOR!r}."
+            ) from exc
+
+        if self.EMAIL_LOGO_URL:
+            parsed = urlparse(self.EMAIL_LOGO_URL)
+            if parsed.scheme not in ("http", "https") or not parsed.netloc:
+                raise ValueError(
+                    f"EMAIL_LOGO_URL must be an absolute http(s) URL, got "
+                    f"{self.EMAIL_LOGO_URL!r}."
+                )
+
+        if self.EMAIL_TEMPLATE_DIR and not Path(self.EMAIL_TEMPLATE_DIR).is_dir():
+            raise ValueError(
+                f"EMAIL_TEMPLATE_DIR {self.EMAIL_TEMPLATE_DIR!r} is not a directory."
+            )
+
+        from checkcheckserver.notify import templating as _templating
+
+        _templating.check_all_templates(self)
         return self
 
     def get_server_url(self) -> str:

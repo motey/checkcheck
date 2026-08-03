@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% import "macros.html" as m %}
+{% block title %}{{ heading or app_name }}{% endblock %}
+{% block content %}
+<p style="margin:0 0 16px 0;">{{ greeting }}</p>
+{% if heading %}<p style="margin:0 0 16px 0;font-weight:600;">{{ heading }}</p>{% endif %}
+{% for item in items %}
+<table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="margin:0 0 16px 0;{% if not loop.last %}padding-bottom:16px;border-bottom:1px solid #eef0f2;{% endif %}"><tr>
+<td style="width:34px;vertical-align:top;padding-right:10px;">{{ m.glyph(item.glyph, item.color) }}</td>
+<td style="vertical-align:top;">
+<p style="margin:0 0 6px 0;">{{ item.line }}</p>
+{{ m.button(item.url, "Open in " ~ app_name, brand_color, brand_fg) }}
+</td>
+</tr></table>
+{% endfor %}
+{% if more_count %}<p style="margin:0;">...and {{ more_count }} more.</p>{% endif %}
+{% endblock %}
+{% block footer %}
+<p style="margin:0 0 6px 0;">You are receiving this because of your notification settings in <a href="{{ public_url }}" style="color:{{ brand_color }};">{{ app_name }}</a>.</p>
+{% if unsubscribe_url %}<p style="margin:0;"><a href="{{ unsubscribe_url }}" style="color:{{ brand_color }};">Stop receiving mail like this</a>.</p>{% endif %}
+{% endblock %}

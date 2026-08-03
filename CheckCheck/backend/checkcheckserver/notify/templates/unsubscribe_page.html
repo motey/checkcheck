@@ -1,0 +1,24 @@
+{# The one page of this feature a recipient sees in a browser, reached from an
+inbox on a device that may never have loaded the app: no app assets, just this
+page. Reused for the confirm step, the "done" page and the neutral failure
+page (routes_notification_settings.py picks title/lead/detail/form_action). #}
+{% extends "base.html" %}
+{% block head_extra %}<meta name="robots" content="noindex">{% endblock %}
+{% block title %}{{ title }}{% endblock %}
+{% block content %}
+<h1 style="font-size:1.15rem;margin:0 0 12px 0;">{{ title }}</h1>
+<p style="margin:0 0 16px 0;">{{ lead }}</p>
+{% if detail %}<p style="margin:0 0 16px 0;">{{ detail }}</p>{% endif %}
+{% if form_action %}
+<form method="post" action="{{ form_action }}">
+<table role="presentation" cellpadding="0" cellspacing="0"><tr>
+<td bgcolor="{{ brand_color }}">
+<button type="submit" style="font:inherit;display:inline-block;padding:10px 22px;border:0;background:transparent;font-size:14px;font-weight:600;color:{{ brand_fg }};cursor:pointer;">{{ form_label }}</button>
+</td>
+</tr></table>
+</form>
+{% endif %}
+{% endblock %}
+{% block footer %}
+<p style="margin:0;"><a href="{{ public_url }}" style="color:{{ brand_color }};">Back to {{ app_name }}</a></p>
+{% endblock %}

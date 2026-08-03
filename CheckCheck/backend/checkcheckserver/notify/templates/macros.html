@@ -1,0 +1,15 @@
+{# button() renders as a real button in every client including Outlook on
+Windows, whose Word rendering engine drops padding and border-radius from a
+styled anchor: a one-cell table with bgcolor, the anchor filling the cell.
+Square corners on purpose; see docs/plans/EMAIL_NOTIFICATIONS.md section 7.5. #}
+{% macro button(url, label, bg, fg) -%}
+<table role="presentation" cellpadding="0" cellspacing="0" style="margin:12px 0;"><tr>
+<td bgcolor="{{ bg }}">
+<a href="{{ url }}" style="display:inline-block;padding:10px 22px;font-family:system-ui,-apple-system,Segoe UI,Helvetica,Arial,sans-serif;font-size:14px;font-weight:600;color:{{ fg }};text-decoration:none;">{{ label }}</a>
+</td>
+</tr></table>
+{%- endmacro %}
+
+{% macro glyph(char, color) -%}
+<span style="display:inline-block;width:26px;height:26px;line-height:26px;text-align:center;border-radius:50%;background-color:{{ color }};color:#ffffff;font-size:13px;font-family:system-ui,-apple-system,Segoe UI,Helvetica,Arial,sans-serif;">{{ char }}</span>
+{%- endmacro %}

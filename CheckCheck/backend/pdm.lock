@@ -5,7 +5,7 @@
 groups = ["default", "dev", "test"]
 strategy = ["inherit_metadata"]
 lock_version = "4.5.0"
-content_hash = "sha256:0272c40fc8ebb4cec9e32254e5d0b15939359a6b35e394005d03b44a33bed4de"
+content_hash = "sha256:dd348846bb2ec419d996e8e938a3600248dfe7a155948e6dcf2274b082a9daca"
 
 [[metadata.targets]]
 requires_python = "==3.13.*"
@@ -557,7 +557,7 @@ name = "jinja2"
 version = "3.1.6"
 requires_python = ">=3.7"
 summary = "A very fast and expressive template engine."
-groups = ["dev"]
+groups = ["default", "dev"]
 dependencies = [
     "MarkupSafe>=2.0",
 ]

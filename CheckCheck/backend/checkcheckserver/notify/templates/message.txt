@@ -1,0 +1,21 @@
+{{ greeting }}
+
+{% if heading %}
+{{ heading }}
+
+{% endif %}
+{% for item in items %}
+{{ item.line }}
+{{ item.url }}
+
+{% endfor %}
+{% if more_count %}
+...and {{ more_count }} more.
+
+{% endif %}
+{{ "-- " }}
+You are receiving this because of your notification settings in {{ app_name }}.
+Change them here: {{ public_url }}
+{% if unsubscribe_url %}
+Stop receiving mail like this: {{ unsubscribe_url }}
+{% endif %}

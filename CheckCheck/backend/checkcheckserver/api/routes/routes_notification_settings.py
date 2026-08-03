@@ -26,7 +26,6 @@ background tasks too (``routes_sync_notification.py``).
 """
 
 import datetime
-import html
 import uuid
 from typing import Dict, List, Optional
 
@@ -47,7 +46,7 @@ from checkcheckserver.log import get_logger
 from checkcheckserver.model._base_model import naive_utc_now
 from checkcheckserver.model.notification_outbox import NotificationChannel
 from checkcheckserver.model.user_notification_settings import UserNotificationSettings
-from checkcheckserver.notify import outbox, prefs, unsubscribe
+from checkcheckserver.notify import branding, outbox, prefs, templating, unsubscribe
 from checkcheckserver.notify.dispatcher import lifespan as dispatcher_lifespan
 from checkcheckserver.notify.dispatcher import nudge
 from checkcheckserver.notify.prefs import (
@@ -387,35 +386,14 @@ async def send_test_email(
 
 
 def _test_email_payload(user: User) -> dict:
-    """The whole message, snapshotted the way every queued delivery is.
-
-    Deliberately hand-written rather than routed through a template: there are
-    no templates before chunk E4, and a test mail should say as little as
-    possible about the instance beyond proving that delivery works.
-    """
-    app_name = config.APP_NAME
-    greeting = user.display_name or user.user_name
-    # A display name is user-controlled text going into an HTML body, so it is
-    # escaped even though the recipient is its owner.
-    greeting_html = html.escape(greeting)
-    text_body = (
-        f"Hello {greeting},\n\n"
-        f"this is a test message from {app_name} at {config.SERVER_PUBLIC_URL}.\n"
-        "If it reached you, the email setup of this instance works.\n\n"
-        "Nobody else received a copy, and you can ignore this message.\n"
-    )
-    html_body = (
-        f"<p>Hello {greeting_html},</p>"
-        f"<p>this is a test message from <strong>{app_name}</strong> at "
-        f'<a href="{config.SERVER_PUBLIC_URL}">{config.SERVER_PUBLIC_URL}</a>.<br>'
-        "If it reached you, the email setup of this instance works.</p>"
-        "<p>Nobody else received a copy, and you can ignore this message.</p>"
-    )
+    """The whole message, snapshotted the way every queued delivery is."""
+    context = branding.brand_context(config)
+    context["greeting"] = user.display_name or user.user_name
     return {
         "to": user.email,
-        "subject": f"{app_name} test message",
-        "text_body": text_body,
-        "html_body": html_body,
+        "subject": f"{config.APP_NAME} test message",
+        "text_body": templating.render("test_email.txt", context, config=config),
+        "html_body": templating.render("test_email.html", context, config=config),
     }
 
 
@@ -532,35 +510,40 @@ _TYPE_WORDING = {
 }
 
 
-def _unsubscribe_page(title: str, body: str, *, status_code: int = 200) -> HTMLResponse:
+def _unsubscribe_page(
+    title: str,
+    lead: str,
+    detail: Optional[str] = None,
+    *,
+    form_action: Optional[str] = None,
+    form_label: Optional[str] = None,
+    status_code: int = 200,
+) -> HTMLResponse:
     """A tiny self-contained page. No app assets: this is reached from an inbox,
-    possibly on a device that has never loaded the client."""
-    app_name = html.escape(config.APP_NAME)
-    public_url = html.escape((config.SERVER_PUBLIC_URL or "").rstrip("/") + "/", quote=True)
+    possibly on a device that has never loaded the client. Autoescaping in the
+    template covers ``title``/``lead``/``detail``, all of which may echo a
+    caller-controlled token; Jinja escapes them the same as any other value."""
+    context = branding.brand_context(config)
+    context.update(
+        {
+            "title": title,
+            "lead": lead,
+            "detail": detail,
+            "form_action": form_action,
+            "form_label": form_label,
+        }
+    )
     return HTMLResponse(
         status_code=status_code,
-        content=(
-            "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\">"
-            '<meta name="viewport" content="width=device-width,initial-scale=1">'
-            '<meta name="robots" content="noindex">'
-            f"<title>{html.escape(title)} - {app_name}</title></head>"
-            '<body style="font-family:system-ui,-apple-system,Segoe UI,Helvetica,Arial,'
-            'sans-serif;line-height:1.5;color:#1f2328;max-width:34rem;margin:4rem auto;'
-            'padding:0 1.5rem">'
-            f"<h1 style=\"font-size:1.25rem\">{html.escape(title)}</h1>"
-            f"{body}"
-            f'<p style="font-size:.85rem;color:#59636e;margin-top:2rem">'
-            f'<a href="{public_url}">Back to {app_name}</a></p>'
-            "</body></html>"
-        ),
+        content=templating.render("unsubscribe_page.html", context, config=config),
     )
 
 
 def _unsubscribe_failed() -> HTMLResponse:
     return _unsubscribe_page(
         "This link is not valid",
-        "<p>This unsubscribe link is expired or was not issued by this server. "
-        "You can change what you receive in your notification settings instead.</p>",
+        "This unsubscribe link is expired or was not issued by this server. You can "
+        "change what you receive in your notification settings instead.",
         status_code=status.HTTP_400_BAD_REQUEST,
     )
 
@@ -606,17 +589,13 @@ async def unsubscribe_confirm(
         log.debug("[notify] unsubscribe link rejected: %s", exc)
         return _unsubscribe_failed()
 
-    wording = html.escape(_TYPE_WORDING.get(type, type))
-    escaped_token = html.escape(token, quote=True)
+    wording = _TYPE_WORDING.get(type, type)
     return _unsubscribe_page(
         "Stop these emails?",
-        f"<p>You will no longer receive email about <strong>{wording}</strong>. "
-        "Everything else, including the notifications inside the app, stays as it "
-        "is.</p>"
-        f'<form method="post" action="{unsubscribe.UNSUBSCRIBE_PATH}?token={escaped_token}">'
-        '<button type="submit" style="font:inherit;padding:.6rem 1.1rem;border:0;'
-        'border-radius:.4rem;background:#1f2328;color:#fff;cursor:pointer">'
-        "Yes, stop these emails</button></form>",
+        f"You will no longer receive email about {wording}.",
+        "Everything else, including the notifications inside the app, stays as it is.",
+        form_action=f"{unsubscribe.UNSUBSCRIBE_PATH}?token={token}",
+        form_label="Yes, stop these emails",
     )
 
 
@@ -651,9 +630,9 @@ async def unsubscribe_apply(
     await session.commit()
     log.info("[notify] user %s unsubscribed from '%s' email", settings.user_id, type)
 
-    wording = html.escape(_TYPE_WORDING.get(type, type))
+    wording = _TYPE_WORDING.get(type, type)
     return _unsubscribe_page(
         "Done",
-        f"<p>You will no longer receive email about <strong>{wording}</strong>. "
-        "You can turn it back on any time in your notification settings.</p>",
+        f"You will no longer receive email about {wording}.",
+        "You can turn it back on any time in your notification settings.",
     )

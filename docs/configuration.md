@@ -224,6 +224,69 @@ Recipients without an email address are skipped silently, which is normal on an
 instance where accounts come from an identity provider that does not send an
 email claim.
 
+### Branding your email
+
+Every message (a notification, an invitation to a shared card, the test mail)
+and the unsubscribe confirmation page share one design: a branded header, the
+message in a card on a tinted background, and a footer with the settings and
+unsubscribe links. Two settings are enough to put your own colour and logo on
+it, no code or template editing required:
+
+```yaml
+EMAIL_BRAND_COLOR: "#1d4ed8"
+EMAIL_LOGO_URL: https://example.com/logo.png
+```
+
+`EMAIL_BRAND_COLOR` colours the header and the call-to-action buttons. It must
+be a hex triplet such as `#1d4ed8`; a malformed value stops the server from
+starting, since it is interpolated straight into the message markup. The
+header text and button label switch between black and white automatically, so
+a pale brand colour never produces white text on a white button.
+
+`EMAIL_LOGO_URL` must be an absolute `http://` or `https://` address. Leaving
+it unset shows a plain text wordmark instead, which is the default for two
+reasons. Most mail clients block remote images until the reader explicitly
+allows them, so the design has to look right without one anyway. More
+importantly, a remote image is fetched by the recipient's own mail client the
+moment the message is opened, which tells this instance when that happened.
+That is a reasonable trade-off for your own users' notification mail, since it
+is exactly the same kind of thing an app icon or a "seen" receipt already
+reveals inside the app. It is a different trade-off for the public-link
+invitation (see above): that message goes to somebody who never signed up
+here, so weigh it once more before enabling a logo on an instance that sends
+those.
+
+For a deeper rebrand, `EMAIL_TEMPLATE_DIR` points at a directory of your own
+Jinja2 templates that take priority over the bundled ones, matched by file
+name. You do not need to provide all of them: anything you leave out keeps
+using the bundled version, so a directory containing only your own
+`base.html` (the shared header, card and footer every other template extends)
+is already enough to rebrand every message consistently. Copy the bundled
+templates in
+`CheckCheck/backend/checkcheckserver/notify/templates/` as a starting point.
+
+Every bundled template name is rendered once at startup, through your override
+directory if one is set, against made-up data. A template that fails to
+compile (a typo in the Jinja syntax) stops the server from starting, with the
+template's name in the error, rather than surfacing the first time somebody's
+card gets shared. A template that compiles but raises while rendering a real
+message is logged and the bundled template is used for that one message
+instead, so a mistake in a footer cannot stop a reminder from arriving. Neither
+of those two failure modes can make a message say more than
+`NOTIFY_EMAIL_CONTENT_MODE` allows: the fields a template would need for that
+(a card's name, who did something, a reminder's note) are not present in the
+data at all when the mode says they may not leave the instance, so a template
+that tries to use them fails the same way a typo would, rather than printing
+them.
+
+To see the result of a change without sending anything, run
+`python render_email_previews.py` from `CheckCheck/backend` (with the backend
+venv active). It writes one `.html` file per message kind into
+`CheckCheck/backend/email_preview/` (gitignored), using whatever
+`EMAIL_BRAND_COLOR` / `EMAIL_LOGO_URL` / `EMAIL_TEMPLATE_DIR` your environment
+currently has set, so it also doubles as a quick check of an override before
+pointing a real instance at it.
+
 ### Webhooks
 
 `NOTIFY_WEBHOOK_ENABLED` adds a third channel next to the bell and email: each

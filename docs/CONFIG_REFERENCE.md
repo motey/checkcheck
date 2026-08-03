@@ -743,6 +743,71 @@ How long to wait for the mail server before giving up on a message. The attempt 
 
 ---
 
+## `EMAIL_TEMPLATE_DIR`
+
+*Email template override directory*
+
+Directory whose templates take priority over the bundled ones, matched by file name (for example base.html). Any template you do not provide keeps using the bundled version, so overriding just base.html is enough to rebrand every message. Every bundled template name is rendered against a dummy context at startup, from this directory if set, so a broken override fails loudly here rather than at delivery time; an override that only fails on real data is logged and the bundled template is used for that one message instead.
+
+| Property | Value |
+|---|---|
+| Type | str |
+| Required | No |
+| Default | `null` |
+| Environment variable | `EMAIL_TEMPLATE_DIR` |
+
+---
+
+## `EMAIL_BRAND_COLOR`
+
+*Brand colour*
+
+Header and button colour for outgoing email and the unsubscribe page. A hex triplet such as #059669, validated at startup because it is interpolated straight into the message markup. The header text and button label colour (black or white) is chosen automatically for contrast against it.
+
+| Property | Value |
+|---|---|
+| Type | str |
+| Required | No |
+| Default | `"#059669"` |
+| Environment variable | `EMAIL_BRAND_COLOR` |
+
+**Examples:**
+
+*Example 1:*
+
+```yaml
+EMAIL_BRAND_COLOR: '#059669'
+```
+
+*Example 2:*
+
+```yaml
+EMAIL_BRAND_COLOR: '#1d4ed8'
+```
+
+---
+
+## `EMAIL_LOGO_URL`
+
+*Logo URL*
+
+Absolute http(s) URL of a logo shown in the header of outgoing email and the unsubscribe page. Unset shows a text wordmark instead, which is the default for two reasons: most mail clients block remote images until the reader allows them, so the design has to work without one anyway, and a remote logo is fetched by the recipient's own mail client, which tells this instance when a message was opened. That is your own choice to make about your own users, but the public-link invitation goes to people who never signed up here, so weigh that before setting this.
+
+| Property | Value |
+|---|---|
+| Type | str |
+| Required | No |
+| Default | `null` |
+| Environment variable | `EMAIL_LOGO_URL` |
+
+**Examples:**
+
+```yaml
+EMAIL_LOGO_URL: https://example.com/logo.png
+```
+
+---
+
 ## `NOTIFY_EMAIL_REQUIRE_VERIFIED`
 
 *Only mail verified addresses*

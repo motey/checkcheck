@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+{% block title %}{{ app_name }} test message{% endblock %}
+{% block content %}
+<p style="margin:0 0 16px 0;">Hello {{ greeting }},</p>
+<p style="margin:0 0 16px 0;">this is a test message from <strong>{{ app_name }}</strong> at <a href="{{ public_url }}" style="color:{{ brand_color }};">{{ public_url }}</a>.<br>
+If it reached you, the email setup of this instance works.</p>
+<p style="margin:0;">Nobody else received a copy, and you can ignore this message.</p>
+{% endblock %}
+{% block footer %}
+<p style="margin:0;">Sent from {{ app_name }}.</p>
+{% endblock %}

@@ -47,6 +47,10 @@ dependencies = [
     # Async so a slow mail server cannot block the event loop; the dispatcher
     # relies on its timeout to keep an attempt bounded.
     "aiosmtplib",
+    # Email and unsubscribe-page templates (checkcheckserver/notify/templates).
+    # Already present transitively via FastAPI's own dependency tree; declared
+    # explicitly because chunk E7 imports it directly.
+    "jinja2>=3.1.2",
 ]
 dynamic = ["version"]
 version = "0.1.0"
