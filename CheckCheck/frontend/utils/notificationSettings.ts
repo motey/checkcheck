@@ -64,24 +64,26 @@ export function modeLabel(mode: string): string {
 // Every channel the dialog can render. The caller drops the ones this instance
 // cannot deliver on (see `visibleChannels`), where every entry is locked off
 // anyway and a control would only be something to explain.
-export const VISIBLE_CHANNELS = ["in_app", "email", "webhook"] as const;
+export const VISIBLE_CHANNELS = ["in_app", "email", "webhook", "push"] as const;
 export type VisibleChannel = (typeof VISIBLE_CHANNELS)[number];
 
 /**
  * Which channel columns to show, given what the instance can actually do.
  *
  * `in_app` is always there: the bell is the base feature and has no master
- * switch. The other two follow the flags on the settings response itself rather
- * than the public-config copy, because those are what decided whether the
- * entries in the matrix being rendered are locked.
+ * switch. The other three follow the flags on the settings response itself
+ * rather than the public-config copy, because those are what decided whether
+ * the entries in the matrix being rendered are locked.
  */
 export function visibleChannels(flags: {
   email_enabled?: boolean;
   webhook_enabled?: boolean;
+  push_enabled?: boolean;
 }): VisibleChannel[] {
   const channels: VisibleChannel[] = ["in_app"];
   if (flags.email_enabled) channels.push("email");
   if (flags.webhook_enabled) channels.push("webhook");
+  if (flags.push_enabled) channels.push("push");
   return channels;
 }
 
@@ -97,6 +99,10 @@ const CHANNEL_WORDING: Record<string, { title: string; description: string }> = 
   webhook: {
     title: "Webhook",
     description: "POSTed to a URL of your own.",
+  },
+  push: {
+    title: "Push",
+    description: "A notification on a device you've subscribed.",
   },
 };
 

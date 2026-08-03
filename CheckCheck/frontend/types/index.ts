@@ -89,6 +89,12 @@ declare global {
     type NotificationModeType = components["schemas"]["NotificationMode"]  // off|immediate|hourly|daily
     type TestEmailResultType = components["schemas"]["TestEmailResult"]
     type TestWebhookResultType = components["schemas"]["TestWebhookResult"]
+    // Push subscriptions (chunk P2). Register is the shape
+    // `PushSubscription.toJSON()` produces in the browser; Info never carries
+    // the keys back, only enough to label and remove a device.
+    type PushSubscriptionRegisterType = components["schemas"]["PushSubscriptionRegister"]
+    type PushSubscriptionInfoType = components["schemas"]["PushSubscriptionInfo"]
+    type TestPushResultType = components["schemas"]["TestPushResult"]
     // Date reminders (chunks R1-R4). A reminder is personal: it belongs to the
     // user who set it, so every one of these endpoints is scoped to the caller.
     // `remind_at` on the read model is naive UTC — see utils/reminders.ts,

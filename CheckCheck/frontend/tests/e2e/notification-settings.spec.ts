@@ -222,6 +222,175 @@ test.describe("E5 notification settings", () => {
   });
 });
 
+test.describe("P2 push notifications", () => {
+  test.setTimeout(30_000);
+
+  // The E2E backend runs with NOTIFY_PUSH_ENABLED and a throwaway VAPID pair
+  // (start_e2e_server.py), so the push column and its device-management block
+  // are real. A real push round trip needs an actual push service nothing in
+  // CI can reach, so — per plan section 7 — this mocks `navigator.serviceWorker`
+  // and `PushManager` at the JS level (a fake subscription object) rather than
+  // subscribing for real. The true wire protocol (VAPID JWT shape, encrypted
+  // payload) is covered by the backend's own tests_notification_push.py, not
+  // here.
+  async function mockPush(page: Page): Promise<void> {
+    await page.addInitScript(() => {
+      class FakePushSubscription {
+        endpoint: string;
+        constructor(endpoint: string) {
+          this.endpoint = endpoint;
+        }
+        toJSON() {
+          return {
+            endpoint: this.endpoint,
+            keys: {
+              p256dh: "BNfakeP256dhAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+              auth: "fakeAuthAAAAAAAAAAAAAAAA",
+            },
+          };
+        }
+        unsubscribe(): Promise<boolean> {
+          (window as unknown as { __fakeSub: unknown }).__fakeSub = null;
+          return Promise.resolve(true);
+        }
+      }
+      const fakePushManager = {
+        subscribe: async () => {
+          const sub = new FakePushSubscription(
+            `https://fake.push.example/${Math.random().toString(36).slice(2)}`
+          );
+          (window as unknown as { __fakeSub: unknown }).__fakeSub = sub;
+          return sub;
+        },
+        getSubscription: async () =>
+          (window as unknown as { __fakeSub: FakePushSubscription | null }).__fakeSub ?? null,
+      };
+      const fakeRegistration = { pushManager: fakePushManager };
+      Object.defineProperty(navigator.serviceWorker, "ready", {
+        configurable: true,
+        get: () => Promise.resolve(fakeRegistration),
+      });
+      (navigator.serviceWorker as unknown as { getRegistration: () => Promise<unknown> }).getRegistration =
+        async () => fakeRegistration;
+      Object.defineProperty(window.Notification, "permission", {
+        configurable: true,
+        get: () => (window as unknown as { __notifPermission?: string }).__notifPermission ?? "default",
+      });
+      (window.Notification as unknown as { requestPermission: () => Promise<string> }).requestPermission =
+        async () => {
+          (window as unknown as { __notifPermission?: string }).__notifPermission = "granted";
+          return "granted";
+        };
+    });
+  }
+
+  // Every test here enables at least one device; remove it so the suite stays
+  // order-independent (the admin user is shared across every test in this file).
+  test.afterEach(async ({ page }) => {
+    const subs: Array<{ id: string }> = await page.request
+      .get("/api/user/me/push-subscriptions")
+      .then((r) => (r.ok() ? r.json() : []))
+      .catch(() => []);
+    for (const sub of subs) {
+      await page.request.delete(`/api/user/me/push-subscriptions/${sub.id}`).catch(() => {});
+    }
+  });
+
+  test("the push column and device block render on an instance with push on", async ({ page }) => {
+    await mockPush(page);
+    await page.goto("/");
+    const dialog = await openSettings(page);
+
+    await expect(dialog.locator("[data-testid=notification-mode-card_shared-push]")).toBeVisible();
+    const block = dialog.locator("[data-testid=notification-push]");
+    await expect(block).toBeVisible();
+    await expect(block.locator("[data-testid=notification-push-devices]")).toHaveCount(0);
+    await expect(block.locator("[data-testid=notification-test-push]")).toBeDisabled();
+  });
+
+  test("enabling registers this device, and it survives a reload", async ({ page }) => {
+    await mockPush(page);
+    await page.goto("/");
+    let dialog = await openSettings(page);
+    let block = dialog.locator("[data-testid=notification-push]");
+
+    await block.locator("[data-testid=notification-push-enable]").click();
+    const device = block.locator("[data-testid=notification-push-device]");
+    await expect(device).toHaveCount(1, { timeout: 10_000 });
+    await expect(device).toContainText("this device");
+    await expect(block.locator("[data-testid=notification-push-enable]")).toContainText(
+      "Enabled on this device"
+    );
+
+    await page.reload();
+    dialog = await openSettings(page);
+    block = dialog.locator("[data-testid=notification-push]");
+    await expect(block.locator("[data-testid=notification-push-device]")).toHaveCount(1, {
+      timeout: 5_000,
+    });
+  });
+
+  test("send test push reports how many devices it was queued to", async ({ page }) => {
+    await mockPush(page);
+    await page.goto("/");
+    const dialog = await openSettings(page);
+    const block = dialog.locator("[data-testid=notification-push]");
+
+    await block.locator("[data-testid=notification-push-enable]").click();
+    await expect(block.locator("[data-testid=notification-push-device]")).toHaveCount(1, {
+      timeout: 10_000,
+    });
+
+    await block.locator("[data-testid=notification-test-push]").click();
+    const result = block.locator("[data-testid=notification-test-push-result]");
+    await expect(result).toContainText(/Queued to 1 device|less than a minute ago/, {
+      timeout: 10_000,
+    });
+  });
+
+  test("removing a device drops it from the list and disables the test button again", async ({
+    page,
+  }) => {
+    await mockPush(page);
+    await page.goto("/");
+    const dialog = await openSettings(page);
+    const block = dialog.locator("[data-testid=notification-push]");
+
+    await block.locator("[data-testid=notification-push-enable]").click();
+    await expect(block.locator("[data-testid=notification-push-device]")).toHaveCount(1, {
+      timeout: 10_000,
+    });
+
+    await block.locator("[data-testid=notification-push-remove]").click();
+    await expect(block.locator("[data-testid=notification-push-device]")).toHaveCount(0, {
+      timeout: 5_000,
+    });
+    await expect(block.locator("[data-testid=notification-test-push]")).toBeDisabled();
+  });
+
+  test("an iPhone outside standalone mode is told to add the app to its home screen, not offered a button", async ({
+    browser,
+  }) => {
+    const iPhoneUA =
+      "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1";
+    const ctx = await browser.newContext({
+      storageState: "tests/e2e/.auth/state.json",
+      userAgent: iPhoneUA,
+    });
+    const page = await ctx.newPage();
+    try {
+      await page.goto("/");
+      const dialog = await openSettings(page);
+      const block = dialog.locator("[data-testid=notification-push]");
+      await expect(block.locator("[data-testid=notification-push-ios-hint]")).toBeVisible();
+      await expect(block.locator("[data-testid=notification-push-enable]")).toHaveCount(0);
+    } finally {
+      await page.goto("about:blank").catch(() => {});
+      await ctx.close();
+    }
+  });
+});
+
 test.describe("E5 email deep link", () => {
   test.setTimeout(45_000);
 

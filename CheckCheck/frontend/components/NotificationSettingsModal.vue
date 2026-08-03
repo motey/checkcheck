@@ -226,6 +226,110 @@
               {{ webhookResult.message }}
             </p>
           </div>
+
+          <!-- Push extras (P2): enable this device, manage the device list, and a
+               way to prove delivery. Only on an instance with push switched on,
+               where the column above is rendered too. -->
+          <div
+            v-if="pushEnabled"
+            class="flex flex-col gap-2 rounded-lg border border-default p-3"
+            data-testid="notification-push"
+          >
+            <div class="flex flex-col">
+              <h3 class="text-sm font-semibold">Push notifications</h3>
+              <p class="text-xs text-muted">
+                A notification on this device's lock screen or notification tray,
+                even when CheckCheck is not open in a tab.
+              </p>
+            </div>
+
+            <p
+              v-if="pushIsIOS && !pushIsStandalone"
+              class="text-xs text-muted"
+              data-testid="notification-push-ios-hint"
+            >
+              Add CheckCheck to your home screen to enable notifications on this
+              iPhone.
+            </p>
+            <p
+              v-else-if="!pushSupported"
+              class="text-xs text-muted"
+              data-testid="notification-push-unsupported-hint"
+            >
+              This browser does not support push notifications.
+            </p>
+            <UButton
+              v-else
+              :icon="pushIsSubscribedHere ? 'i-lucide-check' : 'i-lucide-bell-plus'"
+              :label="
+                pushIsSubscribedHere
+                  ? 'Enabled on this device'
+                  : 'Enable notifications on this device'
+              "
+              size="sm"
+              variant="soft"
+              class="self-start"
+              :loading="pushEnabling"
+              :disabled="pushIsSubscribedHere"
+              data-testid="notification-push-enable"
+              @click="enablePush"
+            />
+            <p v-if="pushError" class="text-xs text-error" data-testid="notification-push-error">
+              {{ pushError }}
+            </p>
+
+            <ul
+              v-if="pushDevices.length"
+              class="rounded-md border border-default divide-y divide-default"
+              data-testid="notification-push-devices"
+            >
+              <li
+                v-for="device in pushDevices"
+                :key="device.id"
+                class="flex items-center justify-between gap-2 px-3 py-2"
+                data-testid="notification-push-device"
+              >
+                <div class="flex min-w-0 flex-col gap-0.5">
+                  <span class="text-sm font-medium text-highlighted truncate">
+                    {{ deviceLabel(device.user_agent) }}
+                    <span v-if="isThisPushDevice(device)" class="text-xs text-muted">
+                      (this device)
+                    </span>
+                  </span>
+                  <span class="text-xs text-muted">Added {{ formatDate(device.created_at) }}</span>
+                </div>
+                <UButton
+                  icon="i-lucide-trash-2"
+                  color="error"
+                  variant="ghost"
+                  size="xs"
+                  aria-label="Remove device"
+                  :loading="pushBusyId === device.id"
+                  data-testid="notification-push-remove"
+                  @click="disablePush(device)"
+                />
+              </li>
+            </ul>
+
+            <UButton
+              icon="i-lucide-send"
+              label="Send test push"
+              size="sm"
+              variant="soft"
+              class="self-start"
+              :loading="testingPush"
+              :disabled="!pushDevices.length"
+              data-testid="notification-test-push"
+              @click="sendTestPush"
+            />
+            <p
+              v-if="pushTestResult"
+              :class="['text-xs', pushTestResult.ok ? 'text-success' : 'text-error']"
+              data-testid="notification-test-push-result"
+            >
+              {{ pushTestResult.message }}
+            </p>
+          </div>
         </div>
       </div>
     </template>
@@ -236,6 +340,8 @@
 import { computed, ref, watch } from "vue";
 import { useNotificationStore } from "@/stores/notification";
 import { useConnectivity } from "@/composables/useConnectivity";
+import { usePushSubscription } from "@/composables/usePushSubscription";
+import { deviceLabel } from "@/utils/push";
 import {
   UTC_VALUE,
   looksLikeWebhookUrl,
@@ -264,6 +370,20 @@ const open = defineModel<boolean>("open", { default: false });
 const store = useNotificationStore();
 const { online } = useConnectivity();
 const toast = useToast();
+const {
+  devices: pushDevices,
+  enabling: pushEnabling,
+  busyId: pushBusyId,
+  error: pushError,
+  supported: pushSupported,
+  isIOS: pushIsIOS,
+  isStandalone: pushIsStandalone,
+  isSubscribedHere: pushIsSubscribedHere,
+  isThisDevice: isThisPushDevice,
+  refresh: refreshPush,
+  enable: enablePush,
+  disable: disablePush,
+} = usePushSubscription();
 
 // Matches `notify/schedule.DAILY_DIGEST_HOUR` (08:00 local). A module constant
 // server-side, so there is nothing to fetch.
@@ -282,6 +402,8 @@ const timezone = ref<string>(UTC_VALUE);
 const webhookUrl = ref<string>("");
 const testingWebhook = ref(false);
 const webhookResult = ref<{ ok: boolean; message: string } | null>(null);
+const testingPush = ref(false);
+const pushTestResult = ref<{ ok: boolean; message: string } | null>(null);
 
 let savedTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -291,12 +413,14 @@ const settings = computed(() => store.settings);
 // rendering.
 const emailEnabled = computed(() => settings.value?.email_enabled ?? false);
 const webhookEnabled = computed(() => settings.value?.webhook_enabled ?? false);
+const pushEnabled = computed(() => settings.value?.push_enabled ?? false);
 const rows = computed(() =>
   typeRows(
     settings.value?.types,
     visibleChannels({
       email_enabled: emailEnabled.value,
       webhook_enabled: webhookEnabled.value,
+      push_enabled: pushEnabled.value,
     })
   )
 );
@@ -317,6 +441,7 @@ watch(open, (isOpen) => {
   if (!isOpen) {
     testResult.value = null;
     webhookResult.value = null;
+    pushTestResult.value = null;
     return;
   }
   void load();
@@ -336,11 +461,16 @@ async function load(): Promise<void> {
     const res = await store.fetchSettings();
     timezone.value = res.timezone ?? UTC_VALUE;
     webhookUrl.value = res.webhook_url ?? "";
+    if (res.push_enabled) await refreshPush().catch(() => {});
   } catch {
     loadError.value = true;
   } finally {
     loading.value = false;
   }
+}
+
+function formatDate(iso: string): string {
+  return new Date(iso).toLocaleDateString();
 }
 
 function flashSaved(): void {
@@ -387,6 +517,33 @@ async function sendTestWebhook(): Promise<void> {
     webhookResult.value = { ok: false, message: testWebhookMessage(errorStatus(err)) };
   } finally {
     testingWebhook.value = false;
+  }
+}
+
+async function sendTestPush(): Promise<void> {
+  testingPush.value = true;
+  pushTestResult.value = null;
+  try {
+    const res = await store.sendTestPush();
+    pushTestResult.value = {
+      ok: true,
+      message: `Queued to ${res.subscription_count} device${
+        res.subscription_count === 1 ? "" : "s"
+      }. It should arrive shortly.`,
+    };
+  } catch (err) {
+    const status = errorStatus(err);
+    pushTestResult.value = {
+      ok: false,
+      message:
+        status === 409
+          ? "No device is subscribed yet, so there is nowhere to send it."
+          : status === 429
+          ? "A test push was already queued less than a minute ago. Try again shortly."
+          : "Could not queue the test push.",
+    };
+  } finally {
+    testingPush.value = false;
   }
 }
 

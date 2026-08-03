@@ -226,11 +226,10 @@ describe("visibleChannels", () => {
   it("adds each channel the instance can actually deliver on", () => {
     expect(visibleChannels({ email_enabled: true })).toEqual(["in_app", "email"]);
     expect(visibleChannels({ webhook_enabled: true })).toEqual(["in_app", "webhook"]);
-    expect(visibleChannels({ email_enabled: true, webhook_enabled: true })).toEqual([
-      "in_app",
-      "email",
-      "webhook",
-    ]);
+    expect(visibleChannels({ push_enabled: true })).toEqual(["in_app", "push"]);
+    expect(
+      visibleChannels({ email_enabled: true, webhook_enabled: true, push_enabled: true })
+    ).toEqual(["in_app", "email", "webhook", "push"]);
   });
 });
 

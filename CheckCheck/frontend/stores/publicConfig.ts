@@ -43,6 +43,11 @@ export const usePublicConfigStore = defineStore("publicConfig", {
     emailEnabled: (state): boolean => state.config?.email_enabled ?? false,
     // Whether per-user notification webhooks are allowed (hides that column too).
     webhookEnabled: (state): boolean => state.config?.webhook_enabled ?? false,
+    // The VAPID public key the push column's subscribe call needs as
+    // `applicationServerKey`. Null while push is off, matching the other
+    // channel flags this dialog reads from the *settings* response rather than
+    // this one — this getter exists only because the key itself lives here.
+    vapidPublicKey: (state): string | null => state.config?.vapid_public_key ?? null,
     // Whether an owner may mail an existing public link to an address (E6). The
     // server already ANDs this with sharing, public links and email being on, so
     // the client can read it as "render that field or not".

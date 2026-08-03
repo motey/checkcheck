@@ -145,6 +145,10 @@ export default defineNuxtConfig({
       cleanupOutdatedCaches: true,
       // No runtimeCaching entry for `/api` on purpose: unmatched requests fall
       // through to the network and fail cleanly offline (never served stale).
+      // System notifications (chunk P2): push/notificationclick/pushsubscriptionchange
+      // listeners, imported into this same generated worker rather than
+      // registering a second one.
+      importScripts: ["/sw-push.js"],
     },
     // The service worker only registers in a real build; keep dev untouched so
     // HMR and the flag-off legacy path behave exactly as before.

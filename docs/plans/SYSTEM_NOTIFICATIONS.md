@@ -394,7 +394,7 @@ touching the modal.
 | Chunk | Status | Session date | Notes and deviations |
 |---|---|---|---|
 | P1 backend push channel | Done | 2026-08-03 | See below. |
-| P2 frontend subscribe flow and settings UI | Not started | | |
+| P2 frontend subscribe flow and settings UI | Done | 2026-08-03 | See below. |
 | T time zone re-sync | Not started | | |
 
 ## P1 notes and deviations (2026-08-03)
@@ -458,3 +458,64 @@ Not covered, deliberately: an end-to-end round trip through real `pywebpush`
 against a live push service — nothing in CI can reach one, and the plan's own
 P2 handoff note already flags this as backend-only, wire-protocol coverage
 (done above) rather than a browser-level test.
+
+## P2 notes and deviations (2026-08-03)
+
+Built as specified: `public/sw-push.js` (`push` / `notificationclick` /
+`pushsubscriptionchange` listeners) imported into the Workbox-generated worker
+via `pwa.workbox.importScripts` (`nuxt.config.ts`) rather than a second
+registration; `utils/push.ts` (framework-free: VAPID key conversion, iOS/
+standalone platform detection, device labelling — unit-tested in
+`tests/unit/push.spec.ts`); `composables/usePushSubscription.ts` (the browser-
+API layer: `Notification.requestPermission`, `PushManager.subscribe`, the
+store calls) on top of it; a fourth "push" column plus a device-management
+block in `NotificationSettingsModal.vue`, following the email/webhook blocks'
+own shape (enable button, device list with per-row remove, a test-push button
+disabled with no device). `stores/notification.ts` gained
+`pushSubscriptions` state and the four HTTP actions
+(`listPushSubscriptions`/`registerPushSubscription`/`deletePushSubscription`/
+`sendTestPush`), same online-only/`skipErrorToast` shape as the rest of that
+store. `utils/notificationSettings.ts`'s `visibleChannels`/`VISIBLE_CHANNELS`/
+`CHANNEL_WORDING` gained `push`, gated on the settings response's own
+`push_enabled` flag exactly like `email_enabled`/`webhook_enabled` (not the
+public-config copy — same reasoning already documented there). The VAPID
+public key itself, needed as `applicationServerKey`, comes from
+`usePublicConfigStore`'s new `vapidPublicKey` getter, since that value (unlike
+the enabled flags) only exists on `/api/public-config`.
+
+One thing worth being precise about:
+
+- **`pushsubscriptionchange` re-subscribes and re-POSTs entirely inside the
+  service worker**, not the app. A push service can rotate a subscription's
+  endpoint on its own at any time, including while no tab is open, so there is
+  no app-side JS running to catch it. `fetch` from a service worker on the same
+  origin carries the session cookie by default (no extra credentials handling
+  needed), which is what makes this workable without a second auth path.
+
+Tests: `tests/unit/push.spec.ts` (13 cases: base64url round-trip incl. the
+`-`/`_` substitution, iOS/iPadOS-as-Macintosh detection via `maxTouchPoints`,
+standalone-display detection, the enable-button gating decision, API-support
+detection, device labelling incl. fallback, current-device matching) plus
+`visibleChannels`/`CHANNEL_WORDING` push cases added to the existing
+`tests/unit/notificationSettings.spec.ts`. Five new Playwright specs in
+`tests/e2e/notification-settings.spec.ts` under `P2 push notifications`: column
++ block render, enable registers a device and it survives reload, test-push
+reports the queued count, remove drops the device and re-disables the test
+button, and an iPhone UA outside standalone mode gets the "add to home screen"
+message instead of a button. Per plan section 7, these mock
+`navigator.serviceWorker`/`PushManager` at the JS level (a fake subscription
+object via `addInitScript`) rather than subscribing for real — nothing in CI
+can reach an actual push service. The wire protocol itself stays P1's backend
+tests. The E2E backend (`start_e2e_server.py`) now runs with
+`NOTIFY_PUSH_ENABLED` and the same throwaway VAPID pair
+`tests_notification_push.py` uses, so the column is real; a "send test push"
+click does reach the background dispatcher, which fails harmlessly against the
+fake endpoint (`WebPushException: Invalid p256dh key specified` in the log),
+the same non-error background failure the webhook column's test button
+already produces against an unreachable host.
+
+Green: full unit suite (`bun run vitest run`, 300 passed) and the full
+Playwright suite (`./run_e2e_tests.sh`, 111 passed / 2 skipped — the invite-
+mode specs, which need a separate `SHARING_REQUIRE_INVITE_ACCEPT=1` pass — plus
+3 pre-existing flaky specs unrelated to this chunk that passed on Playwright's
+built-in retry, matching prior sessions' notes on DnD/sharing flakiness).

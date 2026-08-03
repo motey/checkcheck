@@ -99,6 +99,21 @@ def _configure_env() -> None:
     # the channel on for happens, and no spec does that. The "instance without
     # webhooks" case is covered by the unit test of `visibleChannels`.
     os.environ.setdefault("NOTIFY_WEBHOOK_ENABLED", "true")
+    # The push channel (chunk P2), same reasoning: on here so its column, the
+    # "Enable notifications" flow and the device list are real in the settings
+    # dialog. This VAPID pair is a throwaway (valid in shape, tied to no real
+    # push service) — the same one tests_notification_push.py uses. Nothing in
+    # the E2E suite talks to a real push endpoint; a mocked PushManager stands
+    # in for the browser API (see tests/e2e/notification-settings.spec.ts), and
+    # the resulting fake `endpoint` fails harmlessly in the background dispatcher
+    # if a spec ever exercises "send test push".
+    os.environ.setdefault("NOTIFY_PUSH_ENABLED", "true")
+    os.environ.setdefault(
+        "VAPID_PUBLIC_KEY",
+        "BH-DWhYfjSH5OVS2sjII4dGEP46ueAfPWQklJ_zITJqoWtfKgjHBTDxE_X5jdPms-zR3R9b43oCqYFnxwmwk_PY",
+    )
+    os.environ.setdefault("VAPID_PRIVATE_KEY", "Mp6hqDn1uEMxJwMvqchFdkrCiID8zYUIvTwDI-rmLSA")
+    os.environ.setdefault("VAPID_CONTACT_EMAIL", "admin@test.de")
     # Invite-mode E2E pass: SHARING_REQUIRE_INVITE_ACCEPT is left untouched here so
     # the caller's environment wins. The default pass leaves it unset (→ False, the
     # production default: shares are accepted instantly). The invite-flow pass —
