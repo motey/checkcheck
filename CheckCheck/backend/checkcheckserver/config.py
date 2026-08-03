@@ -576,6 +576,82 @@ class Config(BaseSettings):
         ),
     )
 
+    # ── Push notifications (browser and installed-PWA, chunk P1) ─────────────
+    # OS-level notifications delivered through the Web Push standard. See
+    # docs/plans/SYSTEM_NOTIFICATIONS.md.
+    NOTIFY_PUSH_ENABLED: bool = Field(
+        default=False,
+        title="Enable push notifications",
+        description=(
+            "Master switch for the push channel. When false the server never sends a push "
+            "message, no subscription can be created, and the push column of the "
+            "notification settings is hidden in the UI. When true, VAPID_PUBLIC_KEY, "
+            "VAPID_PRIVATE_KEY and VAPID_CONTACT_EMAIL are required, checked at startup. "
+            "Generate a key pair with ./gen_vapid_keys.sh."
+        ),
+    )
+    VAPID_PUBLIC_KEY: Optional[str] = Field(
+        default=None,
+        title="VAPID public key",
+        description=(
+            "The application server's public key, base64url-encoded. Required when "
+            "NOTIFY_PUSH_ENABLED is true. Not a secret: served to the client through "
+            "/api/public-config, which is what lets a browser subscribe. Generate with "
+            "./gen_vapid_keys.sh."
+        ),
+    )
+    VAPID_PRIVATE_KEY: Optional[SecretStr] = Field(
+        default=None,
+        title="VAPID private key",
+        description=(
+            "The application server's private key, base64url-encoded. Required when "
+            "NOTIFY_PUSH_ENABLED is true. Never leaves the server; signs the VAPID JWT that "
+            "proves a push request came from this instance. Supply it through the "
+            "environment rather than committing it to a config file. Generate with "
+            "./gen_vapid_keys.sh."
+        ),
+    )
+    VAPID_CONTACT_EMAIL: Optional[str] = Field(
+        default=None,
+        title="VAPID contact address",
+        description=(
+            "Contact address for the push services this instance calls, in case one needs "
+            "to reach an operator about abuse. Required when NOTIFY_PUSH_ENABLED is true. "
+            "Becomes the VAPID JWT's `sub` claim as `mailto:<address>`."
+        ),
+        examples=["admin@example.com"],
+    )
+    NOTIFY_PUSH_CONTENT_MODE: Literal["full", "minimal"] = Field(
+        default="minimal",
+        title="How much push notifications reveal",
+        description=(
+            "`full` names the card and the person who acted, `minimal` only says that "
+            "something happened and links back to the app. Independent of "
+            "NOTIFY_EMAIL_CONTENT_MODE and defaults to `minimal`: a push notification sits "
+            "on a lock screen, which can be visible to anyone near the device, a more "
+            "exposed surface than an email behind an inbox app's own unlock."
+        ),
+        examples=["full", "minimal"],
+    )
+    NOTIFY_PUSH_TTL_SECONDS: int = Field(
+        default=86400,
+        title="Push message time-to-live (seconds)",
+        description=(
+            "How long a push service should hold a message for a device that is offline, "
+            "before giving up on delivering it. Maps to the Web Push `TTL` header."
+        ),
+    )
+    NOTIFY_PUSH_MAX_PER_USER_PER_HOUR: int = Field(
+        default=20,
+        title="Maximum push notifications per user per hour",
+        description=(
+            "A blunt backstop against flooding a single recipient's devices. Messages over "
+            "the limit are dropped rather than queued forever. A phone buzzing repeatedly is "
+            "a worse experience than a full inbox, so this exists even though the equivalent "
+            "email limit is rarely hit."
+        ),
+    )
+
     # ── Local (username + password) authentication ────────────────────────────
     AUTH_BASIC_LOGIN_IS_ENABLED: bool = Field(
         default=True,
@@ -946,6 +1022,48 @@ class Config(BaseSettings):
         from checkcheckserver.notify import templating as _templating
 
         _templating.check_all_templates(self)
+        return self
+
+    @model_validator(mode="after")
+    def _validate_push(self) -> "Config":
+        """Reject a half-configured push setup at startup, not on first delivery.
+
+        Same reasoning as ``_resolve_and_validate_email``: a queued push message
+        can only fail once per row, in a background task where nobody is looking,
+        so a missing or malformed VAPID key must stop the instance from starting
+        instead.
+        """
+        if not self.NOTIFY_PUSH_ENABLED:
+            return self
+
+        missing = [
+            name
+            for name, value in (
+                ("VAPID_PUBLIC_KEY", self.VAPID_PUBLIC_KEY),
+                ("VAPID_PRIVATE_KEY", self.VAPID_PRIVATE_KEY),
+                ("VAPID_CONTACT_EMAIL", self.VAPID_CONTACT_EMAIL),
+            )
+            if not value
+        ]
+        if missing:
+            raise ValueError(
+                "NOTIFY_PUSH_ENABLED is true but "
+                f"{', '.join(missing)} {'is' if len(missing) == 1 else 'are'} not set. "
+                "Generate a key pair with ./gen_vapid_keys.sh, or set NOTIFY_PUSH_ENABLED "
+                "to false."
+            )
+
+        from checkcheckserver.notify import push as _push
+
+        try:
+            _push.validate_vapid_keys(
+                public_key=self.VAPID_PUBLIC_KEY,
+                private_key=self.VAPID_PRIVATE_KEY.get_secret_value(),
+            )
+        except ValueError as exc:
+            raise ValueError(
+                f"VAPID_PUBLIC_KEY / VAPID_PRIVATE_KEY are not a usable key pair: {exc}"
+            ) from exc
         return self
 
     def get_server_url(self) -> str:

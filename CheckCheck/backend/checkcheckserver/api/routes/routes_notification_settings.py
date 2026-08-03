@@ -1,6 +1,6 @@
 """Notification settings API (self-service, ``/user/me/notification-settings``).
 
-Six endpoints:
+Nine endpoints:
 
 * ``GET`` returns the **effective** preference matrix, which is what the user's
   own choices, the instance defaults and the administrator's caps add up to,
@@ -8,9 +8,15 @@ Six endpoints:
   each entry would fall back to, which entries are locked and why).
 * ``PUT`` writes a partial patch of that matrix, plus the time zone and the
   webhook target.
-* ``POST .../test-email`` queues a message to the caller's own address, and
-  ``POST .../test-webhook`` a request to their own endpoint, so either delivery
-  path can be checked by hand on a real instance.
+* ``POST .../test-email`` queues a message to the caller's own address,
+  ``POST .../test-webhook`` a request to their own endpoint, and
+  ``POST .../test-push`` a push to every one of their own subscribed devices,
+  so any delivery path can be checked by hand on a real instance.
+* ``POST``/``GET``/``DELETE .../push-subscriptions`` register, list and remove
+  a browser or installed PWA's Web Push subscription (chunk P1 of
+  ``docs/plans/SYSTEM_NOTIFICATIONS.md``). Unlike the webhook target, a user
+  can have several devices, so these are their own small table rather than a
+  field on the settings row.
 * ``GET`` and ``POST /notifications/unsubscribe`` are the link at the bottom of
   every message. They are **public**: a mail client has no session. See the
   section further down for why the acting half is the ``POST``.
@@ -36,6 +42,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 from checkcheckserver.api.auth.security import get_current_user
 from checkcheckserver.config import Config
+from checkcheckserver.db import push_subscription as push_subscription_db
 from checkcheckserver.db._session import get_async_session
 from checkcheckserver.db.user import User
 from checkcheckserver.db.user_notification_settings import (
@@ -158,6 +165,9 @@ class NotificationSettings(BaseModel):
     webhook_enabled: bool = Field(
         description="Whether this instance allows per-user webhooks at all."
     )
+    push_enabled: bool = Field(
+        description="Whether this instance can send push notifications at all."
+    )
 
 
 class NotificationSettingsUpdate(BaseModel):
@@ -227,6 +237,7 @@ def _settings_response(
         webhook_url=settings.webhook_url if settings else None,
         email_enabled=bool(cfg.EMAIL_ENABLED),
         webhook_enabled=bool(cfg.NOTIFY_WEBHOOK_ENABLED),
+        push_enabled=bool(cfg.NOTIFY_PUSH_ENABLED),
     )
 
 
@@ -480,6 +491,221 @@ async def send_test_webhook(
     nudge()
     return TestWebhookResult(
         queued_id=row.id, url=settings.webhook_url, queued_at=row.created_at
+    )
+
+
+# ── push subscriptions ───────────────────────────────────────────────────────
+#
+# A user can have several devices, unlike the single webhook_url, so these are
+# their own small table (``push_subscription``) rather than a field on the
+# settings row. See docs/plans/SYSTEM_NOTIFICATIONS.md section 6.
+
+
+class PushSubscriptionKeys(BaseModel):
+    p256dh: str = Field(
+        max_length=255, description="The subscription's public key (base64url)."
+    )
+    auth: str = Field(
+        max_length=255, description="The subscription's auth secret (base64url)."
+    )
+
+
+class PushSubscriptionRegister(BaseModel):
+    """The shape ``PushSubscription.toJSON()`` produces in the browser."""
+
+    endpoint: str = Field(
+        max_length=1024, description="The push service URL for this subscription."
+    )
+    keys: PushSubscriptionKeys
+    user_agent: Optional[str] = Field(
+        default=None,
+        max_length=512,
+        description="The browser's user agent, for labelling this device later.",
+    )
+
+
+class PushSubscriptionInfo(BaseModel):
+    id: uuid.UUID
+    endpoint: str = Field(
+        description=(
+            "The subscription's own endpoint URL, so the client can tell which row "
+            "is 'this device' by comparing it to its own current subscription."
+        )
+    )
+    user_agent: Optional[str] = None
+    created_at: datetime.datetime
+    last_seen_at: datetime.datetime
+
+
+@fast_api_notification_settings_router.post(
+    "/user/me/push-subscriptions",
+    response_model=PushSubscriptionInfo,
+    status_code=status.HTTP_201_CREATED,
+    description=(
+        "Register (or refresh) one browser or installed-PWA push subscription for the "
+        "current user. Upserts on `endpoint`, so calling this again for the same device "
+        "(the normal pattern: a page re-checks its subscription on every load) updates the "
+        "existing row instead of creating a duplicate. Returns 409 while the instance has "
+        "push switched off."
+    ),
+)
+async def register_push_subscription(
+    body: PushSubscriptionRegister,
+    current_user: User = Security(get_current_user),
+    session: AsyncSession = Depends(get_async_session),
+) -> PushSubscriptionInfo:
+    if not config.NOTIFY_PUSH_ENABLED:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="This instance does not send push notifications.",
+        )
+    row = await push_subscription_db.upsert(
+        session,
+        user_id=current_user.id,
+        endpoint=body.endpoint,
+        p256dh=body.keys.p256dh,
+        auth=body.keys.auth,
+        user_agent=body.user_agent,
+    )
+    log.debug(
+        "[notify] registered push subscription %s for user %s", row.id, current_user.id
+    )
+    return PushSubscriptionInfo(
+        id=row.id,
+        endpoint=row.endpoint,
+        user_agent=row.user_agent,
+        created_at=row.created_at,
+        last_seen_at=row.last_seen_at,
+    )
+
+
+@fast_api_notification_settings_router.get(
+    "/user/me/push-subscriptions",
+    response_model=List[PushSubscriptionInfo],
+    description="The current user's subscribed devices, for the settings dialog's device list.",
+)
+async def list_push_subscriptions(
+    current_user: User = Security(get_current_user),
+    session: AsyncSession = Depends(get_async_session),
+) -> List[PushSubscriptionInfo]:
+    rows = await push_subscription_db.list_for_user(session, current_user.id)
+    return [
+        PushSubscriptionInfo(
+            id=row.id,
+            endpoint=row.endpoint,
+            user_agent=row.user_agent,
+            created_at=row.created_at,
+            last_seen_at=row.last_seen_at,
+        )
+        for row in rows
+    ]
+
+
+@fast_api_notification_settings_router.delete(
+    "/user/me/push-subscriptions/{subscription_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    description=(
+        "Remove one of the current user's push subscriptions, for example when they turn "
+        "notifications off on that device. 404 when it does not exist or belongs to someone "
+        "else."
+    ),
+)
+async def delete_push_subscription(
+    subscription_id: uuid.UUID,
+    current_user: User = Security(get_current_user),
+    session: AsyncSession = Depends(get_async_session),
+) -> None:
+    removed = await push_subscription_db.delete_for_user(
+        session, subscription_id=subscription_id, user_id=current_user.id
+    )
+    if not removed:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="No such push subscription."
+        )
+    log.debug(
+        "[notify] removed push subscription %s for user %s",
+        subscription_id,
+        current_user.id,
+    )
+
+
+# ── the test push ────────────────────────────────────────────────────────────
+
+
+def test_push_dedupe_key(user_id: uuid.UUID) -> str:
+    return f"{user_id}:test_push"
+
+
+class TestPushResult(BaseModel):
+    queued_id: uuid.UUID = Field(
+        description="Id of the queued delivery, for support and log correlation."
+    )
+    subscription_count: int = Field(
+        description="How many of the caller's devices this will be pushed to."
+    )
+    queued_at: datetime.datetime = Field(
+        description="Naive UTC time the message entered the queue."
+    )
+
+
+@fast_api_notification_settings_router.post(
+    "/user/me/notification-settings/test-push",
+    response_model=TestPushResult,
+    status_code=status.HTTP_202_ACCEPTED,
+    description=(
+        "Queue a test push to every one of the current user's subscribed devices, to check "
+        "that the instance's push setup works. The message is sent by the background "
+        "dispatcher, so a 202 means queued, not delivered. Returns 409 when the instance has "
+        "push switched off or the account has no subscribed device, and 429 at most once a "
+        "minute."
+    ),
+)
+async def send_test_push(
+    current_user: User = Security(get_current_user),
+    session: AsyncSession = Depends(get_async_session),
+) -> TestPushResult:
+    if not config.NOTIFY_PUSH_ENABLED:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="This instance does not send push notifications.",
+        )
+    subscription_count = await push_subscription_db.count_for_user(session, current_user.id)
+    if not subscription_count:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="No device is subscribed yet, so there is nowhere to send it.",
+        )
+
+    now = naive_utc_now()
+    dedupe_key = test_push_dedupe_key(current_user.id)
+    recent = await outbox.count_recent(
+        session,
+        user_id=current_user.id,
+        dedupe_key=dedupe_key,
+        since=now - datetime.timedelta(seconds=TEST_EMAIL_RATE_LIMIT_SECONDS),
+    )
+    if recent:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="A test push was already queued in the last minute.",
+            headers={"Retry-After": str(TEST_EMAIL_RATE_LIMIT_SECONDS)},
+        )
+
+    row = await outbox.enqueue(
+        session,
+        user_id=current_user.id,
+        channel=NotificationChannel.push,
+        payload={
+            "title": f"{config.APP_NAME} test notification",
+            "body": "This is a test push notification.",
+            "url": (config.SERVER_PUBLIC_URL or "").rstrip("/") + "/",
+            "tag": dedupe_key,
+        },
+        dedupe_key=dedupe_key,
+    )
+    nudge()
+    return TestPushResult(
+        queued_id=row.id, subscription_count=subscription_count, queued_at=row.created_at
     )
 
 

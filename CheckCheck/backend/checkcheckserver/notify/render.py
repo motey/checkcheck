@@ -321,6 +321,97 @@ def webhook_body(context: dict, config: Config) -> dict:
     }
 
 
+def _minimal_push(config: Config) -> bool:
+    """Whether push notifications are in `minimal` mode.
+
+    Deliberately its own flag rather than :func:`_minimal`: decision 3 of the
+    system-notifications plan is that ``NOTIFY_PUSH_CONTENT_MODE`` is
+    independent of ``NOTIFY_EMAIL_CONTENT_MODE``, since a push notification
+    sits on a lock screen, a more exposed surface than an email behind an
+    inbox app's own unlock.
+    """
+    return config.NOTIFY_PUSH_CONTENT_MODE == "minimal"
+
+
+def _push_title(context: dict, config: Config) -> str:
+    """One short line naming what happened, for a push notification's title.
+
+    Its own wording rather than a reuse of :func:`_subject_for_one`: that one
+    is keyed to the email content mode, and a lock-screen notification has far
+    less room than an inbox subject line.
+    """
+    minimal = _minimal_push(config)
+    type = context.get("type")
+    actor = None if minimal else context.get("actor")
+    card = None if minimal else context.get("checklist_name")
+
+    if type == "reminder_due":
+        if minimal:
+            return "Reminder"
+        note = context.get("note")
+        if note:
+            return f"Reminder: {note}"
+        if card:
+            return f'Reminder: "{card}"'
+        return "Reminder"
+    if type == "card_invited":
+        if minimal:
+            return "You were invited to a card"
+        if actor and card:
+            return f'{actor} invited you to "{card}"'
+        if card:
+            return f'You were invited to "{card}"'
+        return "You were invited to a card"
+    if type == "public_link_opened":
+        if minimal:
+            return "One of your public links was opened"
+        if card:
+            return f'Your public link to "{card}" was opened'
+        return "One of your public links was opened"
+    # card_shared, and anything a later release adds without its own wording.
+    if minimal:
+        return "A card was shared with you"
+    if actor and card:
+        return f'{actor} shared "{card}" with you'
+    if card:
+        return f'"{card}" was shared with you'
+    return "A card was shared with you"
+
+
+def _push_body(context: dict, config: Config) -> str:
+    """The one-line body under the title. Empty in `minimal` mode: the title
+    already says as much as `minimal` allows, and a body would only repeat it
+    or, worse, invite padding it out with exactly the details `minimal` is
+    supposed to withhold."""
+    if _minimal_push(config):
+        return config.APP_NAME
+    type = context.get("type")
+    if type == "reminder_due":
+        card = context.get("checklist_name")
+        return f'About "{card}"' if card else "Tap to open the card."
+    return config.APP_NAME
+
+
+def push_payload(context: dict, config: Config, *, tag: str) -> dict:
+    """The ``{title, body, url, tag}`` an outbox row snapshots for the push
+    channel (plan section 3.2).
+
+    Like :func:`webhook_body`, built from the render context rather than
+    re-reading the card, and rendered once at enqueue time: by the time a
+    push row is due the card may have changed, and the message must reflect
+    what was true when the notification happened. ``tag`` is passed in rather
+    than derived here because it is the same dedupe key ``notify/schedule.py``
+    computes for email coalescing (plan section 3.2), which this module has
+    no reason to know how to build.
+    """
+    return {
+        "title": _push_title(context, config),
+        "body": _push_body(context, config),
+        "url": card_url(context, config),
+        "tag": tag,
+    }
+
+
 def _unsubscribe_url_of(payload: dict) -> Optional[str]:
     raw = (payload.get("headers") or {}).get("List-Unsubscribe")
     return raw[1:-1] if raw and raw.startswith("<") and raw.endswith(">") else raw

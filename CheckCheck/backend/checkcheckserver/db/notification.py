@@ -23,6 +23,11 @@ preference resolver. Its rules, all from section 4.1 of
 * The webhook channel follows the same resolver but none of the mail-shaped
   rules: no address to be missing, no suppression delay, no coalescing and no
   hourly cap. A user without a stored URL simply produces no row.
+* The push channel (chunk P1) is the same shape as the webhook minus the
+  fixed target: no address to be missing, no suppression delay, no
+  coalescing, but it does keep an hourly cap. A user with no subscribed
+  device simply produces no row; the fan-out across whichever devices *are*
+  subscribed happens at delivery time in ``notify/outbox.py``, not here.
 * Nothing here sends anything. Queuing is all it does, and it never raises at a
   caller: a share must not fail because a message could not be rendered.
 """
@@ -37,6 +42,7 @@ from checkcheckserver.config import Config
 from checkcheckserver.log import get_logger
 from checkcheckserver.db._base_crud import create_crud_base
 from checkcheckserver.db.sync_notification import SyncNotifiationCRUD
+from checkcheckserver.db import push_subscription
 from checkcheckserver.db.user_notification_settings import (
     get_or_create_settings,
     get_settings,
@@ -266,6 +272,16 @@ async def emit_notification(
             settings=settings,
             config=cfg,
         )
+        await _queue_push(
+            session,
+            user_id=user_id,
+            type=type_value,
+            cl_id=cl_id,
+            payload=payload,
+            notification=noti,
+            settings=settings,
+            config=cfg,
+        )
     except Exception:
         # A share, an invite or a public-link open must not fail because a
         # message could not be queued. The notification itself is already
@@ -439,6 +455,89 @@ async def _queue_webhook(
             "url": settings.webhook_url,
             "body": render.webhook_body(context, config),
         },
+        notification_id=notification.id if notification else None,
+        not_before=now,
+        commit=False,
+    )
+    await session.commit()
+
+
+async def _queue_push(
+    session,
+    *,
+    user_id: uuid.UUID,
+    type: str,
+    cl_id: Optional[uuid.UUID],
+    payload: Optional[dict],
+    notification: Optional[Notification],
+    settings: Optional[UserNotificationSettings],
+    config: Config,
+) -> None:
+    """Queue one push delivery (chunk P1 of docs/plans/SYSTEM_NOTIFICATIONS.md).
+
+    Unlike mail and the webhook, the row carries no fixed target: fan-out over
+    the recipient's ``push_subscription`` rows happens in ``notify/outbox.py``
+    at *delivery* time, not here. That is what lets a device subscribed after
+    this row is queued but before it comes due still be reached, the push
+    twin of "a subscription is not read again after it changes" simply
+    inverted (plan section 4, "no subscription, no send").
+
+    Like the webhook: no delay (the push channel only offers ``off`` and
+    ``immediate``) and no coalescing, but it does keep the hourly cap, because
+    a phone buzzing repeatedly is worse than a full inbox, unlike a receiver
+    that decided its own appetite for traffic.
+    """
+    mode = resolve_mode(settings, type, PreferenceChannel.push, config=config)
+    if mode == NotificationMode.off:
+        return
+    # `resolve_mode` already returns `off` when the instance has push switched
+    # off, so reaching here means the channel is live. What can still be
+    # missing is a subscribed device.
+    if await push_subscription.count_for_user(session, user_id) == 0:
+        log.debug(
+            "[notify] user %s has no push subscription, queueing nothing", user_id
+        )
+        return
+
+    now = _utcnow()
+    cap = config.NOTIFY_PUSH_MAX_PER_USER_PER_HOUR
+    if cap > 0:
+        recent = await outbox.count_recent_for_user(
+            session,
+            user_id=user_id,
+            channel=NotificationChannel.push,
+            since=now - datetime.timedelta(hours=1),
+        )
+        if recent >= cap:
+            log.warning(
+                "[notify] user %s is over the hourly push limit (%s), dropping a "
+                "'%s' push",
+                user_id,
+                cap,
+                type,
+            )
+            return
+
+    context = render.notification_context(
+        type=type,
+        notification_id=notification.id if notification else None,
+        cl_id=cl_id,
+        payload=payload,
+        created_at=now,
+    )
+    # The same key `notify/schedule.py` computes for email coalescing (same
+    # recipient, type and actor), reused here only as the OS-level `tag` that
+    # collapses several system notifications about the same thing into one:
+    # this row is never coalesced with another at the outbox level, since it
+    # carries no dedupe_key of its own.
+    tag = schedule.immediate_dedupe_key(
+        user_id=user_id, type=type, actor_id=(payload or {}).get("actor_id")
+    )
+    await outbox.enqueue(
+        session,
+        user_id=user_id,
+        channel=NotificationChannel.push,
+        payload=render.push_payload(context, config, tag=tag),
         notification_id=notification.id if notification else None,
         not_before=now,
         commit=False,

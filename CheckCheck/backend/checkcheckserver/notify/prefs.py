@@ -10,7 +10,7 @@ fan-out in ``emit_notification`` asks it once per (recipient, type, channel):
 **Order of precedence**, highest first (section 3.1 of the plan):
 
 1. **The instance hard-cap.** A channel whose master switch is off
-   (``EMAIL_ENABLED``, ``NOTIFY_WEBHOOK_ENABLED``) and a type listed in
+   (``EMAIL_ENABLED``, ``NOTIFY_WEBHOOK_ENABLED``, ``NOTIFY_PUSH_ENABLED``) and a type listed in
    ``NOTIFY_DISABLED_TYPES`` are ``off`` for everybody, and the API reports them
    as locked so the settings UI can say *your administrator disabled this*.
 2. **The user's own choice**, from ``UserNotificationSettings.prefs``.
@@ -75,6 +75,7 @@ class PreferenceChannel(str, enum.Enum):
     in_app = "in_app"
     email = "email"
     webhook = "webhook"
+    push = "push"
 
 
 # Which modes each channel can actually honour. A digest only means something
@@ -89,6 +90,7 @@ CHANNEL_MODES: Dict[PreferenceChannel, Tuple[NotificationMode, ...]] = {
         NotificationMode.daily,
     ),
     PreferenceChannel.webhook: (NotificationMode.off, NotificationMode.immediate),
+    PreferenceChannel.push: (NotificationMode.off, NotificationMode.immediate),
 }
 
 # Where one notification type accepts less than its channel does. Narrowing only:
@@ -123,6 +125,10 @@ CODE_DEFAULT_MODES: Dict[PreferenceChannel, NotificationMode] = {
     PreferenceChannel.in_app: NotificationMode.immediate,
     PreferenceChannel.email: NotificationMode.off,
     PreferenceChannel.webhook: NotificationMode.off,
+    # Also off by default like email/webhook, but close to moot either way: a
+    # push row is only ever enqueued for a user who already has at least one
+    # push_subscription, which is itself an opt-in act (plan section 3.2).
+    PreferenceChannel.push: NotificationMode.off,
 }
 
 # Longest IANA name is around 32 characters; the column holds 64.
@@ -194,6 +200,8 @@ def channel_enabled(channel: PreferenceChannel, config: Config) -> bool:
         return bool(config.EMAIL_ENABLED)
     if channel == PreferenceChannel.webhook:
         return bool(config.NOTIFY_WEBHOOK_ENABLED)
+    if channel == PreferenceChannel.push:
+        return bool(config.NOTIFY_PUSH_ENABLED)
     return True
 
 
@@ -208,6 +216,8 @@ def lock_reason(
     if not channel_enabled(channel, config):
         if channel == PreferenceChannel.email:
             return "This server does not send email."
+        if channel == PreferenceChannel.push:
+            return "This server does not send push notifications."
         return "This server does not send webhooks."
     if type in (config.NOTIFY_DISABLED_TYPES or []):
         return "An administrator disabled this kind of notification on this server."

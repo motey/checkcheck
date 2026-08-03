@@ -1041,6 +1041,132 @@ When false, webhook URLs resolving to loopback, link-local or private network ra
 
 ---
 
+## `NOTIFY_PUSH_ENABLED`
+
+*Enable push notifications*
+
+Master switch for the push channel. When false the server never sends a push message, no subscription can be created, and the push column of the notification settings is hidden in the UI. When true, VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY and VAPID_CONTACT_EMAIL are required, checked at startup. Generate a key pair with ./gen_vapid_keys.sh.
+
+| Property | Value |
+|---|---|
+| Type | bool |
+| Required | No |
+| Default | `false` |
+| Environment variable | `NOTIFY_PUSH_ENABLED` |
+
+---
+
+## `VAPID_PUBLIC_KEY`
+
+*VAPID public key*
+
+The application server's public key, base64url-encoded. Required when NOTIFY_PUSH_ENABLED is true. Not a secret: served to the client through /api/public-config, which is what lets a browser subscribe. Generate with ./gen_vapid_keys.sh.
+
+| Property | Value |
+|---|---|
+| Type | str |
+| Required | No |
+| Default | `null` |
+| Environment variable | `VAPID_PUBLIC_KEY` |
+
+---
+
+## `VAPID_PRIVATE_KEY`
+
+*VAPID private key*
+
+The application server's private key, base64url-encoded. Required when NOTIFY_PUSH_ENABLED is true. Never leaves the server; signs the VAPID JWT that proves a push request came from this instance. Supply it through the environment rather than committing it to a config file. Generate with ./gen_vapid_keys.sh.
+
+| Property | Value |
+|---|---|
+| Type | Object |
+| Required | No |
+| Default | `null` |
+| Environment variable | `VAPID_PRIVATE_KEY` |
+
+---
+
+## `VAPID_CONTACT_EMAIL`
+
+*VAPID contact address*
+
+Contact address for the push services this instance calls, in case one needs to reach an operator about abuse. Required when NOTIFY_PUSH_ENABLED is true. Becomes the VAPID JWT's `sub` claim as `mailto:<address>`.
+
+| Property | Value |
+|---|---|
+| Type | str |
+| Required | No |
+| Default | `null` |
+| Environment variable | `VAPID_CONTACT_EMAIL` |
+
+**Examples:**
+
+```yaml
+VAPID_CONTACT_EMAIL: admin@example.com
+```
+
+---
+
+## `NOTIFY_PUSH_CONTENT_MODE`
+
+*How much push notifications reveal*
+
+`full` names the card and the person who acted, `minimal` only says that something happened and links back to the app. Independent of NOTIFY_EMAIL_CONTENT_MODE and defaults to `minimal`: a push notification sits on a lock screen, which can be visible to anyone near the device, a more exposed surface than an email behind an inbox app's own unlock.
+
+| Property | Value |
+|---|---|
+| Type | Enum |
+| Required | No |
+| Default | `"minimal"` |
+| Allowed values | `full` · `minimal` |
+| Environment variable | `NOTIFY_PUSH_CONTENT_MODE` |
+
+**Examples:**
+
+*Example 1:*
+
+```yaml
+NOTIFY_PUSH_CONTENT_MODE: full
+```
+
+*Example 2:*
+
+```yaml
+NOTIFY_PUSH_CONTENT_MODE: minimal
+```
+
+---
+
+## `NOTIFY_PUSH_TTL_SECONDS`
+
+*Push message time-to-live (seconds)*
+
+How long a push service should hold a message for a device that is offline, before giving up on delivering it. Maps to the Web Push `TTL` header.
+
+| Property | Value |
+|---|---|
+| Type | int |
+| Required | No |
+| Default | `86400` |
+| Environment variable | `NOTIFY_PUSH_TTL_SECONDS` |
+
+---
+
+## `NOTIFY_PUSH_MAX_PER_USER_PER_HOUR`
+
+*Maximum push notifications per user per hour*
+
+A blunt backstop against flooding a single recipient's devices. Messages over the limit are dropped rather than queued forever. A phone buzzing repeatedly is a worse experience than a full inbox, so this exists even though the equivalent email limit is rarely hit.
+
+| Property | Value |
+|---|---|
+| Type | int |
+| Required | No |
+| Default | `20` |
+| Environment variable | `NOTIFY_PUSH_MAX_PER_USER_PER_HOUR` |
+
+---
+
 ## `AUTH_BASIC_LOGIN_IS_ENABLED`
 
 *Enable local login*

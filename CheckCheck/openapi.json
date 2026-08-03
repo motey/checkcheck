@@ -1164,6 +1164,151 @@
         ]
       }
     },
+    "/api/user/me/push-subscriptions": {
+      "get": {
+        "tags": [
+          "Notifications"
+        ],
+        "summary": "List Push Subscriptions",
+        "description": "The current user's subscribed devices, for the settings dialog's device list.",
+        "operationId": "list_push_subscriptions_api_user_me_push_subscriptions_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/PushSubscriptionInfo"
+                  },
+                  "type": "array",
+                  "title": "Response List Push Subscriptions Api User Me Push Subscriptions Get"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "Notifications"
+        ],
+        "summary": "Register Push Subscription",
+        "description": "Register (or refresh) one browser or installed-PWA push subscription for the current user. Upserts on `endpoint`, so calling this again for the same device (the normal pattern: a page re-checks its subscription on every load) updates the existing row instead of creating a duplicate. Returns 409 while the instance has push switched off.",
+        "operationId": "register_push_subscription_api_user_me_push_subscriptions_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PushSubscriptionRegister"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PushSubscriptionInfo"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/user/me/push-subscriptions/{subscription_id}": {
+      "delete": {
+        "tags": [
+          "Notifications"
+        ],
+        "summary": "Delete Push Subscription",
+        "description": "Remove one of the current user's push subscriptions, for example when they turn notifications off on that device. 404 when it does not exist or belongs to someone else.",
+        "operationId": "delete_push_subscription_api_user_me_push_subscriptions__subscription_id__delete",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "subscription_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Subscription Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/user/me/notification-settings/test-push": {
+      "post": {
+        "tags": [
+          "Notifications"
+        ],
+        "summary": "Send Test Push",
+        "description": "Queue a test push to every one of the current user's subscribed devices, to check that the instance's push setup works. The message is sent by the background dispatcher, so a 202 means queued, not delivered. Returns 409 when the instance has push switched off or the account has no subscribed device, and 429 at most once a minute.",
+        "operationId": "send_test_push_api_user_me_notification_settings_test_push_post",
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TestPushResult"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
     "/api/notifications/unsubscribe": {
       "get": {
         "tags": [
@@ -8024,13 +8169,19 @@
             "type": "boolean",
             "title": "Webhook Enabled",
             "description": "Whether this instance allows per-user webhooks at all."
+          },
+          "push_enabled": {
+            "type": "boolean",
+            "title": "Push Enabled",
+            "description": "Whether this instance can send push notifications at all."
           }
         },
         "type": "object",
         "required": [
           "types",
           "email_enabled",
-          "webhook_enabled"
+          "webhook_enabled",
+          "push_enabled"
         ],
         "title": "NotificationSettings",
         "description": "Everything the settings dialog needs in one response."
@@ -8397,6 +8548,23 @@
             "type": "boolean",
             "title": "Webhook Enabled",
             "description": "Whether per-user notification webhooks are allowed. When false, the notification settings hide the webhook column."
+          },
+          "push_enabled": {
+            "type": "boolean",
+            "title": "Push Enabled",
+            "description": "Whether the instance can send push notifications at all. When false, the notification settings hide the push column and no subscription can be created."
+          },
+          "vapid_public_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Vapid Public Key",
+            "description": "The instance's VAPID public key, base64url-encoded. Not a secret; the client needs it as the applicationServerKey when subscribing. Null when push_enabled is false."
           }
         },
         "type": "object",
@@ -8409,7 +8577,8 @@
           "api_token_allow_never_expire",
           "server_version",
           "email_enabled",
-          "webhook_enabled"
+          "webhook_enabled",
+          "push_enabled"
         ],
         "title": "PublicConfig",
         "description": "The subset of server feature flags the web client needs to decide which\nsharing UI to render. Mirrors the like-named ``Config`` switches."
@@ -8707,6 +8876,104 @@
         },
         "type": "object",
         "title": "PublicLinkUpdateRequest"
+      },
+      "PushSubscriptionInfo": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "endpoint": {
+            "type": "string",
+            "title": "Endpoint",
+            "description": "The subscription's own endpoint URL, so the client can tell which row is 'this device' by comparing it to its own current subscription."
+          },
+          "user_agent": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "User Agent"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "last_seen_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Last Seen At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "endpoint",
+          "created_at",
+          "last_seen_at"
+        ],
+        "title": "PushSubscriptionInfo"
+      },
+      "PushSubscriptionKeys": {
+        "properties": {
+          "p256dh": {
+            "type": "string",
+            "maxLength": 255,
+            "title": "P256Dh",
+            "description": "The subscription's public key (base64url)."
+          },
+          "auth": {
+            "type": "string",
+            "maxLength": 255,
+            "title": "Auth",
+            "description": "The subscription's auth secret (base64url)."
+          }
+        },
+        "type": "object",
+        "required": [
+          "p256dh",
+          "auth"
+        ],
+        "title": "PushSubscriptionKeys"
+      },
+      "PushSubscriptionRegister": {
+        "properties": {
+          "endpoint": {
+            "type": "string",
+            "maxLength": 1024,
+            "title": "Endpoint",
+            "description": "The push service URL for this subscription."
+          },
+          "keys": {
+            "$ref": "#/components/schemas/PushSubscriptionKeys"
+          },
+          "user_agent": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 512
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "User Agent",
+            "description": "The browser's user agent, for labelling this device later."
+          }
+        },
+        "type": "object",
+        "required": [
+          "endpoint",
+          "keys"
+        ],
+        "title": "PushSubscriptionRegister",
+        "description": "The shape ``PushSubscription.toJSON()`` produces in the browser."
       },
       "ReminderCreate": {
         "properties": {
@@ -9157,6 +9424,34 @@
           "queued_at"
         ],
         "title": "TestEmailResult"
+      },
+      "TestPushResult": {
+        "properties": {
+          "queued_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Queued Id",
+            "description": "Id of the queued delivery, for support and log correlation."
+          },
+          "subscription_count": {
+            "type": "integer",
+            "title": "Subscription Count",
+            "description": "How many of the caller's devices this will be pushed to."
+          },
+          "queued_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Queued At",
+            "description": "Naive UTC time the message entered the queue."
+          }
+        },
+        "type": "object",
+        "required": [
+          "queued_id",
+          "subscription_count",
+          "queued_at"
+        ],
+        "title": "TestPushResult"
       },
       "TestWebhookResult": {
         "properties": {

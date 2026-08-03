@@ -51,6 +51,10 @@ dependencies = [
     # Already present transitively via FastAPI's own dependency tree; declared
     # explicitly because chunk E7 imports it directly.
     "jinja2>=3.1.2",
+    # Web Push (checkcheckserver/notify/push.py, chunk P1 of the system-notifications
+    # plan): RFC 8291 payload encryption and RFC 8292 VAPID JWT signing. Synchronous
+    # (built on requests), so the transport calls it through asyncio.to_thread.
+    "pywebpush>=2.0.0",
 ]
 dynamic = ["version"]
 version = "0.1.0"

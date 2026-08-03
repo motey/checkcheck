@@ -53,6 +53,7 @@ from sqlmodel import col, delete, func, select, update
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from checkcheckserver.config import Config, DbBackend
+from checkcheckserver.db import push_subscription
 from checkcheckserver.log import get_logger
 from checkcheckserver.model._base_model import naive_utc_now
 from checkcheckserver.model.notification import Notification
@@ -62,6 +63,15 @@ from checkcheckserver.model.notification_outbox import (
     NotificationOutboxStatus,
 )
 from checkcheckserver.notify import render
+from checkcheckserver.notify.push import (
+    OutgoingPush,
+    PermanentPushError,
+    PushDeliveryError,
+    PushSender,
+    PushSubscriptionTarget,
+    TransientPushError,
+    get_push_sender,
+)
 from checkcheckserver.notify.transports import (
     EmailTransport,
     OutgoingEmail,
@@ -157,6 +167,8 @@ async def enqueue(
         _validate_email_payload(payload)
     elif channel == NotificationChannel.webhook:
         _validate_webhook_payload(payload)
+    elif channel == NotificationChannel.push:
+        _validate_push_payload(payload)
 
     row = NotificationOutbox(
         user_id=user_id,
@@ -204,6 +216,18 @@ def _validate_webhook_payload(payload: dict) -> None:
         raise OutboxPayloadError("Webhook payload needs a 'body' object.")
 
 
+def _validate_push_payload(payload: dict) -> None:
+    """A push row carries the message, never a target: the target is a set of
+    ``push_subscription`` rows, read fresh at delivery time (see
+    ``_deliver_push``), which is exactly what lets a device that subscribes
+    after this row is queued still receive it."""
+    missing = [key for key in ("title", "body", "url") if not payload.get(key)]
+    if missing:
+        raise OutboxPayloadError(
+            f"Push payload is missing required key(s): {', '.join(missing)}"
+        )
+
+
 async def drain_once(
     session: AsyncSession,
     *,
@@ -212,6 +236,7 @@ async def drain_once(
     limit: int = DRAIN_BATCH_SIZE,
     transport: Optional[EmailTransport] = None,
     webhook_sender: Optional[WebhookSender] = None,
+    push_sender: Optional[PushSender] = None,
 ) -> DrainResult:
     """Deliver every row that is due, once.
 
@@ -226,6 +251,7 @@ async def drain_once(
     now = now or naive_utc_now()
     transport = transport or get_email_transport(config)
     webhook_sender = webhook_sender or get_webhook_sender()
+    push_sender = push_sender or get_push_sender()
     result = DrainResult()
 
     for row in await _due_rows(session, now=now, limit=limit, config=config):
@@ -241,6 +267,7 @@ async def drain_once(
             now=now,
             transport=transport,
             webhook_sender=webhook_sender,
+            push_sender=push_sender,
             result=result,
         )
     return result
@@ -318,12 +345,18 @@ async def _deliver_claimed(
     now: datetime.datetime,
     transport: EmailTransport,
     webhook_sender: WebhookSender,
+    push_sender: PushSender,
     result: DrainResult,
 ) -> None:
     """Send one claimed row, together with anything that coalesces with it."""
     if row.channel == NotificationChannel.webhook.value:
         await _deliver_webhook(
             session, row, config=config, now=now, sender=webhook_sender, result=result
+        )
+        return
+    if row.channel == NotificationChannel.push.value:
+        await _deliver_push(
+            session, row, config=config, now=now, sender=push_sender, result=result
         )
         return
     if row.channel != NotificationChannel.email.value:
@@ -461,6 +494,128 @@ async def _deliver_webhook(
     result.messages += 1
     result.ids_sent.append(row.id)
     log.debug("[notify] delivered webhook %s for user %s", row.id, row.user_id)
+
+
+async def _deliver_push(
+    session: AsyncSession,
+    row: NotificationOutbox,
+    *,
+    config: Config,
+    now: datetime.datetime,
+    sender: PushSender,
+    result: DrainResult,
+) -> None:
+    """Send one claimed push row to every device the recipient currently has
+    subscribed (chunk P1 of docs/plans/SYSTEM_NOTIFICATIONS.md).
+
+    The one channel whose target is not fixed at enqueue time: the row's
+    payload carries the message, and the ``push_subscription`` rows are read
+    fresh here, so a device that subscribed after this row was queued is
+    still reached. See ``notify/push.py``'s module docstring for the
+    per-subscription outcome rules this implements: a 404/410 removes just
+    that one subscription, everything else is a whole-row transient failure,
+    and the row is ``sent`` the moment any one device actually receives it.
+    """
+    try:
+        payload = row.payload or {}
+        _validate_push_payload(payload)
+        push = OutgoingPush(
+            title=payload["title"],
+            body=payload["body"],
+            url=payload["url"],
+            tag=payload.get("tag") or "",
+        )
+    except (OutboxPayloadError, KeyError, TypeError) as exc:
+        await _finish(
+            session, row, NotificationOutboxStatus.failed, now=now, error=str(exc)
+        )
+        result.failed += 1
+        log.warning("[notify] push %s has an unusable payload: %s", row.id, exc)
+        return
+
+    subscriptions = await push_subscription.list_for_user(session, row.user_id)
+    if not subscriptions:
+        # Zero subscriptions *at delivery time*, discovered late rather than
+        # at enqueue: the recipient simply has no device to reach right now,
+        # not an error (plan section 4, "no subscription, no send").
+        await _finish(session, row, NotificationOutboxStatus.cancelled, now=now)
+        result.cancelled += 1
+        log.debug("[notify] push %s cancelled, no subscribed device", row.id)
+        return
+
+    sent_to_any = False
+    transient_seen = False
+    notes: List[str] = []
+    for subscription in subscriptions:
+        target = PushSubscriptionTarget(
+            id=subscription.id,
+            endpoint=subscription.endpoint,
+            p256dh=subscription.p256dh,
+            auth=subscription.auth,
+        )
+        try:
+            await sender.send(push, target, config)
+        except PermanentPushError as exc:
+            # Scoped to this one subscription: delete it and keep going, it
+            # never fails the row by itself.
+            await push_subscription.delete_by_endpoint(session, subscription.endpoint)
+            notes.append(str(exc))
+            log.debug(
+                "[notify] push subscription %s is gone, removed: %s",
+                subscription.id,
+                exc,
+            )
+            continue
+        except Exception as exc:  # includes TransientPushError
+            if not isinstance(exc, TransientPushError):
+                log.exception(
+                    "[notify] unexpected error pushing to subscription %s",
+                    subscription.id,
+                )
+            transient_seen = True
+            notes.append(str(exc))
+            continue
+        sent_to_any = True
+        await push_subscription.touch(session, subscription.id)
+
+    if sent_to_any:
+        # At least one device actually got it: the row is done, even if a
+        # sibling device failed transiently on this same attempt. A device
+        # that missed out this time gets the *next* notification normally;
+        # re-delivering this one just to that device is not worth reopening
+        # the row.
+        await _finish(session, row, NotificationOutboxStatus.sent, now=now)
+        result.sent += 1
+        result.messages += 1
+        result.ids_sent.append(row.id)
+        log.debug("[notify] delivered push %s for user %s", row.id, row.user_id)
+        return
+
+    if transient_seen:
+        await _record_transient_failure(
+            session,
+            row,
+            config=config,
+            now=now,
+            error=PushDeliveryError("; ".join(notes) or "push delivery failed"),
+        )
+        if row.attempts >= config.NOTIFY_MAX_ATTEMPTS:
+            result.failed += 1
+        else:
+            result.retried += 1
+        return
+
+    # Every subscription that existed at the start of this attempt came back
+    # permanent and has already been removed above.
+    await _finish(
+        session,
+        row,
+        NotificationOutboxStatus.failed,
+        now=now,
+        error="; ".join(notes) or "Every subscription for this user is gone.",
+    )
+    result.failed += 1
+    log.warning("[notify] push %s failed, every subscription was gone", row.id)
 
 
 async def _fail_group(

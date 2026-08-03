@@ -61,6 +61,20 @@ class PublicConfig(BaseModel):
     webhook_enabled: bool = Field(
         description="Whether per-user notification webhooks are allowed. When false, the notification settings hide the webhook column.",
     )
+    push_enabled: bool = Field(
+        description=(
+            "Whether the instance can send push notifications at all. When false, the "
+            "notification settings hide the push column and no subscription can be created."
+        ),
+    )
+    vapid_public_key: Optional[str] = Field(
+        default=None,
+        description=(
+            "The instance's VAPID public key, base64url-encoded. Not a secret; the client "
+            "needs it as the applicationServerKey when subscribing. Null when push_enabled "
+            "is false."
+        ),
+    )
 
 
 def _default_api_token_expiry_days() -> Optional[int]:
@@ -98,4 +112,6 @@ async def get_public_config() -> PublicConfig:
         server_version=server_version,
         email_enabled=config.EMAIL_ENABLED,
         webhook_enabled=config.NOTIFY_WEBHOOK_ENABLED,
+        push_enabled=config.NOTIFY_PUSH_ENABLED,
+        vapid_public_key=config.VAPID_PUBLIC_KEY if config.NOTIFY_PUSH_ENABLED else None,
     )

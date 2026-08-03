@@ -42,6 +42,7 @@ class NotificationChannel(str, enum.Enum):
 
     email = "email"
     webhook = "webhook"  # a JSON POST to the user's own endpoint (chunk E6)
+    push = "push"  # Web Push to a subscribed browser/PWA (chunk P1)
 
 
 class NotificationOutboxStatus(str, enum.Enum):

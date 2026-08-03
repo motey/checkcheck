@@ -13,6 +13,7 @@ from checkcheckserver.model.notification import Notification
 from checkcheckserver.model.notification_outbox import NotificationOutbox
 from checkcheckserver.model.user_notification_settings import UserNotificationSettings
 from checkcheckserver.model.scheduled_notification import ScheduledNotification
+from checkcheckserver.model.push_subscription import PushSubscription
 from checkcheckserver.model.checklist_color_scheme import ChecklistColorScheme
 from checkcheckserver.model.checklist_item import CheckListItem
 from checkcheckserver.model.checklist_item_position import CheckListItemPosition
