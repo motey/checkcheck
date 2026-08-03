@@ -1199,7 +1199,7 @@
           "Notifications"
         ],
         "summary": "Register Push Subscription",
-        "description": "Register (or refresh) one browser or installed-PWA push subscription for the current user. Upserts on `endpoint`, so calling this again for the same device (the normal pattern: a page re-checks its subscription on every load) updates the existing row instead of creating a duplicate. Returns 409 while the instance has push switched off, and 400 when the endpoint is not an `https://` URL with a publicly routable host.",
+        "description": "Register (or refresh) one browser or installed-PWA push subscription for the current user. Upserts on `endpoint`, so calling this again for the same device (the normal pattern: a page re-checks its subscription on every load) updates the existing row instead of creating a duplicate. Returns 409 while the instance has push switched off or when the endpoint is already registered to a different account (the browser should resubscribe to get a fresh endpoint), and 400 when the endpoint is not an `https://` URL with a publicly routable host. Registering past the per-user device cap succeeds and drops the least recently used device.",
         "operationId": "register_push_subscription_api_user_me_push_subscriptions_post",
         "requestBody": {
           "content": {

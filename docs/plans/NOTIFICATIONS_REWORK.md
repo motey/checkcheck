@@ -1,6 +1,6 @@
 # Plan: notification rework (acting on the review findings)
 
-**Status:** in progress (written 2026-08-03). N1, N2 and N3 done, N4 and N5 not started.
+**Status:** in progress (written 2026-08-03). N1 to N4 done, N5 not started.
 
 **Scope:** every finding in [`NOTIFICATIONS_FINDINGS.md`](NOTIFICATIONS_FINDINGS.md), the review of
 the email (E1 to E7), date-reminder (R1 to R4) and system-notification (P1, P2) chunks on
@@ -351,12 +351,53 @@ the previous user's notifications after logout.
 | N1 email and reminder polish | **done 2026-08-03** | Findings 6, 7, 11, 12 closed. Both suites green (516 passed on Postgres, 515 on SQLite, plus the invite-flow pass). |
 | N2 push endpoint guard | **done 2026-08-03** | Finding 1 closed, test gap 2 closed. Landed **before N3**. Both suites green (533 passed on Postgres, 532 on SQLite, plus the invite-flow pass). |
 | N3 push delivery correctness | **done 2026-08-03** | Findings 2 and 9 closed, test gaps 3 and 5 closed. Both suites green (541 passed on Postgres, 540 on SQLite, plus the invite-flow pass). |
-| N4 push ownership and limits | not started | |
+| N4 push ownership and limits | **done 2026-08-03** | Findings 3, 4 and 8 closed, test gaps 1 and 4 closed. Both suites green (545 passed on Postgres, 544 on SQLite, plus the invite-flow pass). |
 | N5 frontend push lifecycle | not started | |
 
 Update this table at the end of every session, and record deviations from the plan in a short
 "N*x* notes and deviations" section below it, the way
 [`SYSTEM_NOTIFICATIONS.md`](SYSTEM_NOTIFICATIONS.md) does.
+
+### N4 notes and deviations
+
+- **The ownership check is in the store, the status code is in the route.** `upsert` raises
+  `EndpointOwnedByAnotherUser` (a plain exception in `db/push_subscription.py`) and never re-assigns
+  `user_id` on a row it did not already own. Both branches raise: the `existing is not None` one and
+  the `IntegrityError` race one, where losing the insert race to another account is the same takeover
+  arriving a millisecond later. The route is the only caller and turns it into the 409.
+- **The cap is enforced after the upsert, not before it.** `_enforce_subscription_cap` runs once the
+  row is written and evicts while the count is *over* the cap. Checking first would have needed a
+  second query to tell "this is a new device" from "this is the same device re-registering", because
+  only the first grows the count. Enforcing afterwards gets both cases right for free: a refresh
+  evicts nothing, and the row just written always has the newest `last_seen_at`, so it can never
+  evict itself. It is a `while` rather than a single delete so that lowering the constant prunes an
+  account that is already over it, instead of leaving it stuck one device above the new limit.
+- **`MAX_SUBSCRIPTIONS_PER_USER = 15` lives next to the queries that enforce it**, in
+  `db/push_subscription.py`, the `scheduled_notification.MAX_PENDING_PER_USER` precedent. The route
+  reads it through the module (`push_subscription_db.MAX_SUBSCRIPTIONS_PER_USER`) rather than
+  importing the name, which is what the rest of that file already does with this module.
+- **Eviction is user-scoped by construction.** `delete_oldest_for_user` takes the user id and orders
+  by `last_seen_at` within that user, so making room for a new device cannot take one away from
+  somebody else. It returns the row it deleted so the caller can log which one went and when it was
+  last seen; that is an `info` line, not `debug`, because it is the only trace of a device
+  disappearing for a reason that is not 404/410.
+- **The invariant N3 established is intact.** Nothing new deletes a `push_subscription` row: the
+  drain still deletes only on `PushSubscriptionGone`, and the two deliberate user-facing paths are
+  the owner's own `DELETE` and this cap eviction.
+- **`delete_by_endpoint` was replaced, not supplemented.** It had exactly one caller, so it is now
+  `delete_by_id` and `_deliver_push` passes the id it was already logging.
+- **The endpoint has two different 409s now**, and that is fine: "this instance does not send push
+  notifications" and "this device is already registered to another account" are both conflicts with
+  the server's state, and the detail strings tell them apart. The second is written to be shown to a
+  user, because unlike the first there is something they can do about it (sign out on the other
+  account, or clear this site's data). N5 owns actually surfacing it.
+- **`openapi.json` carries only the endpoint description again.** FastAPI does not add a response
+  entry for a status raised through `HTTPException`, and no response model changed, so the 409 is
+  documented in prose exactly as N2's 400 is. The frontend types were regenerated and no committed
+  frontend file moved. The version line a test run stamps into the file was put back, as before.
+- **The tree was clean at the start of this session**, unlike what the N4 handoff expected: the
+  maintainer had already committed N2 and N3 as `2df1e23`. Nothing about the work changed, but the
+  dirty files listed at the end of this session are N4's alone.
 
 ### N3 notes and deviations
 

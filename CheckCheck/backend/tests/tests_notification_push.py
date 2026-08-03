@@ -602,13 +602,13 @@ def _stub_resolver(monkeypatch, addresses):
     monkeypatch.setattr(net_guard, "resolve_addresses_sync", fake_sync)
 
 
-def _register(routes, session, user_id, endpoint):
+def _register(routes, session, user_id, endpoint, *, p256dh="p256dh", auth="auth"):
     from types import SimpleNamespace as NS
 
     return routes.register_push_subscription(
         routes.PushSubscriptionRegister(
             endpoint=endpoint,
-            keys=routes.PushSubscriptionKeys(p256dh="p256dh", auth="auth"),
+            keys=routes.PushSubscriptionKeys(p256dh=p256dh, auth=auth),
             user_agent="pytest",
         ),
         current_user=NS(id=user_id),
@@ -933,6 +933,175 @@ def test_only_a_gone_subscription_is_deleted_when_both_outcomes_happen_at_once(
     assert len(rows) == 1
     assert rows[0]["status"] == NotificationOutboxStatus.failed.value
     assert remaining_endpoints == ["https://push.example/n3-refused"]
+
+
+# ── registration ownership and limits (chunk N4, findings 3, 4 and 8) ────────
+#
+# Registration goes through the route in process, for the reason the guard
+# section above gives: over HTTP every call stops at the disabled-instance 409
+# long before it reaches any of this.
+
+
+def test_registering_an_endpoint_owned_by_another_account_is_a_409(
+    push_enabled_routes, user_factory, monkeypatch
+):
+    """The register-side twin of ``test_delete_only_removes_the_owners_own_subscription``.
+
+    An endpoint is high entropy and never disclosed cross-user, but holding one
+    is still not authorisation to move it: re-binding would stop the first
+    account's device receiving anything, with no signal anywhere, and encrypt
+    every later push for the wrong account's keys (finding 3).
+    """
+    from fastapi import HTTPException
+
+    from checkcheckserver.db import push_subscription
+
+    owner = user_factory("n4owner")
+    intruder = user_factory("n4intruder")
+    endpoint = "https://push.example/n4-contested"
+    _stub_resolver(monkeypatch, [_A_PUBLIC_ADDRESS])
+
+    async def body(session):
+        mine = await _subscribe(
+            session,
+            owner.id,
+            endpoint=endpoint,
+            p256dh="owner-p256dh",
+            auth="owner-auth",
+        )
+        with pytest.raises(HTTPException) as raised:
+            await _register(
+                push_enabled_routes,
+                session,
+                intruder.id,
+                endpoint,
+                p256dh="intruder-p256dh",
+                auth="intruder-auth",
+            )
+        after = await push_subscription.get_by_endpoint(session, endpoint)
+        intruders = await push_subscription.list_for_user(session, intruder.id)
+        return (
+            raised.value,
+            mine.id,
+            (after.id, after.user_id, after.p256dh, after.auth),
+            intruders,
+        )
+
+    error, original_id, after, intruders = _run(body)
+    assert error.status_code == 409
+    # Actionable, because there is something the user can do: this is the shared
+    # browser where somebody else was signed in before.
+    assert "another account" in error.detail
+    # Owner, keys and identity all untouched, and the intruder got nothing.
+    assert after == (original_id, owner.id, "owner-p256dh", "owner-auth")
+    assert intruders == []
+
+
+def test_re_registering_your_own_endpoint_still_upserts_in_place(
+    push_enabled_routes, user_factory, monkeypatch
+):
+    """The path every page load takes. ``test_subscribing_twice_upserts_instead_of_duplicating``
+    covers the store; this covers the route, which can now refuse."""
+    from checkcheckserver.db import push_subscription
+
+    user = user_factory("n4resub")
+    endpoint = "https://push.example/n4-mine"
+    _stub_resolver(monkeypatch, [_A_PUBLIC_ADDRESS])
+
+    async def body(session):
+        first = await _register(
+            push_enabled_routes, session, user.id, endpoint, auth="auth-1"
+        )
+        # Backdated rather than relying on two calls landing in different
+        # microseconds, so "last_seen_at moved" is a real assertion.
+        row = await push_subscription.get_by_endpoint(session, endpoint)
+        row.last_seen_at = row.last_seen_at - datetime.timedelta(hours=1)
+        session.add(row)
+        await session.commit()
+        backdated = row.last_seen_at
+
+        second = await _register(
+            push_enabled_routes, session, user.id, endpoint, auth="auth-2"
+        )
+        rows = await push_subscription.list_for_user(session, user.id)
+        return first.id, second.id, backdated, [(r.id, r.auth, r.last_seen_at) for r in rows]
+
+    first_id, second_id, backdated, rows = _run(body)
+    assert first_id == second_id
+    assert len(rows) == 1
+    row_id, auth, last_seen_at = rows[0]
+    assert row_id == first_id
+    assert auth == "auth-2"
+    assert last_seen_at > backdated
+
+
+def test_registering_past_the_cap_evicts_the_least_recently_seen_device(
+    push_enabled_routes, user_factory, monkeypatch
+):
+    """Finding 4. The call succeeds and the account stays at the cap: a device
+    list is a cache of browsers, so the stalest entry is the one to lose."""
+    from checkcheckserver.db import push_subscription
+    from checkcheckserver.db.push_subscription import MAX_SUBSCRIPTIONS_PER_USER
+    from checkcheckserver.model._base_model import naive_utc_now
+
+    user = user_factory("n4cap")
+    _stub_resolver(monkeypatch, [_A_PUBLIC_ADDRESS])
+
+    async def body(session):
+        base = naive_utc_now()
+        for index in range(MAX_SUBSCRIPTIONS_PER_USER):
+            row = await _subscribe(
+                session, user.id, endpoint=f"https://push.example/n4-cap-{index}"
+            )
+            # Explicit and distinct, so which row is "oldest" does not depend on
+            # the clock's resolution. Row 0 is the least recently seen.
+            row.last_seen_at = base - datetime.timedelta(
+                hours=MAX_SUBSCRIPTIONS_PER_USER - index
+            )
+            session.add(row)
+        await session.commit()
+
+        await _register(
+            push_enabled_routes, session, user.id, "https://push.example/n4-cap-new"
+        )
+        rows = await push_subscription.list_for_user(session, user.id)
+        return [r.endpoint for r in rows]
+
+    endpoints = _run(body)
+    assert len(endpoints) == MAX_SUBSCRIPTIONS_PER_USER
+    assert "https://push.example/n4-cap-new" in endpoints
+    # Exactly the oldest one went, and nothing else did.
+    assert "https://push.example/n4-cap-0" not in endpoints
+    assert "https://push.example/n4-cap-1" in endpoints
+    assert f"https://push.example/n4-cap-{MAX_SUBSCRIPTIONS_PER_USER - 1}" in endpoints
+
+
+def test_a_gone_subscription_is_deleted_by_id_and_its_sibling_survives(
+    push_capture, user_factory
+):
+    """Finding 8. The drain holds the row it failed to reach, so it deletes that
+    row rather than whatever currently answers to the endpoint string."""
+    from checkcheckserver.db import push_subscription
+    from checkcheckserver.model.notification import NotificationType
+    from checkcheckserver.notify.push import PushSubscriptionGone
+
+    user = user_factory("n4byid")
+
+    async def body(session):
+        dead = await _subscribe(session, user.id, endpoint="https://push.example/n4-dead")
+        alive = await _subscribe(
+            session, user.id, endpoint="https://push.example/n4-alive"
+        )
+        await _emit(session, user_id=user.id, type=NotificationType.card_shared)
+
+        push_capture.raise_for[dead.id] = PushSubscriptionGone("410 Gone")
+        await _drain(session)
+
+        remaining = await push_subscription.list_for_user(session, user.id)
+        return alive.id, [(r.id, r.endpoint) for r in remaining]
+
+    alive_id, remaining = _run(body)
+    assert remaining == [(alive_id, "https://push.example/n4-alive")]
 
 
 # ── the push payload byte budget (chunk N3, decision 2) ──────────────────────

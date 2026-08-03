@@ -571,8 +571,9 @@ async def _deliver_push(
             # The one error that deletes a device, and the clause is keyed on
             # the exact type so it stays that way (chunk N3, finding 2). Scoped
             # to this one subscription: delete it and keep going, it never fails
-            # the row by itself.
-            await push_subscription.delete_by_endpoint(session, subscription.endpoint)
+            # the row by itself. By id rather than by endpoint (chunk N4,
+            # finding 8), which is the row this loop is actually holding.
+            await push_subscription.delete_by_id(session, subscription.id)
             notes.append(str(exc))
             log.debug(
                 "[notify] push subscription %s is gone, removed: %s",

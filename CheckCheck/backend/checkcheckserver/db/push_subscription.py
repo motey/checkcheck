@@ -21,6 +21,25 @@ from checkcheckserver.model.push_subscription import PushSubscription
 log = get_logger()
 
 
+# How many devices one account may keep subscribed at once. A module constant in
+# the ``scheduled_notification.MAX_PENDING_PER_USER`` style rather than a setting:
+# it exists so one account cannot fill the table and stall the dispatcher loop
+# everybody's mail also goes through (finding 4 of the notification review), not
+# so an operator can tune it. Generous on purpose, a user with a desktop, a
+# laptop, a phone and a tablet, each with two browsers, is still well under it.
+MAX_SUBSCRIPTIONS_PER_USER = 15
+
+
+class EndpointOwnedByAnotherUser(Exception):
+    """Raised by ``upsert`` when *endpoint* already belongs to a different account.
+
+    Possession of an endpoint is not authorisation to take it over: re-binding it
+    would silently stop the other account's device receiving push, and from then
+    on encrypt for the wrong keys (finding 3). The route turns this into a 409 and
+    the browser resubscribes to get a fresh endpoint.
+    """
+
+
 async def list_for_user(
     session: AsyncSession, user_id: uuid.UUID
 ) -> List[PushSubscription]:
@@ -58,10 +77,17 @@ async def upsert(
     A concurrent first subscribe from two tabs can lose the insert race; the
     loser reads the winner's row back and updates it, the same pattern
     ``get_or_create_settings`` uses.
+
+    Raises ``EndpointOwnedByAnotherUser`` if the endpoint is already somebody
+    else's. ``user_id`` is never re-assigned on an existing row, in either the
+    plain path or the race path below: an endpoint belongs to the account that
+    first registered it until that account (or a 404/410 from the push service)
+    lets it go.
     """
     existing = await get_by_endpoint(session, endpoint)
     if existing is not None:
-        existing.user_id = user_id
+        if existing.user_id != user_id:
+            raise EndpointOwnedByAnotherUser()
         existing.p256dh = p256dh
         existing.auth = auth
         existing.user_agent = user_agent
@@ -86,7 +112,11 @@ async def upsert(
         winner = await get_by_endpoint(session, endpoint)
         if winner is None:
             raise
-        winner.user_id = user_id
+        if winner.user_id != user_id:
+            # The same rule as above, and the easy one to miss: losing the insert
+            # race to another account is exactly the takeover the check exists
+            # for, it just arrived a millisecond later.
+            raise EndpointOwnedByAnotherUser()
         winner.p256dh = p256dh
         winner.auth = auth
         winner.user_agent = user_agent
@@ -116,10 +146,41 @@ async def delete_for_user(
     return bool(removed)
 
 
-async def delete_by_endpoint(session: AsyncSession, endpoint: str) -> None:
-    """Drop a subscription the push service reported as gone (404/410)."""
-    await session.exec(delete(PushSubscription).where(PushSubscription.endpoint == endpoint))
+async def delete_by_id(session: AsyncSession, subscription_id: uuid.UUID) -> None:
+    """Drop a subscription the push service reported as gone (404/410).
+
+    By primary key rather than by endpoint (finding 8): the caller is holding the
+    row it just failed to reach, and the endpoint is only a second way of naming
+    the same thing that stops being the same thing the moment the row changes
+    underneath the drain.
+    """
+    await session.exec(
+        delete(PushSubscription).where(col(PushSubscription.id) == subscription_id)
+    )
     await session.commit()
+
+
+async def delete_oldest_for_user(
+    session: AsyncSession, user_id: uuid.UUID
+) -> Optional[PushSubscription]:
+    """Drop *user_id*'s least recently seen device, and return it for logging.
+
+    Scoped to the one user, so making room for a new device can never take one
+    away from somebody else. Returns ``None`` when the user has no device left,
+    which only happens if a concurrent delete got there first.
+    """
+    query = (
+        select(PushSubscription)
+        .where(PushSubscription.user_id == user_id)
+        .order_by(col(PushSubscription.last_seen_at))
+        .limit(1)
+    )
+    oldest = (await session.exec(query)).one_or_none()
+    if oldest is None:
+        return None
+    await session.delete(oldest)
+    await session.commit()
+    return oldest
 
 
 async def touch(session: AsyncSession, subscription_id: uuid.UUID) -> None:

@@ -545,6 +545,39 @@ class PushSubscriptionInfo(BaseModel):
     last_seen_at: datetime.datetime
 
 
+async def _enforce_subscription_cap(session: AsyncSession, user_id: uuid.UUID) -> None:
+    """Keep *user_id* at or under ``MAX_SUBSCRIPTIONS_PER_USER`` devices.
+
+    Finding 4: without a cap one account can register an unbounded number of
+    rows, and ``_deliver_push`` walks every one of them sequentially, in-band on
+    the dispatcher tick that everybody's mail also goes through.
+
+    Eviction rather than a refusal, because this list is a cache of browsers
+    rather than anything the user authored: somebody replacing devices should not
+    have to prune a list they may not know exists, and the least recently seen
+    row is the natural one to lose. Run *after* the upsert, so a re-registration
+    of a device the user already has does not evict anything (the count did not
+    grow) and the row just written is always the most recently seen, so it can
+    never evict itself. A loop rather than one delete so that lowering the
+    constant prunes an account that is already over it.
+    """
+    while (
+        await push_subscription_db.count_for_user(session, user_id)
+        > push_subscription_db.MAX_SUBSCRIPTIONS_PER_USER
+    ):
+        evicted = await push_subscription_db.delete_oldest_for_user(session, user_id)
+        if evicted is None:
+            return
+        log.info(
+            "[notify] user %s is at the %s device cap, dropped least recently used "
+            "push subscription %s (last seen %s)",
+            user_id,
+            push_subscription_db.MAX_SUBSCRIPTIONS_PER_USER,
+            evicted.id,
+            evicted.last_seen_at,
+        )
+
+
 @fast_api_notification_settings_router.post(
     "/user/me/push-subscriptions",
     response_model=PushSubscriptionInfo,
@@ -554,8 +587,10 @@ class PushSubscriptionInfo(BaseModel):
         "current user. Upserts on `endpoint`, so calling this again for the same device "
         "(the normal pattern: a page re-checks its subscription on every load) updates the "
         "existing row instead of creating a duplicate. Returns 409 while the instance has "
-        "push switched off, and 400 when the endpoint is not an `https://` URL with a "
-        "publicly routable host."
+        "push switched off or when the endpoint is already registered to a different "
+        "account (the browser should resubscribe to get a fresh endpoint), and 400 when "
+        "the endpoint is not an `https://` URL with a publicly routable host. Registering "
+        "past the per-user device cap succeeds and drops the least recently used device."
     ),
 )
 async def register_push_subscription(
@@ -593,14 +628,32 @@ async def register_push_subscription(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="That push endpoint's host could not be resolved.",
         )
-    row = await push_subscription_db.upsert(
-        session,
-        user_id=current_user.id,
-        endpoint=body.endpoint,
-        p256dh=body.keys.p256dh,
-        auth=body.keys.auth,
-        user_agent=body.user_agent,
-    )
+    try:
+        row = await push_subscription_db.upsert(
+            session,
+            user_id=current_user.id,
+            endpoint=body.endpoint,
+            p256dh=body.keys.p256dh,
+            auth=body.keys.auth,
+            user_agent=body.user_agent,
+        )
+    except push_subscription_db.EndpointOwnedByAnotherUser:
+        # Finding 3: possession of an endpoint is not authorisation to re-bind
+        # it. The shared-browser case this used to serve is handled properly by
+        # the unsubscribe on logout instead. The message is written for the user
+        # who hits it, because there is something they can do about it.
+        log.debug(
+            "[notify] user %s tried to register a push endpoint owned by another account",
+            current_user.id,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "This device is already registered to another account. Sign out "
+                "there, or clear this site's data in this browser, and try again."
+            ),
+        )
+    await _enforce_subscription_cap(session, current_user.id)
     log.debug(
         "[notify] registered push subscription %s for user %s", row.id, current_user.id
     )
