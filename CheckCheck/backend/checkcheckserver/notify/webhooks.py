@@ -13,6 +13,8 @@ Three things make that not so, and all three matter:
    default, and then every address a hostname resolves to must be a public
    unicast one. Checking the *hostname* would be useless: ``localtest.me``
    resolves to 127.0.0.1, and so does anything else an attacker controls DNS for.
+   The judgement itself lives in ``notify/net_guard.py``, shared with the push
+   channel so the two cannot drift.
 2. **Connect to the address that was judged.** The request goes to the resolved
    IP with the original ``Host`` header (and, over TLS, the original name as SNI,
    so certificate verification is unchanged). Otherwise a name that answers
@@ -35,10 +37,8 @@ never logged.
 
 from __future__ import annotations
 
-import asyncio
 import ipaddress
 import json
-import socket
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Protocol, runtime_checkable
 from urllib.parse import urlparse, urlunparse
@@ -48,6 +48,7 @@ import httpx
 from checkcheckserver import __version__ as server_version
 from checkcheckserver.config import Config
 from checkcheckserver.log import get_logger
+from checkcheckserver.notify import net_guard
 
 log = get_logger()
 
@@ -100,39 +101,23 @@ class OutgoingWebhook:
 # ── the guard ─────────────────────────────────────────────────────────────────
 
 
-def _is_public_address(ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
-    """Whether this server is willing to send a user's webhook to *ip*.
-
-    Everything that is not ordinary, routable unicast is refused: loopback,
-    private ranges, link-local (which is where cloud metadata services live),
-    multicast, reserved blocks and the unspecified address. An IPv4 address
-    tunnelled inside IPv6 is unwrapped first, since ``::ffff:127.0.0.1`` is
-    loopback however it is spelled.
-    """
-    if isinstance(ip, ipaddress.IPv6Address) and ip.ipv4_mapped is not None:
-        ip = ip.ipv4_mapped
-    return not (
-        ip.is_private
-        or ip.is_loopback
-        or ip.is_link_local
-        or ip.is_multicast
-        or ip.is_reserved
-        or ip.is_unspecified
-    )
+# The judgement itself is channel-agnostic and shared with the push channel.
+# Re-exported under the names this module has always used, so the guard reads
+# the same here as it did before it moved.
+_is_public_address = net_guard.is_public_address
 
 
 async def _resolve(host: str, port: int) -> List[str]:
-    """Every address *host* resolves to, as strings. Off the event loop."""
-    loop = asyncio.get_running_loop()
+    """Every address *host* resolves to, as strings. Off the event loop.
+
+    Only translates the shared resolver's failure into this channel's error
+    vocabulary: a name that does not resolve is not obviously permanent (DNS
+    breaks), so it is worth another attempt.
+    """
     try:
-        infos = await loop.getaddrinfo(
-            host, port, type=socket.SOCK_STREAM, proto=socket.IPPROTO_TCP
-        )
-    except socket.gaierror as exc:
-        # A name that does not resolve is not obviously permanent (DNS breaks),
-        # so this one is worth another attempt.
+        return await net_guard.resolve_addresses(host, port)
+    except net_guard.HostResolutionError as exc:
         raise TransientWebhookError(f"Could not resolve the webhook host: {exc}") from exc
-    return [info[4][0] for info in infos]
 
 
 @dataclass

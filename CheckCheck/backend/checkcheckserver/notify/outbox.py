@@ -68,6 +68,7 @@ from checkcheckserver.notify.push import (
     PermanentPushError,
     PushDeliveryError,
     PushSender,
+    PushSubscriptionGone,
     PushSubscriptionTarget,
     TransientPushError,
     get_push_sender,
@@ -521,8 +522,10 @@ async def _deliver_push(
     fresh here, so a device that subscribed after this row was queued is
     still reached. See ``notify/push.py``'s module docstring for the
     per-subscription outcome rules this implements: a 404/410 removes just
-    that one subscription, everything else is a whole-row transient failure,
-    and the row is ``sent`` the moment any one device actually receives it.
+    that one subscription, a refusal (the SSRF guard, or any other 4xx from
+    the push service) fails the row without touching any subscription,
+    everything else is a whole-row transient failure, and the row is ``sent``
+    the moment any one device actually receives it.
     """
     try:
         payload = row.payload or {}
@@ -553,6 +556,7 @@ async def _deliver_push(
 
     sent_to_any = False
     transient_seen = False
+    refused_seen = False
     notes: List[str] = []
     for subscription in subscriptions:
         target = PushSubscriptionTarget(
@@ -563,15 +567,34 @@ async def _deliver_push(
         )
         try:
             await sender.send(push, target, config)
-        except PermanentPushError as exc:
-            # Scoped to this one subscription: delete it and keep going, it
-            # never fails the row by itself.
+        except PushSubscriptionGone as exc:
+            # The one error that deletes a device, and the clause is keyed on
+            # the exact type so it stays that way (chunk N3, finding 2). Scoped
+            # to this one subscription: delete it and keep going, it never fails
+            # the row by itself.
             await push_subscription.delete_by_endpoint(session, subscription.endpoint)
             notes.append(str(exc))
             log.debug(
                 "[notify] push subscription %s is gone, removed: %s",
                 subscription.id,
                 exc,
+            )
+            continue
+        except PermanentPushError as exc:
+            # A refusal: the SSRF guard said no (chunk N2), or the push service
+            # answered a 4xx that is not 404/410 (chunk N3). The row below is
+            # failed and this subscription is left exactly where it is, because
+            # neither says the device is gone: a 401 is a broken VAPID key on
+            # this server, and deleting on a guard refusal would let a host that
+            # started resolving privately silently unsubscribe somebody's device.
+            #
+            # Warning rather than debug on purpose. This is the operator's only
+            # cue that push is misconfigured for the whole instance, and it used
+            # to be one debug line per silently deleted device.
+            refused_seen = True
+            notes.append(str(exc))
+            log.warning(
+                "[notify] refused to push to subscription %s: %s", subscription.id, exc
             )
             continue
         except Exception as exc:  # includes TransientPushError
@@ -611,6 +634,22 @@ async def _deliver_push(
             result.failed += 1
         else:
             result.retried += 1
+        return
+
+    if refused_seen:
+        # No device was reachable and at least one request was refused. Failing
+        # the row rather than retrying: a refused endpoint will be refused again
+        # and a rejected VAPID signature stays rejected until an operator fixes
+        # it, and the note is what tells them which one it was.
+        await _finish(
+            session,
+            row,
+            NotificationOutboxStatus.failed,
+            now=now,
+            error="; ".join(notes) or "push endpoint refused",
+        )
+        result.failed += 1
+        log.warning("[notify] push %s failed, the request was refused", row.id)
         return
 
     # Every subscription that existed at the start of this attempt came back

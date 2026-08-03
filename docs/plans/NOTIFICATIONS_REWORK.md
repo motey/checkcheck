@@ -1,6 +1,6 @@
 # Plan: notification rework (acting on the review findings)
 
-**Status:** in progress (written 2026-08-03). N1 done, N2 to N5 not started.
+**Status:** in progress (written 2026-08-03). N1, N2 and N3 done, N4 and N5 not started.
 
 **Scope:** every finding in [`NOTIFICATIONS_FINDINGS.md`](NOTIFICATIONS_FINDINGS.md), the review of
 the email (E1 to E7), date-reminder (R1 to R4) and system-notification (P1, P2) chunks on
@@ -31,6 +31,8 @@ push channel plus a small amount of email polish.
   frontend types (`bun run postinstall`). Chunks N2 and N4 both change registration responses.
 - End every session by overwriting `NEXT_SESSION.md` with a cold-start prompt and updating the
   progress table in section 9 of this document.
+- **The maintainer commits, nobody else.** A session leaves its work in the working tree: no
+  `git add`, no `git commit`, no `git push`. Report what changed and which files are dirty instead.
 
 ---
 
@@ -347,14 +349,112 @@ the previous user's notifications after logout.
 | Chunk | Status | Notes |
 |---|---|---|
 | N1 email and reminder polish | **done 2026-08-03** | Findings 6, 7, 11, 12 closed. Both suites green (516 passed on Postgres, 515 on SQLite, plus the invite-flow pass). |
-| N2 push endpoint guard | not started | |
-| N3 push delivery correctness | not started | |
+| N2 push endpoint guard | **done 2026-08-03** | Finding 1 closed, test gap 2 closed. Landed **before N3**. Both suites green (533 passed on Postgres, 532 on SQLite, plus the invite-flow pass). |
+| N3 push delivery correctness | **done 2026-08-03** | Findings 2 and 9 closed, test gaps 3 and 5 closed. Both suites green (541 passed on Postgres, 540 on SQLite, plus the invite-flow pass). |
 | N4 push ownership and limits | not started | |
 | N5 frontend push lifecycle | not started | |
 
 Update this table at the end of every session, and record deviations from the plan in a short
 "N*x* notes and deviations" section below it, the way
 [`SYSTEM_NOTIFICATIONS.md`](SYSTEM_NOTIFICATIONS.md) does.
+
+### N3 notes and deviations
+
+- **The error hierarchy, and why it is shaped that way.** `PermanentPushError` stopped being a thing
+  anything raises: it is now the base of `PushSubscriptionGone` (404/410, the only error that deletes
+  a device) and `PushEndpointRefused` (the guard's refusal from N2, plus every other 4xx). N2's
+  `PushEndpointRefused` was deliberately *not* a `PermanentPushError` so that N3 could not
+  re-introduce the delete by rearranging handlers; folding it back under a common base keeps that
+  property for a different reason. `_deliver_push`'s delete clause is keyed on the exact
+  `PushSubscriptionGone` type and the refusal clause catches the base, so the two branches cannot be
+  swapped into something destructive: catching the base first would route a gone subscription into
+  the *keep it* path, never the reverse. That is the safe direction to fail in.
+- **One refusal path, as the handoff asked.** The SSRF guard's refusal and a 401 from a push service
+  are the same event from the row's point of view and share the branch: the outbox row ends `failed`
+  with the note, no subscription is touched, and the log line is a warning. There is no third branch.
+- **Transient still wins over refused.** When one device answers 503 and another 401 in the same
+  attempt, the row retries (`transient_seen` is checked before `refused_seen`). Unchanged from N2 and
+  deliberate: the transient device may well succeed next time, and the refused one leaves its note
+  either way.
+- **The payload budget needed a floor under the body.** Truncating "the body first, then the title"
+  literally means a title that alone exceeds the budget empties the body, and
+  `_validate_push_payload` rejects a payload with an empty body: the notification would then fail to
+  queue at all, which is worse than the 413 the budget exists to prevent. So the body keeps
+  `PUSH_BODY_RESERVE_BYTES` (256) and the title takes the rest. The ordering the plan asked for is
+  intact (the body is the field that gets shortened first), it just cannot reach zero.
+- **The budget is measured, not estimated.** `_json_cost` measures a field's escaped length in the
+  serialised payload, because that is what a push service counts: one `"` in a card name costs two
+  bytes and an emoji costs twelve. Costs are additive across the fields, which is what lets the split
+  between title and body be computed rather than searched. The prefix length itself is a binary
+  search, a dozen measurements instead of a few thousand.
+- **`_push_title` still is not newline-sanitised.** N1 left it alone and so does this chunk. A
+  newline in a JSON payload is not a delivery failure the way it is in a mail header, the truncation
+  above does not care either, and giving push titles the email subject's `subject_line()` treatment
+  would change wording that P2's frontend tests assert on. Worth doing if push copy is ever revisited;
+  not worth folding into a correctness chunk.
+- **VAPID correspondence is checked where the private key is already loaded.** `validate_vapid_keys`
+  derives the public point from the loaded scalar (`Vapid02.from_string(...).public_key` in
+  uncompressed X9.62 form) and compares bytes with the configured public key. The failure message
+  names the fix (both halves from one `gen_vapid_keys.sh` run) rather than restating the check.
+  `Config`'s wrapper still prefixes it with "are not a usable key pair", which is now true.
+- **The E2E server's key pair was already a real pair**, so the new check changes nothing for
+  `run_e2e_tests.sh`. The suite's `_TEST_VAPID_PUBLIC_KEY`/`_TEST_VAPID_PRIVATE_KEY` are a genuine
+  pair too; the mismatch test needed a second pair's public half, added as
+  `_OTHER_VAPID_PUBLIC_KEY`.
+- **No endpoint or response model changed**, so `CheckCheck/openapi.json` carries only N2's
+  description line. The version string a test run stamps into it was put back.
+
+### N2 notes and deviations
+
+- **N2 landed before N3.** A refused endpoint raises `PushEndpointRefused`, which subclasses
+  `PushDeliveryError` **directly and not `PermanentPushError`**, and `_deliver_push` handles it in
+  its own `except` clause: the outbox row fails, the subscription is left exactly where it is. That
+  is deliberate rather than ordering-dependent, so N3 cannot re-introduce the delete by rearranging
+  the handlers. When N3 rewrites the classification, fold this branch in: the rule it has to keep is
+  "refused is permanent for the row, and never deletes a subscription".
+- **What moved, and what did not.** `notify/net_guard.py` holds `is_public_address`, the async and
+  blocking resolvers, the `https://` URL parse and the "every address must be public" judgement.
+  `webhooks._is_public_address` is now an alias of the shared function and `webhooks._resolve` is a
+  three-line wrapper that translates `HostResolutionError` into `TransientWebhookError`, so the
+  channel keeps its own error vocabulary. `check_webhook_target` stayed in `webhooks.py` as planned:
+  the pinned-URL rewrite and the `NOTIFY_WEBHOOK_ALLOW_PRIVATE_IPS` escape hatch are both
+  webhook-specific, and `net_guard` deliberately takes no `Config` (see the next point).
+- **`net_guard` may not import `config` or `log`.** `notify/push.py` is imported from inside
+  `Config`'s own boot validator, so anything it imports has the same restriction it does. That is
+  why the shared module uses `logging.getLogger("CheckCheck")` and has no config parameter, and why
+  an operator switch to relax the judgement (if one is ever wanted for push) would have to live in
+  the channel rather than here.
+- **A blocking resolver was added.** Registration is async (`await loop.getaddrinfo`), but the
+  delivery re-check runs inside `_send_sync`, which is already off the event loop in
+  `asyncio.to_thread`. `require_public_https_target` and `require_public_https_target_sync` share
+  the parse and the judgement and differ only in which resolver they call.
+- **The redirect limitation is stated, not papered over.** `notify/push.py`'s module docstring now
+  says in as many words that this is resolve-then-judge **without** pinning, that `pywebpush`
+  resolves the name again itself and follows redirects, and that closing the window means replacing
+  its transport. The webhook channel's three-step guard is not claimed here.
+- **What the 400 says.** `AddressRefused`'s message is written to be safe to return verbatim ("that
+  endpoint points into a private or local network"), and the addresses that caused it are logged at
+  debug inside `judge_addresses` and nowhere else. A name that does not resolve is also a 400, with
+  its own wording; it is not a `HostResolutionError`-shaped retry at registration, because there is
+  no row to retry yet.
+- **Registration is tested in-process, not over HTTP.** The live test server has
+  `NOTIFY_PUSH_ENABLED` off, so every HTTP call to the register endpoint stops at the 409 before it
+  reaches the guard. `tests_notification_push.py` swaps the route module's `config` in a fixture and
+  calls `register_push_subscription` directly, which is the same reasoning that already keeps the
+  fan-out tests out of HTTP.
+- **RFC 5737 addresses cannot be used as "public" in a test.** Python's `ipaddress` reports
+  `192.0.2.0/24`, `198.51.100.0/24` and `203.0.113.0/24` as private, so a stubbed resolver that
+  answers `203.0.113.7` is refused. The suite uses `93.184.216.34` and says why in a comment.
+- **One existing test had to be adjusted.** `test_send_sync_classifies_push_service_status_codes`
+  now stubs the resolver, because `_send_sync` judges the endpoint before it sends and would
+  otherwise never reach the classifier. Its assertions are untouched; N3 is the chunk that rewrites
+  those.
+- **No frontend change.** The new 400 reaches `usePushSubscription.enable()` through the existing
+  `catch`, which shows "Could not enable push notifications on this device." The refusal is
+  unreachable for a browser talking to a real push service (all of them are public `https://`), so
+  surfacing the server's wording was left for N5, which owns the push lifecycle UI. The regenerated
+  `openapi.json` differs only in the endpoint's description; no response schema changed, so no
+  committed frontend file moved.
 
 ### N1 notes and deviations
 

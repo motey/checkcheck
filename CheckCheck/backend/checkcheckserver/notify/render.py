@@ -31,6 +31,7 @@ that pre-fetches links mark everything read before the human ever looked.
 from __future__ import annotations
 
 import datetime
+import json
 import uuid
 from typing import Dict, List, Optional
 from urllib.parse import quote
@@ -53,6 +54,21 @@ CONTEXT_KEY = "notify"
 # An upper bound on how many notifications one message lists. Beyond this the
 # message says "and N more" and the reader opens the app instead.
 MAX_LISTED = 20
+
+# How large a push payload may be, in bytes of the JSON that ``notify/push.py``
+# hands to ``pywebpush``. The practical Web Push limit is around 4 KB *after*
+# encryption, and every push service enforces its own version of it by answering
+# 413, so the plaintext budget sits well under that with room for the encryption
+# overhead. A module constant rather than a setting (decision 2 of
+# ``docs/plans/NOTIFICATIONS_REWORK.md``): it is a property of the protocol, not
+# of a deployment, and an operator has nothing to gain by tuning it.
+PUSH_PAYLOAD_MAX_BYTES = 3072
+
+# How much of that budget the body keeps when the title would otherwise eat all
+# of it. A body is shortened before a title is, but never to nothing: the outbox
+# rejects a payload with an empty body, so truncation must not be able to turn a
+# deliverable notification into an unqueueable one.
+PUSH_BODY_RESERVE_BYTES = 256
 
 
 def notification_context(
@@ -419,13 +435,107 @@ def push_payload(context: dict, config: Config, *, tag: str) -> dict:
     than derived here because it is the same dedupe key ``notify/schedule.py``
     computes for email coalescing (plan section 3.2), which this module has
     no reason to know how to build.
+
+    Kept inside :data:`PUSH_PAYLOAD_MAX_BYTES`, so a long card name plus a long
+    reminder note arrives shortened rather than not at all.
     """
-    return {
-        "title": _push_title(context, config),
-        "body": _push_body(context, config),
-        "url": card_url(context, config),
-        "tag": tag,
-    }
+    return _within_push_budget(
+        {
+            "title": _push_title(context, config),
+            "body": _push_body(context, config),
+            "url": card_url(context, config),
+            "tag": tag,
+        }
+    )
+
+
+def _push_payload_size(payload: dict) -> int:
+    """How many bytes *payload* is on the wire, measured the way
+    ``notify/push.py`` serialises it (``json.dumps`` of the same four keys, in
+    UTF-8). Measured rather than estimated because JSON escaping is what makes
+    the difference: a quotation mark in a card name costs two bytes and an
+    emoji costs twelve."""
+    return len(json.dumps(payload).encode("utf-8"))
+
+
+def _json_cost(value: str) -> int:
+    """What *value* adds to the serialised payload: its escaped length in
+    bytes, without the quotes around it (those belong to the payload's fixed
+    part). Costs are additive, which is what lets the budget be split between
+    the title and the body without re-serialising for every candidate."""
+    return len(json.dumps(value).encode("utf-8")) - 2
+
+
+def _within_push_budget(payload: dict) -> dict:
+    """*payload*, shortened until it fits :data:`PUSH_PAYLOAD_MAX_BYTES`.
+
+    The body is given up before the title: the title is the line that says what
+    happened, so it has first claim on the budget. The body still keeps
+    :data:`PUSH_BODY_RESERVE_BYTES` of room, both because a lock-screen
+    notification with nothing under its title reads like a bug and because an
+    empty body is not a valid push payload at all
+    (``notify/outbox.py``'s ``_validate_push_payload``).
+
+    ``url`` and ``tag`` are never touched: a truncated link is a broken link,
+    and the tag is the dedupe key the service worker matches on.
+    """
+    if _push_payload_size(payload) <= PUSH_PAYLOAD_MAX_BYTES:
+        return payload
+
+    title, body = payload.get("title") or "", payload.get("body") or ""
+    # What is left for the two of them once the url, the tag and the JSON
+    # punctuation have taken their share.
+    available = PUSH_PAYLOAD_MAX_BYTES - _push_payload_size(
+        {**payload, "title": "", "body": ""}
+    )
+    if available < 2 * PUSH_BODY_RESERVE_BYTES:
+        # The url and the tag have taken so much that neither field could keep
+        # anything worth reading, which takes a SERVER_PUBLIC_URL of absurd
+        # length. Shortening them to nothing would only produce an invalid
+        # payload; this goes out as it is, and a push service answering 413
+        # fails the outbox row (chunk N3), which at least leaves a trace.
+        log.warning(
+            "[notify] a push payload's url and tag alone exceed %s bytes",
+            PUSH_PAYLOAD_MAX_BYTES,
+        )
+        return payload
+
+    payload["title"] = _clipped_to(
+        title, available - min(_json_cost(body), PUSH_BODY_RESERVE_BYTES)
+    )
+    payload["body"] = _clipped_to(body, available - _json_cost(payload["title"]))
+    log.debug(
+        "[notify] push payload shortened to %s bytes", _push_payload_size(payload)
+    )
+    return payload
+
+
+def _clipped_to(text: str, allowance: int) -> str:
+    """The longest prefix of *text* that costs at most *allowance* bytes, with
+    an ellipsis marking what was cut.
+
+    A binary search over the prefix length rather than a character-at-a-time
+    loop: the answer is monotone (a longer prefix never serialises shorter) and
+    the search costs a dozen measurements instead of a few thousand.
+    """
+
+    def clipped(length: int) -> str:
+        if length >= len(text):
+            return text
+        if length <= 0:
+            return ""
+        return text[:length].rstrip() + "…"
+
+    if _json_cost(text) <= allowance:
+        return text
+    low, high = 0, len(text)
+    while low < high:
+        middle = (low + high + 1) // 2
+        if _json_cost(clipped(middle)) <= allowance:
+            low = middle
+        else:
+            high = middle - 1
+    return clipped(low)
 
 
 def _unsubscribe_url_of(payload: dict) -> Optional[str]:

@@ -54,7 +54,14 @@ from checkcheckserver.log import get_logger
 from checkcheckserver.model._base_model import naive_utc_now
 from checkcheckserver.model.notification_outbox import NotificationChannel
 from checkcheckserver.model.user_notification_settings import UserNotificationSettings
-from checkcheckserver.notify import branding, outbox, prefs, templating, unsubscribe
+from checkcheckserver.notify import (
+    branding,
+    net_guard,
+    outbox,
+    prefs,
+    templating,
+    unsubscribe,
+)
 from checkcheckserver.notify.dispatcher import lifespan as dispatcher_lifespan
 from checkcheckserver.notify.dispatcher import nudge
 from checkcheckserver.notify.prefs import (
@@ -547,7 +554,8 @@ class PushSubscriptionInfo(BaseModel):
         "current user. Upserts on `endpoint`, so calling this again for the same device "
         "(the normal pattern: a page re-checks its subscription on every load) updates the "
         "existing row instead of creating a duplicate. Returns 409 while the instance has "
-        "push switched off."
+        "push switched off, and 400 when the endpoint is not an `https://` URL with a "
+        "publicly routable host."
     ),
 )
 async def register_push_subscription(
@@ -559,6 +567,31 @@ async def register_push_subscription(
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="This instance does not send push notifications.",
+        )
+    # The endpoint is a URL this server will later POST to, chosen by whoever is
+    # calling: unguarded it is a server-side request forgery primitive, exactly
+    # the threat notify/webhooks.py defends against. Judged before the upsert, so
+    # a refused endpoint never becomes a row (finding 1 of the notification
+    # review). It is judged again at delivery, because a host can change what it
+    # resolves to afterwards.
+    try:
+        await net_guard.require_public_https_target(
+            body.endpoint, what=f"push subscription for user {current_user.id}"
+        )
+    except net_guard.AddressRefused as exc:
+        # str(exc) is written to be safe to return: it names the kind of problem
+        # and never which address the host resolved to. That detail went to the
+        # debug log inside the guard, where it is the operator's and nobody
+        # else's; handing it back would make this endpoint a resolver with a
+        # verdict attached.
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+    except net_guard.HostResolutionError as exc:
+        log.debug(
+            "[notify] push endpoint for user %s did not resolve: %s", current_user.id, exc
+        )
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="That push endpoint's host could not be resolved.",
         )
     row = await push_subscription_db.upsert(
         session,
