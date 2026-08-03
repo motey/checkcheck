@@ -34,6 +34,7 @@ background tasks too (``routes_sync_notification.py``).
 import datetime
 import uuid
 from typing import Dict, List, Optional
+from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Security, status
 from fastapi.responses import HTMLResponse
@@ -820,7 +821,11 @@ async def unsubscribe_confirm(
         "Stop these emails?",
         f"You will no longer receive email about {wording}.",
         "Everything else, including the notifications inside the app, stays as it is.",
-        form_action=f"{unsubscribe.UNSUBSCRIBE_PATH}?token={token}",
+        # Percent-encoded exactly like `unsubscribe.unsubscribe_url()` does with
+        # the same value: a real token is base64url plus a dot, but it is caller
+        # controlled and this is a URL context, so the two paths must not
+        # disagree about that. Jinja's autoescape handles the HTML context.
+        form_action=f"{unsubscribe.UNSUBSCRIBE_PATH}?token={quote(token)}",
         form_label="Yes, stop these emails",
     )
 

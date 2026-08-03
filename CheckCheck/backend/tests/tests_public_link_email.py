@@ -356,6 +356,64 @@ def test_the_hourly_limit_blocks_the_next_send(mail_capture, recipient):
     assert recipient not in str(blocked)
 
 
+def test_mailing_links_out_does_not_spend_the_senders_own_inbox_allowance(
+    mail_capture, recipient
+):
+    """Finding 7 (chunk N1): the two hourly limits are about different things.
+
+    ``SHARING_PUBLIC_LINK_EMAIL_MAX_PER_HOUR`` is per sender, and stops an
+    account being a mail relay. ``NOTIFY_EMAIL_MAX_PER_USER_PER_HOUR`` protects
+    a recipient's inbox. Invitation rows are keyed on the *sender*, so before
+    this chunk a user who mailed a few links stopped receiving their own
+    notifications for the rest of the hour.
+    """
+    from checkcheckserver.model.notification import NotificationType
+    from checkcheckserver.model.notification_outbox import NotificationOutboxStatus
+
+    name = "e6ownallowance"
+    password = f"{name}_pw_secure1"
+    created = create_test_user(name, password, f"{name}@test.de")
+    user_id = uuid.UUID(created["id"])
+    token = authorize_for_access_token(name, password)
+
+    card = _create_card("N1-OwnAllowance", token)
+    link = _create_link(card["id"], token)
+
+    # Comfortably over the cap the notification below is queued under, so the
+    # old count would have dropped it.
+    for index in range(4):
+        _send(card["id"], link["id"], f"n1-{index}-{recipient}", token=token)
+
+    async def body(session):
+        from checkcheckserver.db.notification import NotificationCRUD, emit_notification
+        from checkcheckserver.db.sync_notification import SyncNotifiationCRUD
+
+        await emit_notification(
+            NotificationCRUD(session),
+            SyncNotifiationCRUD(session),
+            user_id=user_id,
+            type=NotificationType.card_shared,
+            cl_id=uuid.UUID(card["id"]),
+            payload={
+                "actor_id": str(uuid.uuid4()),
+                "actor_display_name": "Anna Analyst",
+                "checklist_name": "N1-OwnAllowance",
+            },
+            config=_config(NOTIFY_EMAIL_MAX_PER_USER_PER_HOUR=2),
+        )
+        await _drain(session)
+        return await _rows_for(session, user_id)
+
+    rows = _run(body)
+
+    notification_rows = [row for row in rows if row.notification_id is not None]
+    assert len(notification_rows) == 1
+    assert notification_rows[0].status == NotificationOutboxStatus.sent.value
+    mail = _mail_to(mail_capture, f"{name}@test.de")
+    assert len(mail) == 1
+    assert "N1-OwnAllowance" in mail[0].subject
+
+
 def test_the_gate_is_shut_on_an_instance_that_did_not_enable_it():
     """A process-level flag, so this is asserted against the dependency rather
     than over HTTP (same reason as the invite-accept flag)."""

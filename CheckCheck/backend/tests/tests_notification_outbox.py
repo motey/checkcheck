@@ -384,6 +384,62 @@ def test_permanent_failure_is_not_retried(mail_capture, admin_user_id):
     assert "550 no such mailbox" in row.last_error
 
 
+def test_a_message_that_cannot_be_built_fails_on_the_first_attempt(
+    mail_capture, admin_user_id, caplog
+):
+    """Finding 6, second half (chunk N1): a ``ValueError`` out of message
+    construction is permanent.
+
+    The mail policy refusing a header value is the case that produced it (a
+    newline in a card name, now collapsed at subject-build time), and no amount
+    of waiting turns that message into a sendable one. It still gets a stack
+    trace, because it is still a bug when it happens.
+    """
+    import logging
+
+    from checkcheckserver.model.notification_outbox import (
+        NotificationChannel,
+        NotificationOutboxStatus,
+    )
+    from checkcheckserver.notify.outbox import drain_once, enqueue
+
+    subject = _subject("unbuildable")
+    now = _epoch(2011)
+    mail_capture.raise_on_send = ValueError(
+        "Header values may not contain linefeed or carriage return characters"
+    )
+
+    async def body(session):
+        row = await enqueue(
+            session,
+            user_id=admin_user_id,
+            channel=NotificationChannel.email,
+            payload=_payload(subject),
+            not_before=now,
+        )
+        first = await drain_once(session, now=now, config=_config(NOTIFY_MAX_ATTEMPTS=6))
+        # However far in the future, it never comes back for a second attempt.
+        later = await drain_once(session, now=now + datetime.timedelta(days=7))
+        return row.id, first, later, await _reload(session, row.id)
+
+    with caplog.at_level(logging.DEBUG, logger="CheckCheck"):
+        row_id, first, later, row = _run(body)
+
+    assert first.failed == 1
+    assert later.claimed == 0
+    assert row.status == NotificationOutboxStatus.failed.value
+    assert row.attempts == 1
+    assert "linefeed" in row.last_error
+    assert _captured(mail_capture, subject) == []
+
+    traced = [
+        record
+        for record in caplog.records
+        if str(row_id) in record.getMessage() and record.exc_info
+    ]
+    assert traced, "an unbuildable message is still a bug and still gets a traceback"
+
+
 def test_concurrent_drains_do_not_double_send(mail_capture, admin_user_id):
     """Two drains racing over the same due row: exactly one may send it.
 

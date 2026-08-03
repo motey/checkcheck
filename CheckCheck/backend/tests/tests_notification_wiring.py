@@ -905,6 +905,43 @@ def test_the_unsubscribe_link_switches_exactly_one_type_off(
     assert channel("card_invited")["mode"] != "off"
 
 
+def test_the_confirmation_form_carries_the_token_back_unchanged(user_factory):
+    """Finding 11 (chunk N1): the token reaches a URL context in the form action.
+
+    It is percent-encoded there the way ``unsubscribe_url()`` already encodes the
+    same value, so the link in the message and the button on the page cannot
+    disagree about what the token is, and what comes back out of the page is
+    byte for byte what went in.
+    """
+    import html
+    import re
+    from urllib.parse import quote
+
+    from checkcheckserver.notify import unsubscribe as unsub
+
+    user = user_factory("formaction")
+
+    async def body(session):
+        from checkcheckserver.db.user_notification_settings import get_or_create_settings
+
+        settings = await get_or_create_settings(session, user.id)
+        return settings.unsubscribe_secret
+
+    secret = _run(body)
+    token = unsub.mint_token(user_id=user.id, type="card_shared", secret=secret)
+
+    shown = _unsubscribe("get", token)
+    assert shown.status_code == 200
+    action = html.unescape(re.search(r'action="([^"]*)"', shown.text).group(1))
+    # The same encoding `unsubscribe_url()` applies to the same value, so the
+    # form action is the message's link minus the origin.
+    assert action == f"{unsub.UNSUBSCRIBE_PATH}?token={quote(token)}"
+
+    carried = parse_qs(urlparse(action).query)["token"][0]
+    assert carried == token
+    assert _unsubscribe("post", carried).status_code == 200
+
+
 def test_forged_tampered_and_expired_tokens_get_the_same_neutral_page(user_factory):
     from checkcheckserver.notify import unsubscribe as unsub
 

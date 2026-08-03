@@ -38,7 +38,7 @@ from urllib.parse import quote
 from checkcheckserver.config import Config
 from checkcheckserver.log import get_logger
 from checkcheckserver.notify import branding, templating
-from checkcheckserver.notify.transports import message_id_domain
+from checkcheckserver.notify.transports import message_id_domain, subject_line
 
 
 log = get_logger()
@@ -139,6 +139,16 @@ def _note(context: dict, config: Config) -> Optional[str]:
 
 
 def _subject_for_one(context: dict, config: Config) -> str:
+    """The subject of a message about one notification, ready for the header.
+
+    The wording is built first and sanitised as a whole (:func:`subject_line`),
+    because the card name and the reminder note interpolated into it are free
+    text and a newline in either one would otherwise dead-letter the message.
+    """
+    return subject_line(_wording_for_one(context, config))
+
+
+def _wording_for_one(context: dict, config: Config) -> str:
     type = context.get("type")
     actor = _actor_name(context, config)
     card = _card_name(context, config)
@@ -170,6 +180,12 @@ def _subject_for_one(context: dict, config: Config) -> str:
 
 
 def _subject_for_many(contexts: List[dict], config: Config) -> str:
+    """The subject of a coalesced message or a digest. Sanitised like the
+    single-notification one: an actor's display name reaches this one too."""
+    return subject_line(_wording_for_many(contexts, config))
+
+
+def _wording_for_many(contexts: List[dict], config: Config) -> str:
     count = len(contexts)
     digest = contexts[0].get("digest")
     if digest in ("hourly", "daily"):

@@ -87,6 +87,30 @@ class OutgoingEmail:
     headers: Dict[str, str] = field(default_factory=dict)
 
 
+# Every C0 control character plus DEL, mapped to a space. `\r` and `\n` are the
+# two that matter (see :func:`subject_line`), the rest are in for the same reason
+# a header has no business carrying a form feed or a NUL.
+_CONTROL_CHARACTERS = {code: " " for code in list(range(0x20)) + [0x7F]}
+
+
+def subject_line(subject: str) -> str:
+    """*subject* reduced to something that can be a Subject header.
+
+    Every subject a user's text reaches is built through this. A card name and a
+    reminder note are free text, and Python's ``email.policy.default`` refuses a
+    header value containing a linefeed or a carriage return: without this, a
+    single newline pasted into a card name raises ``ValueError`` inside the
+    transport and every message about that card dead-letters. It is not header
+    injection (the policy is what stops that), it is a denial of service against
+    the recipient's mail.
+
+    Callers pass the **whole assembled subject**, not the interpolated parts, so
+    a subject template added later cannot reintroduce the hole by forgetting to
+    sanitise one of its inputs.
+    """
+    return " ".join(subject.translate(_CONTROL_CHARACTERS).split())
+
+
 def message_id_domain(config: Config) -> str:
     """The domain part of generated Message-IDs.
 

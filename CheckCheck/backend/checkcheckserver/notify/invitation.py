@@ -32,6 +32,7 @@ from checkcheckserver.config import Config
 from checkcheckserver.log import get_logger
 from checkcheckserver.model.checklist_collaborator import SharePermission
 from checkcheckserver.notify import branding, templating
+from checkcheckserver.notify.transports import subject_line
 
 
 log = get_logger()
@@ -80,6 +81,16 @@ def _card_name(checklist_name: Optional[str], config: Config) -> Optional[str]:
 
 
 def _subject(sender: Optional[str], card: Optional[str], config: Config) -> str:
+    """The invitation's subject, sanitised as a whole (:func:`subject_line`).
+
+    Same reason as ``render._subject_for_one``: the card name and the sender's
+    display name are free text, and a newline in either one would make the
+    message unsendable rather than merely ugly.
+    """
+    return subject_line(_wording(sender, card, config))
+
+
+def _wording(sender: Optional[str], card: Optional[str], config: Config) -> str:
     app_name = config.APP_NAME
     if sender and card:
         return f'{sender} shared the list "{card}" with you'

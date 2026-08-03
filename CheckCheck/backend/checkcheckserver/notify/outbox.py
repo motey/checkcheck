@@ -405,6 +405,14 @@ async def _deliver_claimed(
         await _fail_group(session, alive, now=now, error=str(exc), result=result)
         log.warning("[notify] %s permanently failed: %s", row.id, exc)
         return
+    except ValueError as exc:
+        # Message construction refused this message: a header value the email
+        # policy will not accept, most likely. Still a bug worth a stack trace,
+        # but one that cannot come out differently on the seventh attempt, so it
+        # dead-letters now instead of after six retries and growing backoff.
+        log.exception("[notify] %s cannot be turned into a message", row.id)
+        await _fail_group(session, alive, now=now, error=str(exc), result=result)
+        return
     except Exception as exc:  # includes TransientEmailError
         if not isinstance(exc, TransientEmailError):
             # Never let an unexpected error from a transport kill the dispatcher
@@ -879,18 +887,27 @@ async def count_recent_for_user(
     channel: NotificationChannel,
     since: datetime.datetime,
 ) -> int:
-    """How many deliveries a user has been queued on *channel* since *since*.
+    """How many notifications a user has been queued on *channel* since *since*.
 
-    The backstop behind ``NOTIFY_EMAIL_MAX_PER_USER_PER_HOUR``, and deliberately
-    across every dedupe key: the thing being limited is what one person's inbox
-    receives, whatever produced it. Counts queued rows rather than sent ones, so
-    a mail server that is temporarily down cannot let a flood build up behind it.
+    The backstop behind ``NOTIFY_EMAIL_MAX_PER_USER_PER_HOUR`` (and its push
+    twin), and deliberately across every dedupe key: the thing being limited is
+    what one person's inbox or lock screen receives. Counts queued rows rather
+    than sent ones, so a mail server that is temporarily down cannot let a flood
+    build up behind it.
+
+    Only rows that carry a ``notification_id`` count, which is what makes this
+    "addressed **to** this user". A public-link invitation and a test message are
+    keyed on the user who *sent* them, and counting those spent an anti-flood
+    budget that exists to protect an inbox on mail that never arrives in it.
+    Those producers have their own limits: ``SHARING_PUBLIC_LINK_EMAIL_MAX_PER_HOUR``
+    per sender, and a per-dedupe-key limit for the test message.
     """
     query = (
         select(func.count())
         .select_from(NotificationOutbox)
         .where(NotificationOutbox.user_id == user_id)
         .where(NotificationOutbox.channel == channel.value)
+        .where(col(NotificationOutbox.notification_id).is_not(None))
         .where(col(NotificationOutbox.created_at) >= since)
     )
     return (await session.exec(query)).one()

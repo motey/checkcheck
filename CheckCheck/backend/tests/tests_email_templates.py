@@ -275,6 +275,107 @@ def test_the_buttons_href_is_escaped_and_matches_the_text_parts_url():
     assert f'href="{escaped}"' in message["html_body"]
 
 
+# ── control characters in a subject (finding 6, chunk N1) ────────────────────
+
+
+def _delivered_subject(message: dict) -> str:
+    """The Subject header the transport really produces for *message*.
+
+    ``build_mime_message`` is where a subject that cannot be a header blows up:
+    ``email.policy.default`` raises ``ValueError`` on a linefeed or a carriage
+    return, and before chunk N1 that error travelled out of ``transport.send``
+    and dead-lettered the message after six attempts. Going through it here is
+    what makes these tests about delivery rather than about string shape.
+    """
+    from checkcheckserver.notify.transports import OutgoingEmail, build_mime_message
+
+    mime = build_mime_message(
+        OutgoingEmail(
+            to=message["to"],
+            subject=message["subject"],
+            text_body=message["text_body"],
+            html_body=message.get("html_body"),
+        ),
+        _config(EMAIL_FROM_ADDRESS=FROM_ADDRESS),
+    )
+    return str(mime["Subject"])
+
+
+def test_a_newline_in_a_card_name_still_delivers_as_a_single_line_subject():
+    config = _config()
+    message = render.render_email(
+        [_context("card_shared", actor="Alice", card="Groceries\nand hardware")],
+        to="recipient@example.com",
+        recipient_name="Bob",
+        unsubscribe_url=None,
+        config=config,
+    )
+
+    subject = _delivered_subject(message)
+    assert subject == 'Alice shared "Groceries and hardware" with you'
+
+
+def test_a_reminder_note_with_crlf_still_delivers_as_a_single_line_subject():
+    config = _config()
+    message = render.render_email(
+        [_context("reminder_due", note="Call the vet\r\nabout the results")],
+        to="recipient@example.com",
+        recipient_name="Bob",
+        unsubscribe_url=None,
+        config=config,
+    )
+
+    subject = _delivered_subject(message)
+    assert subject == "Reminder: Call the vet about the results"
+
+
+def test_a_coalesced_subject_is_sanitised_too():
+    """The actor's display name reaches the plural subject, so it needs the same
+    treatment as the card name in the single one."""
+    config = _config()
+    contexts = [
+        _context("card_shared", actor="Anna\r\nAnalyst", card=f"Card {index}")
+        for index in range(3)
+    ]
+    message = render.render_email(
+        contexts,
+        to="recipient@example.com",
+        recipient_name="Bob",
+        unsubscribe_url=None,
+        config=config,
+    )
+
+    assert _delivered_subject(message) == "Anna Analyst shared 3 cards with you"
+
+
+def test_an_invitation_subject_is_sanitised_and_delivers():
+    config = _config()
+    message = invitation.render_public_link_invitation(
+        to="stranger@example.com",
+        token="tok-abc",
+        permission=SharePermission.view,
+        checklist_name="Groceries\nand hardware",
+        sender_display_name="Alice",
+        personal_message=None,
+        password_protected=False,
+        config=config,
+    )
+
+    subject = _delivered_subject({**message, "to": "stranger@example.com"})
+    assert subject == 'Alice shared the list "Groceries and hardware" with you'
+
+
+def test_the_helper_collapses_every_control_character_and_whitespace_run():
+    """Sanitising the whole assembled subject, not the interpolated parts, is
+    the point: a subject template added later cannot reintroduce the hole."""
+    from checkcheckserver.notify.transports import subject_line
+
+    assert subject_line("a\r\nb") == "a b"
+    assert subject_line("a\tb\x0cc\x00d") == "a b c d"
+    assert subject_line("  spaced   out  ") == "spaced out"
+    assert subject_line("plain subject") == "plain subject"
+
+
 # ── the unsubscribe page ─────────────────────────────────────────────────────
 
 

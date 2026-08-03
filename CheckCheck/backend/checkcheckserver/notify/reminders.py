@@ -73,7 +73,7 @@ class ReminderScanResult:
 
     due: int = 0  # rows the scan looked at
     fired: int = 0  # notifications emitted
-    cancelled: int = 0  # rows whose card is gone, or whose access is
+    cancelled: int = 0  # rows whose card is gone, or whose access is revoked
     lost: int = 0  # rows another scan claimed first
 
     @property
