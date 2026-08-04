@@ -166,21 +166,23 @@ export type CellDisplay = {
 };
 
 /**
- * What this cell says under its select.
+ * What this cell has to explain, or null when it explains itself.
  *
  * A locked entry says only that, because the administrator's decision is the
- * whole story there. Otherwise the two things that can be worth saying stack:
- * what an inherited entry falls back to, and why this type offers fewer modes
- * than its channel would. The restriction wording comes from the server rather
- * than being hardcoded here, so a rule added later needs no frontend release.
+ * whole story there. Otherwise the one thing left worth saying is why this type
+ * offers fewer modes than its channel would; that wording comes from the server
+ * rather than being hardcoded here, so a rule added later needs no frontend
+ * release.
+ *
+ * An inherited cell used to carry "Following the server default (Off)." as well.
+ * It was the most repeated line in the dialog (every untouched cell of every
+ * type had one) and it said nothing the control did not: the select's own value
+ * for that state is labelled `Default (Off)`. Dropped in S2 rather than
+ * re-typeset into the grid.
  */
-function cellHint(cell: ChannelCell, inheriting: boolean): string | null {
+function cellHint(cell: ChannelCell): string | null {
   if (cell.locked) return cell.locked_reason || "Your administrator decided this.";
-  const lines = [
-    inheriting ? `Following the server default (${modeLabel(cell.default_mode)}).` : null,
-    cell.mode_restriction_reason || null,
-  ].filter(Boolean);
-  return lines.length ? lines.join(" ") : null;
+  return cell.mode_restriction_reason || null;
 }
 
 export function cellDisplay(cell: ChannelCell): CellDisplay {
@@ -199,7 +201,7 @@ export function cellDisplay(cell: ChannelCell): CellDisplay {
     disabled: cell.locked,
     inheriting,
     effectiveLabel: modeLabel(cell.mode),
-    hint: cellHint(cell, inheriting),
+    hint: cellHint(cell),
   };
 }
 

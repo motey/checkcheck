@@ -40,7 +40,10 @@ describe("cellDisplay", () => {
     const display = cellDisplay(cell({ mode: "immediate", user_choice: null, default_mode: "immediate" }));
     expect(display.value).toBe(INHERIT_VALUE);
     expect(display.inheriting).toBe(true);
-    expect(display.hint).toBe("Following the server default (As it happens).");
+    // S2: no hint for the inherit case. The select's own value is labelled
+    // "Default (As it happens)", so a line under it repeating that was the most
+    // duplicated wording in the dialog and said nothing new.
+    expect(display.hint).toBeNull();
   });
 
   it("distinguishes an explicit choice from the identical default", () => {
@@ -99,11 +102,18 @@ describe("cellDisplay", () => {
     expect(display.options.map((o) => o.value)).toEqual([INHERIT_VALUE, "off", "immediate"]);
   });
 
-  it("stacks the restriction on top of the inherit line", () => {
-    const display = cellDisplay(
+  it("says the restriction on its own, whether or not the cell inherits", () => {
+    // S2: the inherit line is gone, so a restricted cell says exactly one thing,
+    // and it says the same thing in both states. The wording comes from the
+    // server, so a rule added later needs no frontend release.
+    const inherited = cellDisplay(
       cell({ user_choice: null, default_mode: "immediate", mode_restriction_reason: "Because." })
     );
-    expect(display.hint).toBe("Following the server default (As it happens). Because.");
+    const chosen = cellDisplay(
+      cell({ user_choice: "off", default_mode: "immediate", mode_restriction_reason: "Because." })
+    );
+    expect(inherited.hint).toBe("Because.");
+    expect(chosen.hint).toBe("Because.");
   });
 
   it("says only the administrator's reason on a locked entry", () => {

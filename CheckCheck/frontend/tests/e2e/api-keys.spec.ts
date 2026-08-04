@@ -34,11 +34,26 @@ test.describe("Chunk 2 API-key manager", () => {
   });
 
   async function openApiKeysModal(page: import("@playwright/test").Page) {
-    await page.locator("[data-testid=user-menu]").click();
-    // Dropdown items teleport to the body, so locate at page level.
-    await page.locator("[data-testid=menu-api-keys]").click();
     const dialog = page.locator('[role="dialog"]').filter({ hasText: "API keys" });
+    // Since S1 the pane is a place, so a reload of /settings/api-keys brings it
+    // back on its own and there is no user menu to reach behind it. Decided on
+    // the URL rather than on the dialog being visible: right after a reload it
+    // is not painted yet, and a menu click would race the modal's own backdrop.
+    if (!page.url().includes("/settings/api-keys")) {
+      // A previous close may still be in flight: its backdrop swallows the menu
+      // click, and reopening before the router has settled the closing URL makes
+      // the open a redundant navigation the router drops. Wait for both halves
+      // of "closed" (no dialog, no pane in the URL) before reaching for the menu.
+      await expect(dialog).toBeHidden();
+      await expect(page).not.toHaveURL(/\/settings\/api-keys/);
+      await page.locator("[data-testid=user-menu]").click();
+      // Dropdown items teleport to the body, so locate at page level.
+      await page.locator("[data-testid=menu-api-keys]").click();
+    }
     await expect(dialog).toBeVisible({ timeout: 5_000 });
+    // Opening must leave a URL behind, or the back button and a shared link both
+    // stop working.
+    await expect(page).toHaveURL(/\/settings\/api-keys$/);
     return dialog;
   }
 
@@ -120,5 +135,29 @@ test.describe("Chunk 2 API-key manager", () => {
     expect(created!.expires_at_epoch_time).toBeNull();
 
     await expect(page.getByText(/Error 4\d\d/)).toHaveCount(0);
+  });
+
+  test("S1: the pane is a place: a cold URL opens it, and closing goes back to the board", async ({
+    page,
+  }) => {
+    // A link somebody was sent, or a reload: nothing clicked a menu here.
+    await page.goto("/settings/api-keys");
+    const dialog = page.locator('[role="dialog"]').filter({ hasText: "API keys" });
+    await expect(dialog).toBeVisible({ timeout: 10_000 });
+    // On top of a real board, not instead of it: the pane is an overlay.
+    await expect(page.locator("[data-testid=user-menu]")).toBeAttached();
+    // And it is loaded, not an empty shell: the cold mount has to fetch too.
+    await expect(dialog.locator("[data-testid=api-key-name-input]")).toBeVisible({
+      timeout: 10_000,
+    });
+
+    // Escape closes it, and the URL goes with it. A dialog that closes while the
+    // URL still names it cannot be reopened without navigating away first.
+    await page.keyboard.press("Escape");
+    await expect(dialog).toBeHidden({ timeout: 5_000 });
+    await expect(page).toHaveURL(/\/$/);
+
+    // Reopening from the menu still works, which is what the stale-URL bug broke.
+    await openApiKeysModal(page);
   });
 });

@@ -88,6 +88,34 @@ def _configure_env() -> None:
     os.environ["AUTH_ACCESS_TOKEN_EXPIRES_MINUTES"] = "1000"
     os.environ["LOG_LEVEL"] = "WARNING"
     os.environ["APP_PROVISIONING_DATA_YAML_FILES"] = json.dumps([str(PROVISIONING)])
+    # Notification channels, all on, mirroring e2e/start_e2e_server.py. Without
+    # them the settings dialog photographs as a single "In the app" column above
+    # the line "This server does not send email", which is the opposite of what
+    # the picture in docs/screenshots.md is for. Nothing leaves the process: the
+    # `null` mail transport discards every message, no webhook URL is ever
+    # saved, and the VAPID pair is the same throwaway the E2E harness uses (valid
+    # in shape, tied to no real push service).
+    os.environ.setdefault("EMAIL_ENABLED", "true")
+    os.environ.setdefault("EMAIL_TRANSPORT", "null")
+    os.environ.setdefault("EMAIL_FROM_ADDRESS", "checkcheck@test.de")
+    os.environ.setdefault("NOTIFY_WEBHOOK_ENABLED", "true")
+    os.environ.setdefault("NOTIFY_PUSH_ENABLED", "true")
+    os.environ.setdefault(
+        "VAPID_PUBLIC_KEY",
+        "BH-DWhYfjSH5OVS2sjII4dGEP46ueAfPWQklJ_zITJqoWtfKgjHBTDxE_X5jdPms-zR3R9b43oCqYFnxwmwk_PY",
+    )
+    os.environ.setdefault("VAPID_PRIVATE_KEY", "Mp6hqDn1uEMxJwMvqchFdkrCiID8zYUIvTwDI-rmLSA")
+    os.environ.setdefault("VAPID_CONTACT_EMAIL", "admin@test.de")
+    # Mailing a public link is off in production by default, so the "send this
+    # link by email" field would not exist to photograph. One declared internal
+    # domain comes with it, the way the E2E harness does it.
+    os.environ.setdefault("SHARING_PUBLIC_LINK_EMAIL_ENABLED", "true")
+    os.environ.setdefault(
+        "SHARING_INTERNAL_EMAIL_DOMAINS", json.dumps(["internal.example"])
+    )
+    # NOTIFY_DISABLED_TYPES is deliberately NOT set here, unlike in the E2E
+    # harness: a locked row is a state an administrator produces, and the docs
+    # walkthrough should show the dialog a normal instance has.
 
     if not os.environ.get("SETUPTOOLS_SCM_PRETEND_VERSION"):
         raise SystemExit(
@@ -96,7 +124,45 @@ def _configure_env() -> None:
         )
 
 
+# The shot of the notification settings needs a device in the push list, and the
+# browser side of that is a fake PushManager (tests/screenshots/desktop-settings.spec.ts).
+# Its endpoint has to survive the SSRF guard on POST /user/me/push-subscriptions,
+# which refuses a host that does not resolve, so the same one-name resolver shim
+# the E2E harness installs is installed here. Nothing is ever POSTed to it: no
+# notification is generated while the shots are taken.
+#
+# Kept in step with e2e/start_e2e_server.py by hand, deliberately: the two
+# harnesses share no code so neither can break the other, and a drift here fails
+# loudly (the device never appears and the shot's assertion fails).
+_FAKE_PUSH_SUFFIX = ".push.example"
+_FAKE_PUSH_ADDRESS = "93.184.216.34"
+
+
+def _install_fake_push_resolver() -> None:
+    from checkcheckserver.notify import net_guard
+
+    real_async = net_guard.resolve_addresses
+    real_sync = net_guard.resolve_addresses_sync
+
+    def _is_fake(host: str) -> bool:
+        return host.endswith(_FAKE_PUSH_SUFFIX)
+
+    async def resolve_addresses(host: str, port: int):
+        if _is_fake(host):
+            return [_FAKE_PUSH_ADDRESS]
+        return await real_async(host, port)
+
+    def resolve_addresses_sync(host: str, port: int):
+        if _is_fake(host):
+            return [_FAKE_PUSH_ADDRESS]
+        return real_sync(host, port)
+
+    net_guard.resolve_addresses = resolve_addresses
+    net_guard.resolve_addresses_sync = resolve_addresses_sync
+
+
 def _server_target() -> None:
+    _install_fake_push_resolver()
     from checkcheckserver.main import start
 
     start()

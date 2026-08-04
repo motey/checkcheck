@@ -65,6 +65,41 @@ without an account. You can also hand ownership to another collaborator.
 
 <a href="screenshots/DesktopCompactShowShareMenu.png"><img src="screenshots/DesktopCompactShowShareMenu.png" alt="The share dialog: invite people, share with a group, create a public link, transfer ownership"></a>
 
+Once a public link exists, you can mail it straight from the same dialog. The
+field says what the recipient will be able to do before you send, and warns you
+when the address looks like a colleague who would be better off with a real
+invitation.
+
+<a href="screenshots/DesktopCompactShowLinkByEmail.png"><img src="screenshots/DesktopCompactShowLinkByEmail.png" alt="Sending a public link by email from the share dialog, with the level spelled out"></a>
+
+## Being told about it
+
+Open **Notifications** from your avatar menu, or go straight to
+`/settings/notifications`. One grid says what you are told about and where: in
+the app's bell, by email, to a webhook of your own, or as a push notification on
+a device. Below it, each channel has its own setup, including the time zone your
+daily summary goes out in and a test button that proves the whole path works.
+
+<table>
+<tr>
+<td width="50%"><a href="screenshots/DesktopLightNotifications.png"><img src="screenshots/DesktopLightNotifications.png" alt="Notification settings on desktop, light theme"></a></td>
+<td width="50%"><a href="screenshots/DesktopDarkNotifications.png"><img src="screenshots/DesktopDarkNotifications.png" alt="Notification settings on desktop, dark theme"></a></td>
+</tr>
+<tr>
+<td align="center"><b>Light</b></td>
+<td align="center"><b>Dark</b></td>
+</tr>
+</table>
+
+## Remembering to do it
+
+Set a reminder on any card, once or repeating, and it reaches you through
+whichever of those channels you picked. A reminder is yours alone: nobody else
+on a shared list is told about it, and it keeps the time zone you set it in even
+if you travel.
+
+<a href="screenshots/DesktopCompactShowReminder.png"><img src="screenshots/DesktopCompactShowReminder.png" alt="A reminder set on a card, with its date and note"></a>
+
 ## On your phone
 
 The same board and editor, laid out for a small screen. Install it as a PWA and

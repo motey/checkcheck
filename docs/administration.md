@@ -79,7 +79,9 @@ as email is opt-in per instance and takes a mail server: see
 [configuration.md](configuration.md#email). Things to know when supporting users:
 
 - **Users choose their own modes**, per notification type and per channel, under
-  "Notifications" in the avatar menu. You set the instance defaults with
+  "Notifications" in the avatar menu, or straight at `/settings/notifications`
+  (the API keys pane is `/settings/api-keys`), which is worth knowing when you
+  are telling somebody where to click. You set the instance defaults with
   `NOTIFY_DEFAULT_MODES`, and you can take a type away from everybody with
   `NOTIFY_DISABLED_TYPES`, which the settings dialog then shows as locked by the
   administrator.
@@ -92,12 +94,14 @@ as email is opt-in per instance and takes a mail server: see
 - **Sending happens in a background task inside the server**
   (`NOTIFY_DISPATCH_IN_PROCESS`), not in the request, so a dead mail server slows
   nothing down. Digests are batched per user and sent in that user's timezone.
-- **A user's timezone follows the device they sign in from.** The app compares
-  the browser's own zone against the stored one on every sign-in and quietly
-  stores the difference, so a digest lands at the local hour without anyone
-  visiting the settings dialog. The trade-off is that the picker in that dialog
-  is not a pin: signing in from another zone overwrites it. Existing reminders
-  are unaffected, since each keeps the timezone it was created with.
+- **A user's timezone follows the device they sign in from.** The app stores the
+  browser's own zone the first time it sees it, so a digest lands at the local
+  hour without anyone visiting the settings dialog, and writes it again whenever
+  that device reports a different zone (somebody who has travelled). A zone the
+  user picks in the dialog is left alone until then, and existing reminders are
+  unaffected in every case, since each keeps the timezone it was created with.
+  Note that the "has this device moved" marker is per browser, so signing in on
+  a second device in another zone does move the stored value.
 - **Webhooks are off by default** and let a signed-in user make the server issue
   outbound HTTP requests, which is why the target is checked against private and
   loopback ranges on every attempt. Requests are not signed, so the URL itself is

@@ -178,8 +178,8 @@ after `NOTIFY_MAX_ATTEMPTS` and keeps those failures for
 inspection. `NOTIFY_DISPATCH_IN_PROCESS: false` switches the task off, for the
 rare case that something else drains the queue.
 
-To check a fresh setup, open the avatar menu, pick **Notifications** and use
-**Send test email**. It mails the signed-in user's own address, at most once a
+To check a fresh setup, open the avatar menu, pick **Notifications** (or go
+straight to `/settings/notifications`) and use **Send test email**. It mails the signed-in user's own address, at most once a
 minute, and nobody else gets a copy. The same thing over the API is
 `POST /api/user/me/notification-settings/test-email`.
 

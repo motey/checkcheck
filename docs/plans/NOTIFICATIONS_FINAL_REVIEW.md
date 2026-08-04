@@ -126,6 +126,15 @@ Three ways out, in rough order of how much they preserve:
 Whichever is chosen, the note and the picker's editability should agree with it.
 Not fixed here: this is a product call, not a defect with one right answer.
 
+**Resolved 2026-08-04, option 2**, alongside chunk S2 of
+[`SETTINGS_UX_REWORK.md`](SETTINGS_UX_REWORK.md), which rewrote that part of the
+dialog anyway. `utils/timezoneSync.ts` now remembers, per account and per
+browser, the device zone it last synced, and writes only when the device reports
+a different one. A zone picked in the dialog survives every reload of that
+machine; a user who travels still has their digest hour follow them. The note
+beside the picker says exactly that, and both halves have unit tests plus an
+E2E that reloads after picking a zone.
+
 ---
 
 ## 3. Low: a stored literal `"UTC"` left the picker showing nothing (fixed)
@@ -266,9 +275,10 @@ redo them:
 
 ---
 
-## 8. Working tree
+## 8. What this review changed
 
-Two fixes and their tests, uncommitted, as the standing rule requires:
+Two fixes and their tests, committed by the maintainer as `e3799e8 minor fixes`
+together with this document:
 
 * `CheckCheck/backend/checkcheckserver/notify/dispatcher.py` (section 1)
 * `CheckCheck/backend/tests/tests_notification_push.py` (one new test)

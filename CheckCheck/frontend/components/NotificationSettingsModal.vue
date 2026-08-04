@@ -4,7 +4,7 @@
     title="Notification settings"
     description="Choose what you are told about, and where."
     :ui="{
-      content: 'max-w-xl w-[calc(100vw-1rem)] sm:w-full max-h-[92dvh] rounded-2xl ring ring-default overflow-hidden',
+      content: 'max-w-5xl w-[calc(100vw-1rem)] sm:w-full max-h-[92dvh] rounded-2xl ring ring-default overflow-hidden',
       header: 'hidden',
     }"
   >
@@ -70,85 +70,178 @@
           :inert="!online"
           :class="['flex flex-col gap-5', { 'opacity-50 pointer-events-none': !online }]"
         >
-          <!-- One block per notification type, one control per channel. -->
-          <div
-            v-for="row in rows"
-            :key="row.type"
-            class="flex flex-col gap-3 rounded-lg border border-default p-3"
-            :data-testid="`notification-type-${row.type}`"
-          >
-            <div class="flex flex-col">
-              <h3 class="text-sm font-semibold">{{ row.title }}</h3>
-              <p class="text-xs text-muted">{{ row.description }}</p>
+          <!-- The matrix: what you are told about (rows) crossed with where you
+               are told (columns). Two layouts over the one `rows` computed, and
+               only ever one of them in the DOM (`v-if`, not a CSS `hidden`), so
+               a testid means exactly one element whichever is on screen.
+
+               Wide: a real grid, so each channel's title and description are
+               written once at the top of their column instead of once per type.
+               That repetition was the finding this chunk exists for. -->
+          <div v-if="wide" class="flex flex-col gap-1" data-testid="notification-matrix">
+            <div class="matrix-row grid gap-2 px-3 pb-1" :style="matrixColumns">
+              <div></div>
+              <div
+                v-for="column in columns"
+                :key="column.channel"
+                class="flex flex-col"
+                :data-testid="`notification-channel-${column.channel}`"
+              >
+                <span class="text-xs font-semibold text-highlighted">{{ column.title }}</span>
+                <span class="text-[11px] leading-tight text-muted">{{ column.description }}</span>
+              </div>
             </div>
 
-            <div class="grid gap-3 sm:grid-cols-2">
-              <div v-for="cell in row.cells" :key="cell.channel" class="flex flex-col gap-1">
-                <label class="text-xs font-medium text-highlighted">{{ cell.title }}</label>
-                <USelect
-                  :model-value="cell.value"
-                  :items="cell.options"
-                  size="sm"
-                  class="w-full"
-                  :disabled="cell.disabled || busyCell === cellKey(row.type, cell.channel)"
-                  :data-testid="`notification-mode-${row.type}-${cell.channel}`"
-                  @update:model-value="(v: ModeChoice) => onModeChange(row.type, cell.channel, v)"
-                />
-                <p
-                  v-if="cell.hint"
-                  class="flex items-start gap-1 text-xs text-muted"
-                  :data-testid="`notification-hint-${row.type}-${cell.channel}`"
-                >
-                  <UIcon
-                    v-if="cell.disabled"
-                    name="i-lucide-lock"
-                    class="mt-0.5 size-3 shrink-0"
+            <div
+              v-for="row in rows"
+              :key="row.type"
+              class="matrix-row grid items-center gap-2 rounded-lg border border-default px-3 py-2"
+              :style="matrixColumns"
+            >
+              <!-- The type description is a tooltip here, not a second line:
+                   four of them stacked was a third of the dialog's height. The
+                   stacked layout below still shows it, where there is room. -->
+              <div
+                class="min-w-0 text-sm font-medium text-highlighted"
+                :title="row.description"
+                :data-testid="`notification-type-${row.type}`"
+              >
+                {{ row.title }}
+              </div>
+              <div
+                v-for="column in columns"
+                :key="column.channel"
+                class="flex min-w-0 items-center gap-1"
+              >
+                <template v-if="cellFor(row, column.channel)">
+                  <USelect
+                    :model-value="cellFor(row, column.channel)!.value"
+                    :items="cellFor(row, column.channel)!.options"
+                    size="sm"
+                    class="min-w-0 flex-1"
+                    :aria-label="`${row.title}: ${column.title}`"
+                    :disabled="
+                      cellFor(row, column.channel)!.disabled ||
+                      busyCell === cellKey(row.type, column.channel)
+                    "
+                    :data-testid="`notification-mode-${row.type}-${column.channel}`"
+                    @update:model-value="(v: ModeChoice) => onModeChange(row.type, column.channel, v)"
                   />
-                  {{ cell.hint }}
-                </p>
+                  <!-- Decision 5: the reason moves into the cell as an icon with
+                       a tooltip, and the wording stays in the DOM (and in the
+                       accessibility tree) on the element carrying the testid. -->
+                  <span
+                    v-if="cellFor(row, column.channel)!.hint"
+                    class="shrink-0 text-muted"
+                    :title="cellFor(row, column.channel)!.hint!"
+                    :data-testid="`notification-hint-${row.type}-${column.channel}`"
+                  >
+                    <UIcon
+                      :name="
+                        cellFor(row, column.channel)!.disabled ? 'i-lucide-lock' : 'i-lucide-info'
+                      "
+                      class="block size-3.5"
+                    />
+                    <span class="sr-only">{{ cellFor(row, column.channel)!.hint }}</span>
+                  </span>
+                </template>
+                <!-- A type the server did not send this channel for: the column
+                     stays, empty, so the grid keeps its alignment. -->
               </div>
             </div>
           </div>
 
-          <!-- Email-only extras: the digest clock and a way to prove delivery.
-               Both are meaningless on an instance without mail, where every
-               email entry is locked off and the column above is not rendered. -->
-          <template v-if="emailEnabled">
-            <div class="flex flex-col gap-2 rounded-lg border border-default p-3">
-              <div class="flex flex-col">
-                <h3 class="text-sm font-semibold">Time zone</h3>
-                <p class="text-xs text-muted">
-                  When a daily summary goes out ({{ DAILY_DIGEST_WORDING }} in this zone).
-                  Hourly summaries and immediate mail ignore it.
-                </p>
+          <!-- Narrow: one block per type, the channel named per control. A four
+               column grid at 360 px is unreadable and a settings table that
+               scrolls sideways is worse than a stack. -->
+          <template v-else>
+            <div
+              v-for="row in rows"
+              :key="row.type"
+              class="flex flex-col gap-3 rounded-lg border border-default p-3"
+            >
+              <div class="flex flex-col" :data-testid="`notification-type-${row.type}`">
+                <h3 class="text-sm font-semibold">{{ row.title }}</h3>
+                <p class="text-xs text-muted">{{ row.description }}</p>
               </div>
+
+              <div class="grid gap-3 sm:grid-cols-2">
+                <div v-for="cell in row.cells" :key="cell.channel" class="flex flex-col gap-1">
+                  <label class="text-xs font-medium text-highlighted">{{ cell.title }}</label>
+                  <USelect
+                    :model-value="cell.value"
+                    :items="cell.options"
+                    size="sm"
+                    class="w-full"
+                    :disabled="cell.disabled || busyCell === cellKey(row.type, cell.channel)"
+                    :data-testid="`notification-mode-${row.type}-${cell.channel}`"
+                    @update:model-value="(v: ModeChoice) => onModeChange(row.type, cell.channel, v)"
+                  />
+                  <p
+                    v-if="cell.hint"
+                    class="flex items-start gap-1 text-xs text-muted"
+                    :data-testid="`notification-hint-${row.type}-${cell.channel}`"
+                  >
+                    <UIcon
+                      v-if="cell.disabled"
+                      name="i-lucide-lock"
+                      class="mt-0.5 size-3 shrink-0"
+                    />
+                    {{ cell.hint }}
+                  </p>
+                </div>
+              </div>
+            </div>
+          </template>
+
+          <!-- Channel setup, below the matrix rather than between the types.
+               The matrix answers "what am I told about, and where"; these answer
+               "is that channel set up at all", and they are in the same order as
+               the columns above. -->
+          <h3
+            v-if="emailEnabled || webhookEnabled || pushEnabled"
+            class="text-xs font-semibold uppercase tracking-wide text-muted"
+          >
+            Channel setup
+          </h3>
+
+          <!-- Email: the digest clock and a way to prove delivery. Both are
+               meaningless on an instance without mail, where every email entry
+               is locked off and the column above is not rendered. -->
+          <div
+            v-if="emailEnabled"
+            class="flex flex-col gap-2 rounded-lg border border-default p-3"
+            data-testid="notification-email"
+          >
+            <h4 class="text-sm font-semibold">Email</h4>
+            <div class="flex flex-col gap-1">
+              <p class="text-xs text-muted">
+                A daily summary goes out at {{ DAILY_DIGEST_WORDING }} in this zone. Hourly
+                summaries and immediate mail ignore it.
+              </p>
               <USelectMenu
                 v-model="timezone"
                 :items="timezoneOptions"
                 value-key="value"
                 size="sm"
                 class="w-full sm:w-72"
+                aria-label="Time zone"
                 :disabled="busyCell === TIMEZONE_KEY"
                 data-testid="notification-timezone"
                 @update:model-value="onTimezoneChange"
               />
-              <!-- Decision 4: every login writes this device's zone over the
-                   stored one, so a zone picked here is not a pin. Said out loud
-                   because the alternative is a user discovering it from a digest
-                   landing at the wrong hour after a trip. -->
+              <!-- S2: the zone now follows the device only when the *device's*
+                   zone changes, so a deliberate pick survives a reload of the
+                   same machine and a trip still moves the digest. Said out loud
+                   either way, because the alternative is a user discovering it
+                   from a digest landing at the wrong hour. -->
               <p class="text-xs text-muted" data-testid="notification-timezone-sync-note">
-                Kept in sync with this device: signing in from a device in another
-                zone updates this. Reminders keep the zone they were created in.
+                Follows this device when it moves to another zone. A zone you pick
+                here stays until then, and reminders keep the zone they were
+                created in.
               </p>
             </div>
-
-            <div class="flex flex-col gap-2 rounded-lg border border-default p-3">
-              <div class="flex flex-col">
-                <h3 class="text-sm font-semibold">Check your email setup</h3>
-                <p class="text-xs text-muted">
-                  Queues one message to your own address. Nobody else gets a copy.
-                </p>
-              </div>
+            <div class="flex flex-col gap-1">
               <UButton
                 icon="i-lucide-send"
                 label="Send test email"
@@ -159,6 +252,9 @@
                 data-testid="notification-test-email"
                 @click="sendTest"
               />
+              <p class="text-xs text-muted">
+                Queues one message to your own address. Nobody else gets a copy.
+              </p>
               <p
                 v-if="testResult"
                 :class="['text-xs', testResult.ok ? 'text-success' : 'text-error']"
@@ -167,7 +263,7 @@
                 {{ testResult.message }}
               </p>
             </div>
-          </template>
+          </div>
 
           <p v-if="!emailEnabled" class="text-xs text-muted italic" data-testid="notification-email-disabled">
             This server does not send email, so only the in-app notifications can
@@ -183,7 +279,7 @@
             data-testid="notification-webhook"
           >
             <div class="flex flex-col">
-              <h3 class="text-sm font-semibold">Webhook</h3>
+              <h4 class="text-sm font-semibold">Webhook</h4>
               <p class="text-xs text-muted">
                 Where the notifications you switched on for the webhook channel are
                 POSTed, as a small JSON body. A URL pointing into a private network
@@ -244,7 +340,7 @@
             data-testid="notification-push"
           >
             <div class="flex flex-col">
-              <h3 class="text-sm font-semibold">Push notifications</h3>
+              <h4 class="text-sm font-semibold">Push notifications</h4>
               <p class="text-xs text-muted">
                 A notification on this device's lock screen or notification tray,
                 even when CheckCheck is not open in a tab.
@@ -346,12 +442,14 @@
 
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
+import { useMediaQuery } from "@vueuse/core";
 import { useNotificationStore } from "@/stores/notification";
 import { useConnectivity } from "@/composables/useConnectivity";
 import { usePushSubscription } from "@/composables/usePushSubscription";
 import { deviceLabel } from "@/utils/push";
 import {
   UTC_VALUE,
+  channelWording,
   looksLikeWebhookUrl,
   prefsPatch,
   testWebhookMessage,
@@ -362,6 +460,7 @@ import {
   visibleChannels,
   webhookUrlPatchValue,
   type ModeChoice,
+  type TypeRow,
 } from "@/utils/notificationSettings";
 
 // Notification preferences (chunk E5), opened from the user menu next to "API
@@ -440,12 +539,45 @@ const webhookUrlChanged = computed(
 );
 const timezoneOptions = computed(() => timezoneItems(settings.value?.timezone ?? null));
 
+// --- the matrix layout -------------------------------------------------------
+// Tailwind's `sm` breakpoint, read as a signal rather than applied as a class:
+// the grid and the stack are two templates over the same rows, and rendering
+// both (one CSS-hidden) would put every `data-testid` in the DOM twice. Safe as
+// a `v-if` because this app is an SPA (`ssr: false`), so there is no server
+// render to disagree with.
+const wide = useMediaQuery("(min-width: 640px)");
+
+// The columns, resolved once for the header instead of once per type. This is
+// the finding: the channel titles and their descriptions used to be repeated in
+// every one of the four type blocks.
+const columns = computed(() =>
+  visibleChannels({
+    email_enabled: emailEnabled.value,
+    webhook_enabled: webhookEnabled.value,
+    push_enabled: pushEnabled.value,
+  }).map((channel) => ({ channel, ...channelWording(channel) }))
+);
+
+// A CSS variable rather than a `sm:grid-cols-[...]` class, because the column
+// count is data (one to four channels) and Tailwind can only generate classes it
+// can see in the source. The media query lives in this component's <style>.
+const matrixColumns = computed(() => ({
+  "--matrix-cols": `minmax(0, 1.2fr) repeat(${columns.value.length}, minmax(0, 1fr))`,
+}));
+
+function cellFor(row: TypeRow, channel: string) {
+  return row.cells.find((cell) => cell.channel === channel) ?? null;
+}
+
 function cellKey(type: string, channel: string): string {
   return `${type}:${channel}`;
 }
 
 // (Re)load each time the dialog opens: an administrator may have changed the
-// caps, and another device may have changed the preferences.
+// caps, and another device may have changed the preferences. `immediate` because
+// this is a place now (S1): a cold load of /settings/notifications mounts the
+// dialog already open, so a watcher that only fires on a *change* would leave it
+// empty forever.
 watch(open, (isOpen) => {
   if (!isOpen) {
     testResult.value = null;
@@ -458,7 +590,7 @@ watch(open, (isOpen) => {
     return;
   }
   void load();
-});
+}, { immediate: true });
 
 // Reconnecting with the dialog still open fills it in, rather than leaving an
 // empty dialog that only a close-and-reopen would fix.
@@ -615,4 +747,15 @@ async function sendTest(): Promise<void> {
 }
 </script>
 
-<style scoped></style>
+<style scoped>
+/* The matrix's column template. It is here rather than in a Tailwind class
+   because the column count depends on what the instance can deliver, and
+   `--matrix-cols` is set inline from that. Only applies from `sm` up, which is
+   also the breakpoint `wide` watches: below it there is no grid at all, just the
+   stacked layout. */
+@media (min-width: 640px) {
+  .matrix-row {
+    grid-template-columns: var(--matrix-cols);
+  }
+}
+</style>

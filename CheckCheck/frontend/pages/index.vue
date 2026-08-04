@@ -37,14 +37,21 @@ import { isLocalFirstEnabled } from "@/utils/localFirst";
 import { runBackgroundSync, reconcileAccount } from "@/utils/localSnapshot";
 import { syncTimezoneWithDevice } from "@/utils/timezoneSync";
 
-// This page also responds to `/card/<cardId>` (see alias below). The board and
-// the modals stay mounted across that path change, so an opened card is just a
-// URL-reflected overlay on top of the board — shareable and back-button aware.
+// This page also responds to `/card/<cardId>` and to the `/settings/*` panes
+// (see aliases below). The board and the modals stay mounted across those path
+// changes, so an opened card or settings pane is just a URL-reflected overlay
+// on top of the board, shareable and back-button aware.
 definePageMeta({
-  alias: ["/card/:cardId"],
+  // `/settings/:pane` is one parameterised alias rather than two literal paths
+  // on purpose: an alias with no parameter counts as the same route record as
+  // the page, so pushing it from "/" is a redundant navigation the router drops.
+  // useAppRoute's own comment has the detail.
+  alias: ["/card/:cardId", "/settings/:pane"],
   // Stable key so the board (and its FormKit drag instances) is NOT torn down
-  // and rebuilt when toggling between "/" and the "/card/<id>" alias — the card
-  // editor is an overlay on top of a persistent board, not a new page.
+  // and rebuilt when toggling between "/" and an alias: the card editor and
+  // the settings panes are overlays on top of a persistent board, not new
+  // pages. Real pages would re-run the local-first boot, reconnect SSE and
+  // re-fire the time zone sync every time somebody glances at their settings.
   key: () => "board",
 });
 
@@ -63,14 +70,17 @@ onMounted(() => {
   }
   // Legacy (flag-off) boot — call order preserved exactly.
   // Load the current user once; needed by the permission/share/notification UI.
-  userStore.fetchMe();
+  const mePromise = userStore.fetchMe();
   // Load server feature flags once; gates the sharing UI (P0.2).
   publicConfigStore.fetch();
   // Load the sidebar count badges once; kept fresh thereafter by useSync.
   checkListStore.fetchCounts();
   connect();
-  // Keep the stored notification time zone on this device's zone (chunk T).
-  void syncTimezoneWithDevice();
+  // Keep the stored notification time zone on this device's zone (chunk T),
+  // once the identity has resolved: the "device zone last seen" marker the sync
+  // reads is per account, so running it before `me` would file this boot under
+  // the wrong user (or under none).
+  void mePromise.then(() => syncTimezoneWithDevice()).catch(() => {});
 });
 
 // Local-first boot ordering (Chunk A1). Resolve the authenticated user first,
@@ -96,6 +106,8 @@ async function bootLocalFirst(pinia: any): Promise<void> {
   // cache does not write their zone under the new session, and fire-and-forget:
   // a convenience write nothing else waits on.
   void syncTimezoneWithDevice();
+  // (Only writes when this device's own zone has changed since the last sync,
+  // so a zone picked in the settings dialog survives a reload. See the module.)
 }
 onUnmounted(disconnect);
 

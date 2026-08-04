@@ -23,11 +23,26 @@ test.afterEach(async ({ page }) => {
 });
 
 async function openSettings(page: Page) {
-  await page.locator("[data-testid=user-menu]").click();
-  // Dropdown items teleport to the body, so locate at page level.
-  await page.locator("[data-testid=menu-notification-settings]").click();
   const dialog = page.locator("[data-testid=notification-settings]");
+  // Since S1 the pane is a place, so a reload of /settings/notifications brings
+  // it back on its own and there is no user menu to reach behind it. Decided on
+  // the URL rather than on the dialog being visible: right after a reload it is
+  // not painted yet, and a menu click would race the modal's own backdrop.
+  if (!page.url().includes("/settings/notifications")) {
+    // A previous close may still be in flight: its backdrop swallows the menu
+    // click, and reopening before the router has settled the closing URL makes
+    // the open a redundant navigation the router drops. Wait for both halves of
+    // "closed" (no dialog, no pane in the URL) before reaching for the menu.
+    await expect(dialog).toBeHidden();
+    await expect(page).not.toHaveURL(/\/settings\/notifications/);
+    await page.locator("[data-testid=user-menu]").click();
+    // Dropdown items teleport to the body, so locate at page level.
+    await page.locator("[data-testid=menu-notification-settings]").click();
+  }
   await expect(dialog).toBeVisible({ timeout: 5_000 });
+  // Opening must leave a URL behind, or the back button and a shared link both
+  // stop working.
+  await expect(page).toHaveURL(/\/settings\/notifications$/);
   return dialog;
 }
 
@@ -91,11 +106,13 @@ test.describe("E5 notification settings", () => {
     let dialog = await openSettings(page);
 
     const select = dialog.locator("[data-testid=notification-mode-card_shared-email]");
-    // Nothing chosen yet: the cell inherits, and says what it inherits.
+    // Nothing chosen yet: the cell inherits, and the control itself says what it
+    // inherits ("Default (Off)"). S2 dropped the line that used to repeat that
+    // under every untouched cell, so an inheriting cell now explains nothing.
     await expect(select).toContainText("Default");
     await expect(
       dialog.locator("[data-testid=notification-hint-card_shared-email]")
-    ).toContainText("Following the server default");
+    ).toHaveCount(0);
 
     await select.click();
     await page.getByRole("option", { name: "Daily summary" }).click();
@@ -112,7 +129,7 @@ test.describe("E5 notification settings", () => {
     const reloaded = dialog.locator("[data-testid=notification-mode-card_shared-email]");
     await expect(reloaded).toContainText("Daily summary");
     await expect(reloaded).not.toContainText("Default");
-    // An explicit choice explains nothing; only an inherited one does.
+    // Nothing to explain here either: only a lock or a type restriction is.
     await expect(dialog.locator("[data-testid=notification-hint-card_shared-email]")).toHaveCount(0);
 
     // Back to the default entry: that drops the override server-side (null),
@@ -120,6 +137,38 @@ test.describe("E5 notification settings", () => {
     await reloaded.click();
     await page.getByRole("option", { name: /^Default/ }).click();
     await expect.poll(async () => (await storedPrefs(page)).card_shared!.email).toBeNull();
+  });
+
+  test("S2: the grid names each channel once, not once per notification type", async ({ page }) => {
+    // The finding this chunk exists for. The E2E instance has email, webhooks
+    // and push all on, so before S2 a user read the same four channel titles
+    // (and the same four hint lines) four times over, once inside each type's
+    // block, to find the one control they came for.
+    await page.goto("/");
+    const dialog = await openSettings(page);
+
+    const matrix = dialog.locator("[data-testid=notification-matrix]");
+    await expect(matrix).toBeVisible();
+    for (const [channel, title] of [
+      ["in_app", "In the app"],
+      ["email", "Email"],
+      ["webhook", "Webhook"],
+      ["push", "Push"],
+    ]) {
+      await expect(matrix.locator(`[data-testid=notification-channel-${channel}]`)).toHaveCount(1);
+      await expect(matrix.getByText(title!, { exact: true })).toHaveCount(1);
+    }
+
+    // Every type still has a control on every channel: the titles collapsed,
+    // the matrix did not.
+    for (const type of ["card_shared", "card_invited", "public_link_opened", "reminder_due"]) {
+      await expect(matrix.locator(`[data-testid=notification-type-${type}]`)).toHaveCount(1);
+      for (const channel of ["in_app", "email", "webhook", "push"]) {
+        await expect(
+          matrix.locator(`[data-testid=notification-mode-${type}-${channel}]`)
+        ).toHaveCount(1);
+      }
+    }
   });
 
   test("an administrator-locked entry is disabled and says why", async ({ page }) => {
@@ -190,8 +239,14 @@ test.describe("E5 notification settings", () => {
       timeout: 5_000,
     });
 
-    // It survives a close and reopen, which means it reached the server.
+    // It survives a close and reopen, which means it reached the server. The
+    // reopen is a load of the pane's own URL rather than another trip through
+    // the user menu: since S1 that is what reopening this pane *is*, and it
+    // proves the value came back from the server rather than from a dialog that
+    // was never really torn down.
     await page.keyboard.press("Escape");
+    await expect(page).toHaveURL(/\/$/);
+    await page.goto("/settings/notifications");
     const reopened = await openSettings(page);
     await expect(reopened.locator("[data-testid=notification-webhook-url]")).toHaveValue(url, {
       timeout: 5_000,
@@ -242,6 +297,49 @@ test.describe("E5 notification settings", () => {
     );
     // Nothing was written while the connection was gone.
     expect(await storedPrefs(page)).toEqual(before);
+  });
+
+  test("S1: the pane is a place: a cold URL opens it, and closing goes back to the board", async ({
+    page,
+  }) => {
+    // A link somebody was sent, or a reload: nothing clicked a menu here.
+    await page.goto("/settings/notifications");
+    const dialog = page.locator("[data-testid=notification-settings]");
+    await expect(dialog).toBeVisible({ timeout: 10_000 });
+    // On top of a real board, not instead of it: the pane is an overlay.
+    await expect(page.locator("[data-testid=user-menu]")).toBeAttached();
+    // And it is loaded, not an empty shell: the cold mount has to fetch too.
+    await expect(dialog.locator("[data-testid=notification-mode-card_shared-in_app]")).toBeVisible({
+      timeout: 10_000,
+    });
+
+    // Escape closes it, and the URL goes with it. A dialog that closes while the
+    // URL still names it cannot be reopened without navigating away first.
+    await page.keyboard.press("Escape");
+    await expect(dialog).toBeHidden({ timeout: 5_000 });
+    await expect(page).toHaveURL(/\/$/);
+
+    // Reopening from the menu still works, which is what the stale-URL bug broke.
+    await openSettings(page);
+  });
+
+  test("S1: Back closes the pane, and does not reopen it afterwards", async ({ page }) => {
+    await page.goto("/");
+    const dialog = await openSettings(page);
+
+    // Opening pushed a history entry, so Back is the close button.
+    await page.goBack();
+    await expect(dialog).toBeHidden({ timeout: 5_000 });
+    await expect(page).toHaveURL(/\/$/);
+
+    // Closing replaces instead of pushing, so the entry the pane occupied is
+    // gone and Back afterwards leaves the board alone rather than reopening it.
+    await openSettings(page);
+    await page.keyboard.press("Escape");
+    await expect(dialog).toBeHidden({ timeout: 5_000 });
+    await page.goBack();
+    await expect(dialog).toBeHidden();
+    await expect(page).toHaveURL(/\/$/);
   });
 });
 
@@ -682,12 +780,44 @@ test.describe("T time zone re-sync on login", () => {
     }
   });
 
-  test("the picker says the zone follows the device", async ({ page }) => {
-    // Decision 4: this line is the whole reason a silent overwrite is acceptable.
+  test("the picker says the zone follows the device, and holds a pick until it moves", async ({
+    page,
+  }) => {
+    // S2: the sync only writes when this *device* changes zone, so the note has
+    // to promise exactly that, and a zone picked here has to survive a reload of
+    // the same machine. That reload was the finding (review section 2): the
+    // control reported "Saved" and reverted.
     await page.goto("/");
-    const dialog = await openSettings(page);
+    let dialog = await openSettings(page);
     await expect(dialog.locator("[data-testid=notification-timezone-sync-note]")).toContainText(
-      "Kept in sync with this device"
+      "Follows this device when it moves"
     );
+
+    // Wait for this boot's sync to have recorded the device's zone before
+    // changing anything. That marker is what makes the next boot leave the pick
+    // alone, and it is written asynchronously: picking a zone before it lands
+    // makes the reload below a coin toss.
+    await expect
+      .poll(() =>
+        page.evaluate(() =>
+          Object.keys(localStorage).some((key) => key.startsWith("checkcheck.tzsync."))
+        )
+      )
+      .toBe(true);
+
+    // Pick a zone this device is not in. Through the API rather than the select
+    // menu, which has its own search box and several hundred entries: what is
+    // under test is whether the choice survives the next boot, not the widget.
+    await page.request.put("/api/user/me/notification-settings", {
+      data: { timezone: "Pacific/Auckland" },
+      headers: { "Content-Type": "application/json" },
+    });
+
+    await page.reload();
+    dialog = await openSettings(page);
+    await expect(dialog.locator("[data-testid=notification-timezone]")).toContainText(
+      "Pacific/Auckland"
+    );
+    expect(await storedTimezone(page)).toBe("Pacific/Auckland");
   });
 });

@@ -1,6 +1,7 @@
 # Plan: settings as places, and the notification matrix
 
-**Status:** not started (written 2026-08-04, after the notification branch review).
+**Status:** done (written 2026-08-04 after the notification branch review, and
+worked the same day). All four chunks landed; see section 8 for what deviated.
 
 **Scope:** two maintainer findings about the notification settings dialog, plus
 the same routing finding against the API keys dialog:
@@ -301,10 +302,92 @@ and buys a cold session with the whole budget for the part that needs judgement.
 
 | Chunk | Status | Notes |
 |---|---|---|
-| S1 both dialogs become places | not started | |
-| S2 the notification matrix | not started | |
-| S3 docs and the sweep | not started | |
-| S4 screenshots | not started | after S2 is visually settled |
+| S1 both dialogs become places | done | `/settings/:pane`, one parameterised alias rather than two literal paths (see the trap below) |
+| S2 the notification matrix | done | grid from `sm` up, channel setup collapsed to one block per channel, inherit hint dropped |
+| S3 docs and the sweep | done | `useAppRoute`'s docstring now states the rule; sweep recorded below |
+| S4 screenshots | done | four new PNGs, byte-identical across two runs |
 
-Update this table at the end of every session and record deviations below it, the
-way the other plans in this directory do.
+Plus the one open decision the review left (section 2 of
+[`NOTIFICATIONS_FINAL_REVIEW.md`](NOTIFICATIONS_FINAL_REVIEW.md)): the maintainer
+chose **option 2**, so the time zone re-sync now writes only when this *device's*
+zone has changed since the last sync. That work rode along with S2, because S2
+rewrote the block of the dialog that describes it.
+
+## 9. Notes and deviations
+
+**S1: a parameterless path alias is a no-op, and this cost most of the session.**
+The plan's decision 1 (overlays via aliases on `pages/index.vue`) is right, but
+`alias: ["/settings/notifications"]` cannot work: Vue Router's
+`isSameRouteRecord` treats an alias as the *same record* as the page it aliases,
+so pushing it from `/` is a redundant navigation. `router.push` resolves with a
+`duplicated` failure, silently, and nothing on screen changes. `/card/:cardId`
+never hit this because its parameter always differs. The alias is therefore
+`/settings/:pane`, validated against a list in `useAppRoute`, and the reason is
+written above both the alias and the composable so nobody "simplifies" it back.
+
+**S1: both dialogs share one `closeSettings()`.** Each modal's `v-model:open`
+setter now checks that the pane closing is the one on screen. Without that, a
+stray `update:open=false` from the *other* (closed) modal closes whichever pane
+just opened.
+
+**S2: the matrix is two templates, not one with responsive classes.** A CSS-hidden
+second layout would put every `data-testid` in the DOM twice, which breaks
+Playwright's strict mode. `useMediaQuery("(min-width: 640px)")` picks one; safe
+because the app is `ssr: false`. The column template is a CSS variable rather
+than a Tailwind class, because the column count is data (one to four channels)
+and Tailwind can only generate classes it can see in the source.
+
+**S2: the dialog is `max-w-5xl`, not `max-w-xl`.** Five columns need the room:
+narrower, and every select truncated to `Default (As it ha…`. One cell still
+truncates (the reminder row's email cell, which carries a restriction icon
+beside its select); the full wording is in the DOM and in its tooltip.
+
+**S2: `UAccordion` for the channel setup was considered and dropped** (the plan
+offered it as an option). Collapsing the blocks would have unmounted their
+contents, breaking roughly eight E2E assertions that reach straight into the
+webhook and push blocks, and the screenshot of the dialog would have shown three
+closed rows. Plain sections in column order fix the interleaving, which was the
+actual finding. The email block also absorbed the separate "Check your email
+setup" box, so the bottom half is three blocks rather than four.
+
+**S2: the inherit hint is gone**, per the plan's suggestion, and deliberately:
+the select's own value reads `Default (Off)`, so the line under it said nothing
+new and appeared under every untouched cell. `cellHint` and its unit tests
+changed with it, and one E2E assertion flipped from "says what it inherits" to
+"explains nothing".
+
+**Test harness: a closed modal's DOM lingers under `reducedMotion`.** The webhook
+spec closed the dialog with Escape and reopened it through the user menu; the
+menu click landed on the still-mounted (closed) modal instead, so `openSettings`
+was never called while the leftover DOM satisfied `toBeVisible`. `helpers.ts` in
+the screenshot suite documents the same Reka behaviour. That reopen now loads the
+pane's URL, which is what reopening a place *is*, and both spec helpers decide
+whether to touch the menu by looking at the URL rather than at the dialog.
+
+**The new time zone E2E waits for the sync marker.** It picks a zone, reloads and
+checks the pick survived, so it has to know this boot's sync already recorded the
+device zone: that write is asynchronous, and racing it made the test a coin toss
+(it showed up as one flaky run before the wait was added).
+
+**S3 sweep, for the next reviewer.** Surfaces looked at and left alone:
+
+- `CheckListEditModal` and the label editor are already places (`/card/:cardId`,
+  `?editlabels=true`).
+- `ShareModal` is the one real candidate left. It is a surface a user sits in,
+  but it is opened imperatively through `useOverlay` from a card that already has
+  a URL, so making it a place means both unpicking that contract and deciding it
+  is a sub-path of the card (`/card/:id/share`). Worth doing, not worth doing
+  inside a chunk about settings.
+- `SideMenuDrawer` is a navigation affordance, and the bell, sync-status,
+  colour-swatch and Markdown-help popovers are transient. Inline confirms (API
+  key revoke, delete forever, the bulk actions) are one question and one answer,
+  which the rule in `useAppRoute` explicitly excludes.
+
+**S4: two things beyond the plan's two prerequisites.** The screenshot backend
+also needed the E2E harness's fake `*.push.example` resolver, or the SSRF guard
+on `POST /user/me/push-subscriptions` refuses the mocked device with a 400 and
+the push block photographs empty. And the clock is pinned with
+`page.clock.setFixedTime`, because the device list renders "Added &lt;date&gt;":
+without it every regeneration on a new day produces a diff. The stored time zone
+is written before the shot too, since whether the boot sync lands before the
+dialog reads its settings is a race.
