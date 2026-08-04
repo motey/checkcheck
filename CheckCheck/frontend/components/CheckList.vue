@@ -109,6 +109,16 @@
           :filterCheckedItems="undefined"
         />
       </div>
+      <!-- Reminders (R4): the caller's own, on this card, fetched when the
+           editor opens. Inside the scroll region and after the items, because a
+           reminder is something you set about the card once, not something you
+           read every time you open it. -->
+      <CheckListReminders
+        v-if="editModeActive"
+        ref="remindersPanel"
+        :checkListId="checkListId"
+        class="mt-4"
+      />
     </div>
 
     <!-- Editor: the full action footer is always visible (Keep's model — card
@@ -149,6 +159,7 @@ import { renderMarkdown } from "@/utils/markdown";
 import { isLocalFirstEnabled } from "@/utils/localFirst";
 import { markEditing, clearEditing } from "@/utils/editGuard";
 import { useCreateCheckList } from "~/composables/useCreateCheckList";
+import { provideReminderPanel } from "@/composables/useReminderPanel";
 const colorMode = useColorMode();
 
 const checkListsStore = useCheckListsStore();
@@ -221,6 +232,14 @@ const cardStyle = computed(() => {
   if (accentColor.value) style.borderColor = accentColor.value;
   return style;
 });
+
+// The kebab menu's "Set a reminder" item opens the panel below (R4). Only the
+// open card provides the handle: the same menu renders on a board preview,
+// where there is no panel to open and the item is therefore not offered.
+const remindersPanel = ref<{ open: () => void } | null>(null);
+if (props.editModeActive) {
+  provideReminderPanel({ open: () => remindersPanel.value?.open() });
+}
 
 const notesTextField = ref();
 const nameFocused = ref(false);

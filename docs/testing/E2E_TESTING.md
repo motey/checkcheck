@@ -154,6 +154,21 @@ Provisioned at backend startup from
 `CheckCheck/backend/tests/provisioning_data/test_users.yaml`.
 The admin user is created from env vars set in `start_e2e_server.py`.
 
+## Instance configuration the specs rely on
+
+`start_e2e_server.py` sets a few things that are not the production defaults, so
+surfaces that only exist on a configured instance can be tested:
+
+| Setting | Value | Why |
+|---|---|---|
+| `EMAIL_ENABLED` | `true` | The email half of the notification settings dialog only renders on a mail-capable instance. |
+| `EMAIL_TRANSPORT` | `null` | Messages are queued and discarded: the whole path runs, nothing leaves the process. |
+| `NOTIFY_DISABLED_TYPES` | `["public_link_opened"]` | Gives the dialog one genuinely administrator-locked entry to render. Public links still work; only the owner's notification about a first open is suppressed. |
+
+All three use `setdefault`, so a spec that needs different values can export them
+before starting the runner, the way the invite-mode pass does with
+`SHARING_REQUIRE_INVITE_ACCEPT`.
+
 ---
 
 ## File map

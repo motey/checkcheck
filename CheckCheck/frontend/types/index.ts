@@ -63,6 +63,11 @@ declare global {
     type PublicLinkCreateRes = components["schemas"]["PublicLinkCreateResult"]  // carries token ONCE
     type PublicLinkCreateReq = components["schemas"]["PublicLinkCreateRequest"]
     type PublicLinkUpdateReq = components["schemas"]["PublicLinkUpdateRequest"]
+    // Mailing an existing public link to somebody without an account (E6). The
+    // result carries no address: the server never repeats it, not even on success.
+    type PublicLinkEmailReq = components["schemas"]["PublicLinkEmailRequest"]
+    type PublicLinkEmailResultType = components["schemas"]["PublicLinkEmailResult"]
+    type PublicLinkEmailOptionsType = components["schemas"]["PublicLinkEmailOptions"]
     type UnlockRequestType = components["schemas"]["UnlockRequest"]          // {password}
     type UnlockResultType = components["schemas"]["UnlockResult"]            // {grant, expires_in}
     type GroupShareResult = components["schemas"]["GroupShareResult"]
@@ -72,6 +77,34 @@ declare global {
     type NotificationReadType = components["schemas"]["NotificationRead"]
     type NotificationType = components["schemas"]["NotificationType"]   // card_shared|card_invited|public_link_opened
     type UnreadCountResultType = components["schemas"]["UnreadCountResult"]
+
+    // Notification preferences (email notifications, chunks E3-E5). The GET
+    // response is the whole contract for the settings dialog: per type, per
+    // channel, what is in force, what the user picked, what it falls back to,
+    // and whether an administrator locked it.
+    type NotificationSettingsType = components["schemas"]["NotificationSettings"]
+    type NotificationSettingsUpdateType = components["schemas"]["NotificationSettingsUpdate"]
+    type NotificationTypeSettingsType = components["schemas"]["NotificationTypeSettings"]
+    type NotificationChannelSettingType = components["schemas"]["NotificationChannelSetting"]
+    type NotificationModeType = components["schemas"]["NotificationMode"]  // off|immediate|hourly|daily
+    type TestEmailResultType = components["schemas"]["TestEmailResult"]
+    type TestWebhookResultType = components["schemas"]["TestWebhookResult"]
+    // Push subscriptions (chunk P2). Register is the shape
+    // `PushSubscription.toJSON()` produces in the browser; Info never carries
+    // the keys back, only enough to label and remove a device.
+    type PushSubscriptionRegisterType = components["schemas"]["PushSubscriptionRegister"]
+    type PushSubscriptionInfoType = components["schemas"]["PushSubscriptionInfo"]
+    type TestPushResultType = components["schemas"]["TestPushResult"]
+    // Date reminders (chunks R1-R4). A reminder is personal: it belongs to the
+    // user who set it, so every one of these endpoints is scoped to the caller.
+    // `remind_at` on the read model is naive UTC — see utils/reminders.ts,
+    // which is the only place a server timestamp is parsed.
+    type ReminderReadType = components["schemas"]["ReminderRead"]
+    type ReminderCreateType = components["schemas"]["ReminderCreate"]
+    type ReminderUpdateType = components["schemas"]["ReminderUpdate"]
+    type ReminderRecurrenceType = components["schemas"]["ReminderRecurrence"]  // none|daily|weekly|monthly
+    type ReminderStatusType = components["schemas"]["ReminderStatus"]          // pending|done|cancelled
+
     type UserSearchResult = components["schemas"]["UserSearchResult"]
     type UserType = components["schemas"]["User"]
 

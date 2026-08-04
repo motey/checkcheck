@@ -68,6 +68,68 @@ and the app is installable as a PWA.
   always takes precedence over a group's level. Group members are represented by
   the group itself, not listed one-by-one under "Share with people", so the
   people list stays uncluttered. (Migration `0012`.)
+- **Email notifications.** Off by default. Once an operator sets `EMAIL_ENABLED`
+  and points the server at a mail server, CheckCheck can also email you about the
+  things the bell already shows: a card shared with you, an invitation, and a
+  public link being opened. Each user picks a delivery mode per notification type
+  *and* per channel under "Notifications" in the avatar menu: `off`, `immediate`,
+  an `hourly` digest, or a `daily` digest sent in the user's own timezone (the
+  in-app channel is immediate or off). Every message carries an unsubscribe link
+  that turns that type off without signing in, and the settings dialog has a
+  "Send test email" button. Clicking a card link in a message opens the card and
+  marks exactly that notification read. Mail is queued and sent by a background
+  task inside the server process, so a slow or unreachable mail server never
+  blocks a request; temporary failures retry with backoff and are then left in
+  the outbox for an operator to inspect. Administrators can set the instance
+  defaults (`NOTIFY_DEFAULT_MODES`), disable a type for everyone
+  (`NOTIFY_DISABLED_TYPES`), keep card contents out of email entirely
+  (`NOTIFY_EMAIL_CONTENT_MODE: minimal`), and cap volume per recipient
+  (`NOTIFY_EMAIL_MAX_PER_USER_PER_HOUR`). For local testing, `EMAIL_TRANSPORT`
+  can write `.eml` files to a directory or print to the console instead of
+  sending. See [`docs/configuration.md`](docs/configuration.md).
+  (Migrations `0013`, `0014`.)
+- **Send a public link by email** (`SHARING_PUBLIC_LINK_EMAIL_ENABLED`, off by
+  default). The owner of a card can mail an existing public link to someone who
+  has no account, with an optional personal message. This is deliberately *not*
+  a second way to add a collaborator: it sends an anonymous capability link, so
+  anyone holding it gets in without signing in and revoking the link cuts off
+  everyone. The UI is built around that distinction. The field lives inside the
+  public-link block and only appears once a link exists, it is labelled by
+  audience ("People outside CheckCheck") rather than by mechanism, it spells out
+  the consequence difference against adding a collaborator, and it confirms the
+  granted level in plain words before sending. Operators can list their own
+  domains in `SHARING_INTERNAL_EMAIL_DOMAINS` to raise a soft "that address looks
+  internal, add them as a collaborator instead" hint, which offers the
+  collaborator box as its primary action but never blocks the send. A link's
+  passphrase is never included in the mail. Sends are rate-limited per account
+  (`SHARING_PUBLIC_LINK_EMAIL_MAX_PER_HOUR`) and the recipient address is never
+  echoed back in an error, so the endpoint is neither an open relay nor an
+  address oracle.
+- **Per-user webhooks** (`NOTIFY_WEBHOOK_ENABLED`, off by default). A third
+  notification channel that POSTs a small JSON body to a URL each user saves in
+  the notification settings, with a "Send test webhook" action. Because this lets
+  signed-in users make the server issue outbound requests, target hosts are
+  resolved and checked per attempt and anything on a loopback, link-local, or
+  private range is refused unless `NOTIFY_WEBHOOK_ALLOW_PRIVATE_IPS` is set.
+  Deliveries use the same retry and backoff policy as email.
+- **Date reminders.** A card's ⋮ menu has "Set a reminder": pick a date and a
+  time, optionally repeat it every day, week or month, and add a note to
+  yourself. When it comes due you are notified through the channels you already
+  chose for notifications, so a reminder can reach you by mail or webhook while
+  the app is closed (this is the one notification type that ships with
+  `immediate` email on by default, since a reminder you only see next time you
+  open the app is not a reminder). The open card lists the reminders you have set
+  on it, each removable in one click. Reminders are **personal**: they belong to
+  whoever set them, only that person is notified, and collaborators on a shared
+  card neither see nor are disturbed by each other's. A repeating reminder keeps
+  its wall-clock time in the timezone from your notification settings, so it does
+  not drift across a daylight-saving change, and a reminder on a card you can no
+  longer open (deleted, or the share was revoked) is silently dropped when it
+  would have fired rather than notifying you about something you cannot reach.
+  Setting one needs a connection: unlike card edits, reminders are never queued
+  offline, because a reminder whose time passes while it sits in a queue is worse
+  than no reminder. Administrators can switch the whole feature off with
+  `NOTIFY_DISABLED_TYPES: ["reminder_due"]`. (Migration `0015`.)
 
 ### Changed
 
@@ -77,6 +139,9 @@ and the app is installable as a PWA.
   debugging.
 - **Online-only surfaces** (sharing, invitations, notifications) now clearly
   require connectivity and queue nothing while offline.
+- **The in-app notification feed is pruned.** Notifications that have been read
+  are removed after `NOTIFY_FEED_RETENTION_DAYS` (default 180; set it to 0 to
+  keep everything). Unread notifications are never pruned.
 
 ### Upgrade notes
 
@@ -85,3 +150,15 @@ instances yet**, so 2.0 ships a squashed migration baseline — **recreate any
 pre-2.0 development database** (the schema is built with `create_all`, which does
 not alter existing tables). From 2.0 on, schema changes ship as real Alembic
 revisions.
+
+Email, the public-link invitation and webhooks are all **off by default**, so an
+existing deployment behaves exactly as before until an operator turns them on.
+Two things to know before enabling mail:
+
+- `NOTIFY_EMAIL_REQUIRE_VERIFIED` must stay **false**. There is no address
+  verification flow yet, so no address is ever marked verified and turning the
+  setting on silently stops every outgoing message.
+- `NOTIFY_DISPATCH_IN_PROCESS` (default true) makes the server itself drain the
+  message queue, which is what a normal single-container deployment wants. Turn
+  it off only if something else drains the queue, otherwise messages go out
+  twice.

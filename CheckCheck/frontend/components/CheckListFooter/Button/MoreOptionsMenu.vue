@@ -47,6 +47,7 @@ import { computed, ref } from "vue";
 import { useCheckListsStore } from "@/stores/checklist";
 import { useCheckListsItemStore } from "@/stores/checklist_item";
 import { usePermissions } from "@/composables/usePermissions";
+import { useReminderPanel } from "@/composables/useReminderPanel";
 
 const checkListsStore = useCheckListsStore();
 const checkListItemStore = useCheckListsItemStore();
@@ -69,6 +70,12 @@ const canEdit = computed(() => can(checkList.value, "edit"));
 
 const confirmDeleteOpen = ref(false);
 const deleting = ref(false);
+
+// Only the open card carries a reminder panel (R4), so this is null on the
+// board preview's hover toolbar and the entry is left out there: it would have
+// nowhere to open. Any collaborator may set one, including a view-only one — a
+// reminder notifies nobody but the person who set it.
+const reminderPanel = useReminderPanel();
 
 async function deleteTicked() {
   deleting.value = true;
@@ -110,6 +117,19 @@ const items = computed(
         },
       },
       { type: "separator" as const },
+      ...(reminderPanel
+        ? [
+            {
+              label: "Set a reminder",
+              icon: "i-lucide-alarm-clock",
+              "data-testid": "card-set-reminder",
+              onSelect() {
+                reminderPanel.open();
+              },
+            },
+            { type: "separator" as const },
+          ]
+        : []),
       {
         label: "Untick all items",
         icon: "i-lucide-list-x",

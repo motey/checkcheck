@@ -57,6 +57,7 @@
             </div>
             <ShareModalAddPeople
               v-if="publicConfig.userSearchEnabled"
+              ref="addPeople"
               :check-list-id="checkListId"
             />
             <ShareModalPeopleList :check-list-id="checkListId" :editable="true" />
@@ -101,7 +102,11 @@
                 </p>
               </div>
             </div>
-            <ShareModalPublicLinks :check-list-id="checkListId" />
+            <ShareModalPublicLinks
+              :check-list-id="checkListId"
+              :can-add-collaborator="publicConfig.userSearchEnabled"
+              @add-collaborator="startCollaboratorSearch"
+            />
           </div>
 
           <!-- Advanced: transfer ownership (not a "way to share" — set apart) -->
@@ -221,6 +226,17 @@ onMounted(() => {
 onUnmounted(() => {
   shareStore.setOpen(null);
 });
+
+// The public-link block's internal-address hint ("that looks like a colleague")
+// points at the collaborator box, so it has to actually get there: scroll it
+// into view and start the search from the address's local part. Searching for a
+// whole email address would never match — the user search deliberately does not
+// look at email, so that it cannot be used to test whether an address has an
+// account here.
+const addPeople = ref<{ startSearch: (term: string) => void } | null>(null);
+function startCollaboratorSearch(term: string) {
+  addPeople.value?.startSearch(term);
+}
 
 const leaving = ref(false);
 async function leaveList() {

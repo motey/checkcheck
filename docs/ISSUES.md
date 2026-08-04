@@ -22,7 +22,7 @@ people" add-box + list. It touches the core access model and ships a migration
 onto the running productive instance, so it is planned as a multi-session,
 phased change.
 
-**Full plan:** [plans/GROUP_SHARE_LIVING_MEMBERSHIP.md](plans/GROUP_SHARE_LIVING_MEMBERSHIP.md)
+**Full plan:** [archive/GROUP_SHARE_LIVING_MEMBERSHIP.md](archive/GROUP_SHARE_LIVING_MEMBERSHIP.md)
 (Phase 1 = backend foundation + API + migration + backend tests; Phase 2 =
 frontend; Phase 3 = docs/polish).
 

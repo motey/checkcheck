@@ -11,11 +11,22 @@ import uuid
 import decimal
 from typing import List, Optional, Annotated
 
+from email_validator import EmailNotValidError, validate_email
 from fastapi import APIRouter, Depends, Security, HTTPException, status
 from pydantic import BaseModel, Field, field_validator
+from sqlmodel.ext.asyncio.session import AsyncSession
 
 from checkcheckserver.config import Config
 from checkcheckserver.log import get_logger
+from checkcheckserver.db._session import get_async_session
+from checkcheckserver.model._base_model import naive_utc_now
+from checkcheckserver.model.notification_outbox import NotificationChannel
+from checkcheckserver.notify import outbox
+from checkcheckserver.notify.dispatcher import nudge
+from checkcheckserver.notify.invitation import (
+    MAX_PERSONAL_MESSAGE_LENGTH,
+    render_public_link_invitation,
+)
 
 from checkcheckserver.db.user import User, UserCRUD
 from checkcheckserver.db.user_auth import UserAuth
@@ -90,6 +101,23 @@ async def require_public_links_enabled() -> None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Public share links are disabled on this server.",
+        )
+
+
+async def require_public_link_email_enabled() -> None:
+    """Gate the "mail this link somewhere" endpoint (chunk E6).
+
+    Its own switch on top of the two above, and off by default, because this is
+    the one endpoint where an authenticated user picks who the server writes to.
+    Whether mail can actually be delivered is checked inside the handler, so a
+    correctly enabled but unconfigured instance says so instead of pretending the
+    endpoint does not exist.
+    """
+    await require_public_links_enabled()
+    if not config.SHARING_PUBLIC_LINK_EMAIL_ENABLED:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Sending public links by email is disabled on this server.",
         )
 
 
@@ -957,3 +985,270 @@ async def delete_public_link(
         link_id, checklist_access.checklist.id, public_share_crud
     )
     await public_share_crud.delete(id_=link.id)
+
+
+# ── Mailing a public link (chunk E6) ─────────────────────────────────────────
+#
+# "Invite someone to work on this card". The owner names an address, the server
+# sends the *existing* link to it, and the recipient can work on the card without
+# an account, because the link is a capability.
+#
+# This is the one endpoint in the application where an authenticated user decides
+# who the server writes to, which makes it an open mail relay if it is built
+# carelessly. Four things keep it from being one, and none of them is optional:
+#
+# 1. **It cannot create access.** The link has to exist already and is never
+#    created, enabled or upgraded here, so nobody mails out more than they meant
+#    to, and the field cannot be a user's first move in the share dialog.
+# 2. **A per-sender hourly limit**, enforced against the outbox (so it survives a
+#    restart and is shared by every replica) rather than a counter in memory.
+# 3. **A length cap on the personal note**, so the feature is not a way to send
+#    arbitrary text to arbitrary people through somebody else's server.
+# 4. **No echo.** No error body ever contains the address, which is what keeps
+#    the endpoint from answering "does this address exist / is it deliverable".
+#    The address is not in the success body either: the client typed it.
+#
+# The passphrase of a protected link is deliberately absent from the message;
+# see ``notify/invitation.py``.
+
+
+class PublicLinkEmailRequest(BaseModel):
+    link_id: uuid.UUID = Field(
+        description="Which of the card's existing public links to send. It must already exist, be enabled and not have expired.",
+    )
+    to: str = Field(
+        description="The recipient's email address. Never echoed back, in any response.",
+    )
+    message: Optional[str] = Field(
+        default=None,
+        description=(
+            "Optional personal note, included as a quotation. Capped at "
+            f"{MAX_PERSONAL_MESSAGE_LENGTH} characters."
+        ),
+    )
+
+
+class PublicLinkEmailResult(BaseModel):
+    """Deliberately says nothing about the recipient.
+
+    A 202 means the message is queued; the background dispatcher sends it. There
+    is no delivery receipt here on purpose: reporting one would turn this into an
+    address validator for anybody with an account.
+    """
+
+    queued_id: uuid.UUID = Field(
+        description="Id of the queued delivery, for support and log correlation.",
+    )
+    queued_at: datetime.datetime = Field(
+        description="Naive UTC time the message entered the queue.",
+    )
+
+
+class PublicLinkEmailOptions(BaseModel):
+    """What the client needs to render the field, and nothing more.
+
+    Authenticated on purpose. ``internal_email_domains`` is what an operator
+    declared about their own organisation; it drives a hint in the client and has
+    no business on the unauthenticated bootstrap endpoint.
+    """
+
+    enabled: bool = Field(
+        description="Whether this instance accepts the send-a-link-by-email call at all.",
+    )
+    internal_email_domains: List[str] = Field(
+        description=(
+            "Domains whose addresses probably belong to people who already have an "
+            "account here. The client uses them for a soft 'add them as a collaborator "
+            "instead' hint. Never a block: sending anyway is always allowed."
+        ),
+    )
+    max_message_length: int = Field(
+        description="Longest personal note the server accepts, in characters.",
+    )
+    max_per_hour: int = Field(
+        description="How many links one user may mail per hour. 0 means no limit.",
+    )
+
+
+def public_link_email_dedupe_key(user_id: uuid.UUID) -> str:
+    """Groups one sender's mailed links, which is how the hourly limit is counted.
+
+    Not a coalescing key in practice: an invitation payload carries no render
+    context, and ``outbox`` only ever merges rows that do.
+    """
+    return f"{user_id}:public_link_email"
+
+
+def _validate_recipient(address: str) -> str:
+    """Normalise the address, or 400 without ever repeating what was sent.
+
+    The error message names no address and no reason beyond "not an address": a
+    caller must not be able to use the difference between two rejections (or
+    between a rejection and a 202) to learn anything about a mailbox.
+    """
+    candidate = (address or "").strip()
+    if not candidate or len(candidate) > 254:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="That does not look like an email address.",
+        )
+    try:
+        validated = validate_email(candidate, check_deliverability=False)
+    except EmailNotValidError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="That does not look like an email address.",
+        )
+    return validated.normalized
+
+
+def _validate_personal_message(message: Optional[str]) -> Optional[str]:
+    text = (message or "").strip()
+    if not text:
+        return None
+    if len(text) > MAX_PERSONAL_MESSAGE_LENGTH:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                f"Your message is too long. Keep it to {MAX_PERSONAL_MESSAGE_LENGTH} "
+                "characters or fewer."
+            ),
+        )
+    return text
+
+
+@fast_api_checklist_share_router.get(
+    "/sharing/public-link-email-options",
+    response_model=PublicLinkEmailOptions,
+    description=(
+        "What the client needs to render the 'send this link to someone without an "
+        "account' field: whether the instance accepts it at all, the limits it "
+        "enforces, and the email domains the operator declared as their own "
+        "organisation's (for a soft 'add them as a collaborator instead' hint). "
+        "Requires a session, unlike /public-config: the domain list is the "
+        "operator's information, not the internet's."
+    ),
+)
+async def get_public_link_email_options(
+    current_user: User = Security(get_current_user),
+) -> PublicLinkEmailOptions:
+    enabled = bool(
+        config.SHARING_ENABLED
+        and config.SHARING_PUBLIC_LINKS_ENABLED
+        and config.SHARING_PUBLIC_LINK_EMAIL_ENABLED
+        and config.EMAIL_ENABLED
+    )
+    return PublicLinkEmailOptions(
+        enabled=enabled,
+        # Empty unless the feature is actually on, so a client cannot read the
+        # operator's domains off an instance that never uses them.
+        internal_email_domains=(
+            [d.strip().lower() for d in (config.SHARING_INTERNAL_EMAIL_DOMAINS or []) if d.strip()]
+            if enabled
+            else []
+        ),
+        max_message_length=MAX_PERSONAL_MESSAGE_LENGTH,
+        max_per_hour=max(int(config.SHARING_PUBLIC_LINK_EMAIL_MAX_PER_HOUR or 0), 0),
+    )
+
+
+@fast_api_checklist_share_router.post(
+    "/checklist/{checklist_id}/public-share/email",
+    response_model=PublicLinkEmailResult,
+    status_code=status.HTTP_202_ACCEPTED,
+    dependencies=[Depends(require_public_link_email_enabled)],
+    description=(
+        "Mail one of this card's existing public links to an address. The recipient "
+        "needs no account: the link is a capability and grants whatever level it was "
+        "created at. Owner only. Never creates, enables or upgrades a link, never "
+        "includes the link's passphrase, and never repeats the recipient's address in "
+        "a response. 202 means queued, not delivered. Returns 409 when the instance "
+        "cannot send mail or the link is disabled or expired, and 429 once the sender's "
+        "hourly limit is reached."
+    ),
+)
+async def send_public_link_by_email(
+    body: PublicLinkEmailRequest,
+    checklist_access: UserChecklistAccess = Security(
+        require_checklist_permission(ChecklistAccessLevel.owner)
+    ),
+    public_share_crud: CheckListPublicShareCRUD = Depends(
+        CheckListPublicShareCRUD.get_crud
+    ),
+    session: AsyncSession = Depends(get_async_session),
+) -> PublicLinkEmailResult:
+    if not config.EMAIL_ENABLED:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="This instance does not send email.",
+        )
+
+    recipient = _validate_recipient(body.to)
+    personal_message = _validate_personal_message(body.message)
+
+    link = await _get_owned_link_or_404(
+        body.link_id, checklist_access.checklist.id, public_share_crud
+    )
+    # A link that cannot be opened is not worth mailing, and silently sending a
+    # dead one would look like the feature is broken rather than the link.
+    if not link.enabled:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="That link is switched off. Enable it first, or create a new one.",
+        )
+    if link.expires_at is not None and link.expires_at <= naive_utc_now():
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="That link has expired. Create a new one first.",
+        )
+
+    sender = checklist_access.user
+    now = naive_utc_now()
+    limit = max(int(config.SHARING_PUBLIC_LINK_EMAIL_MAX_PER_HOUR or 0), 0)
+    if limit:
+        recent = await outbox.count_recent(
+            session,
+            user_id=sender.id,
+            dedupe_key=public_link_email_dedupe_key(sender.id),
+            since=now - datetime.timedelta(hours=1),
+        )
+        if recent >= limit:
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail=(
+                    "You have sent as many links by email as this server allows in an "
+                    "hour. Try again later."
+                ),
+                headers={"Retry-After": "3600"},
+            )
+
+    payload = render_public_link_invitation(
+        to=recipient,
+        token=link.token,
+        permission=link.permission,
+        checklist_name=checklist_access.checklist.name,
+        sender_display_name=sender.display_name or sender.user_name,
+        personal_message=personal_message,
+        password_protected=link.password_hash is not None,
+        config=config,
+    )
+    row = await outbox.enqueue(
+        session,
+        user_id=sender.id,
+        channel=NotificationChannel.email,
+        payload=payload,
+        dedupe_key=public_link_email_dedupe_key(sender.id),
+    )
+    # Somebody is waiting in the share dialog, so send on this tick rather than
+    # the next one.
+    nudge()
+    # Operator-facing, and only the domain: an abuse investigation needs to see a
+    # pattern, not a log full of third parties' addresses.
+    log.info(
+        "[sharing] user %s mailed public link %s of checklist %s to a '%s' address",
+        sender.id,
+        link.id,
+        checklist_access.checklist.id,
+        recipient.rpartition("@")[2],
+    )
+    return PublicLinkEmailResult(queued_id=row.id, queued_at=row.created_at)

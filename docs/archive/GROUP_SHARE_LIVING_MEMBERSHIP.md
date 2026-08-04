@@ -1,6 +1,11 @@
 # Plan: first-class, living group shares
 
-**Status:** planning · **Owner:** — · **Created:** 2026-07-19
+**Status:** ✅ Done (2026-07-19), archived 2026-08-01. Shipped as specified:
+`checklist_group_share` source table, `via_group` provenance on collaborators,
+`api/group_share_reconcile.py`, reconciliation on login and on share write, and
+Alembic revision `0012_group_shares_living_membership`. The brief below is
+retained as the design record; see the progress notes at the end for what landed.
+**Created:** 2026-07-19
 
 Turn the ShareModal's "Share with a group" from a one-shot expansion into a
 first-class, persistent, *living* share — like the per-user "Invite specific

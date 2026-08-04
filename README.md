@@ -27,7 +27,12 @@ See more in the [screenshot gallery](docs/screenshots.md).
 - **Real-time collaboration.** Shared cards update live across devices as
   people edit them.
 - **Public share links.** Publish a card to a link (optionally
-  passphrase-protected). Viewers need no account.
+  passphrase-protected). Viewers need no account. The owner can also mail such a
+  link straight to someone without an account.
+- **Email notifications.** Optional and off until an admin configures a mail
+  server. Each user chooses per notification type whether to get a mail
+  immediately, in an hourly or daily digest, or not at all. A per-user webhook
+  can carry the same events into your own tooling.
 - **Offline-capable.** Local-first, so it keeps working while you are offline
   and syncs back up when the connection returns.
 - **Installable PWA.** Add it to your device like a native app. See
@@ -150,7 +155,6 @@ component-level developer setup.
 
 Missing features, that i will integrate soon...
 
-* Email notifications
 * "Remind me on date"-feature
 * Subitems/Itemgroups
 

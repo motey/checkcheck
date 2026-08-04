@@ -2,6 +2,7 @@ import os
 from enum import Enum
 from pathlib import Path
 from typing import Dict, List, Literal, Optional, Tuple, Type
+from urllib.parse import urlparse
 
 from pydantic import (
     Field,
@@ -241,6 +242,413 @@ class Config(BaseSettings):
             "When true, sharing a card creates a pending invite that the recipient must "
             "accept before the card appears for them. When false, sharing adds the "
             "collaborator immediately."
+        ),
+    )
+    SHARING_PUBLIC_LINK_EMAIL_ENABLED: bool = Field(
+        default=False,
+        title="Allow mailing a public link",
+        description=(
+            "Allow a card owner to send an existing public share link to an arbitrary email "
+            "address from inside the app. Off by default: it lets signed-in users make the "
+            "server send mail to addresses of their choosing. Requires EMAIL_ENABLED and "
+            "SHARING_PUBLIC_LINKS_ENABLED as well."
+        ),
+    )
+    SHARING_PUBLIC_LINK_EMAIL_MAX_PER_HOUR: int = Field(
+        default=10,
+        title="Maximum mailed links per sender per hour",
+        description=(
+            "How many public links one signed-in user may mail out per hour. This is the "
+            "anti-abuse limit on SHARING_PUBLIC_LINK_EMAIL_ENABLED: without it, an account "
+            "on this server is a mail relay. Set to 0 to allow an unlimited number, which is "
+            "only sensible on a single-user instance."
+        ),
+    )
+    SHARING_INTERNAL_EMAIL_DOMAINS: List[str] = Field(
+        default_factory=list,
+        title="Email domains that belong to your organisation",
+        description=(
+            "Domains whose addresses probably belong to people who already have an account "
+            "here. When someone types such an address into 'send this link to someone without "
+            "an account', the client points out that adding them as a collaborator is "
+            "probably what was meant. It is only a hint: sending the link anyway is always "
+            "allowed, since a colleague's private address or a device they are not signed in "
+            "on is a real case. Compared bare and case-insensitively, subdomains included, so "
+            "`example.com` also matches `alice@mail.example.com`. Empty by default, which "
+            "means the hint never appears."
+        ),
+        examples=[["example.com", "example.org"]],
+    )
+
+    # ── Email delivery ────────────────────────────────────────────────────────
+    # How the server sends mail. Nothing is ever sent while EMAIL_ENABLED is
+    # false. When it is true the settings are validated at startup, so a
+    # misconfigured instance fails to boot instead of silently swallowing mail.
+    EMAIL_ENABLED: bool = Field(
+        default=False,
+        title="Enable email sending",
+        description=(
+            "Master switch for outgoing email. When false the server never sends a message "
+            "and the email column of the notification settings is hidden in the UI. When "
+            "true, EMAIL_FROM_ADDRESS is required (and EMAIL_SMTP_HOST for the `smtp` "
+            "transport), checked at startup."
+        ),
+    )
+    EMAIL_TRANSPORT: Literal["smtp", "console", "file", "null"] = Field(
+        default="smtp",
+        title="Email transport",
+        description=(
+            "How messages leave the server. `smtp` talks to a real mail server and is the "
+            "only production choice. `console` writes the whole message to the log, `file` "
+            "drops it as an `.eml` file into EMAIL_FILE_TRANSPORT_DIR (open it with any mail "
+            "client), and `null` discards it. The last three exist so local development and "
+            "automated tests never need a mail server."
+        ),
+        examples=["smtp", "console", "file", "null"],
+    )
+    EMAIL_SMTP_HOST: Optional[str] = Field(
+        default=None,
+        title="SMTP host",
+        description=(
+            "Hostname of the mail server to hand messages to. Required when EMAIL_ENABLED is "
+            "true and EMAIL_TRANSPORT is `smtp`."
+        ),
+        examples=["smtp.example.com", "localhost"],
+    )
+    EMAIL_SMTP_PORT: int = Field(
+        default=587,
+        title="SMTP port",
+        description=(
+            "Port of the mail server. 587 is the usual submission port (with STARTTLS), 465 "
+            "the implicit-TLS one (use EMAIL_SMTP_SECURITY `ssl`), 25 plain relay on a "
+            "trusted network."
+        ),
+        examples=[587, 465, 25],
+    )
+    EMAIL_SMTP_USER: Optional[str] = Field(
+        default=None,
+        title="SMTP username",
+        description="Username for SMTP authentication. Leave unset for a relay that needs no login.",
+    )
+    EMAIL_SMTP_PASSWORD: Optional[SecretStr] = Field(
+        default=None,
+        title="SMTP password",
+        description=(
+            "Password for SMTP authentication. Only used together with EMAIL_SMTP_USER. "
+            "Supply it through the environment rather than committing it to a config file."
+        ),
+    )
+    EMAIL_SMTP_SECURITY: Literal["starttls", "ssl", "none"] = Field(
+        default="starttls",
+        title="SMTP connection security",
+        description=(
+            "How the connection to the mail server is encrypted. `starttls` connects in plain "
+            "text and upgrades (the normal choice for port 587), `ssl` is TLS from the first "
+            "byte (port 465), `none` is unencrypted and only acceptable for a mail server on "
+            "localhost or a trusted private network."
+        ),
+        examples=["starttls", "ssl", "none"],
+    )
+    EMAIL_FROM_ADDRESS: Optional[str] = Field(
+        default=None,
+        title="Sender address",
+        description=(
+            "The address every message is sent from. Required when EMAIL_ENABLED is true, "
+            "checked at startup. Use an address the mail server is actually allowed to send "
+            "as, otherwise messages get rejected or land in spam."
+        ),
+        examples=["checkcheck@example.com", "no-reply@example.com"],
+    )
+    EMAIL_FROM_NAME: Optional[str] = Field(
+        default=None,
+        title="Sender display name",
+        description=(
+            "The human-readable name shown next to the sender address. Falls back to APP_NAME "
+            "when unset."
+        ),
+        examples=["CheckCheck", "My Checklists"],
+    )
+    EMAIL_REPLY_TO: Optional[str] = Field(
+        default=None,
+        title="Reply-To address",
+        description=(
+            "Optional address replies should go to. Set it to a monitored mailbox when "
+            "EMAIL_FROM_ADDRESS is a no-reply one; leave unset to omit the header."
+        ),
+        examples=["support@example.com"],
+    )
+    EMAIL_FILE_TRANSPORT_DIR: str = Field(
+        default="./dev_mail",
+        title="Directory for the file transport",
+        description=(
+            "Where EMAIL_TRANSPORT `file` writes messages as `.eml` files. Created on first "
+            "use and must be writable by the server process. Ignored by every other transport."
+        ),
+    )
+    EMAIL_TIMEOUT_SECONDS: int = Field(
+        default=20,
+        title="SMTP timeout (seconds)",
+        description=(
+            "How long to wait for the mail server before giving up on a message. The attempt "
+            "is retried later, so a short timeout is safer than a long stall."
+        ),
+    )
+
+    # ── Email design and branding (chunk E7) ──────────────────────────────────
+    EMAIL_TEMPLATE_DIR: Optional[str] = Field(
+        default=None,
+        title="Email template override directory",
+        description=(
+            "Directory whose templates take priority over the bundled ones, matched by file "
+            "name (for example base.html). Any template you do not provide keeps using the "
+            "bundled version, so overriding just base.html is enough to rebrand every "
+            "message. Every bundled template name is rendered against a dummy context at "
+            "startup, from this directory if set, so a broken override fails loudly here "
+            "rather than at delivery time; an override that only fails on real data is "
+            "logged and the bundled template is used for that one message instead."
+        ),
+    )
+    EMAIL_BRAND_COLOR: str = Field(
+        default="#059669",
+        title="Brand colour",
+        description=(
+            "Header and button colour for outgoing email and the unsubscribe page. A hex "
+            "triplet such as #059669, validated at startup because it is interpolated "
+            "straight into the message markup. The header text and button label colour "
+            "(black or white) is chosen automatically for contrast against it."
+        ),
+        examples=["#059669", "#1d4ed8"],
+    )
+    EMAIL_LOGO_URL: Optional[str] = Field(
+        default=None,
+        title="Logo URL",
+        description=(
+            "Absolute http(s) URL of a logo shown in the header of outgoing email and the "
+            "unsubscribe page. Unset shows a text wordmark instead, which is the default for "
+            "two reasons: most mail clients block remote images until the reader allows "
+            "them, so the design has to work without one anyway, and a remote logo is "
+            "fetched by the recipient's own mail client, which tells this instance when a "
+            "message was opened. That is your own choice to make about your own users, but "
+            "the public-link invitation goes to people who never signed up here, so weigh "
+            "that before setting this."
+        ),
+        examples=["https://example.com/logo.png"],
+    )
+
+    # ── Notification delivery ─────────────────────────────────────────────────
+    # Which notifications turn into mail, how much they may say, and how the
+    # background dispatcher behaves. See docs/plans/EMAIL_NOTIFICATIONS.md.
+    NOTIFY_EMAIL_REQUIRE_VERIFIED: bool = Field(
+        default=False,
+        title="Only mail verified addresses",
+        description=(
+            "When true, a user whose address is not marked verified receives no mail. Off by "
+            "default because in a self-hosted instance addresses come from the identity "
+            "provider or an administrator and are already trusted. There is no verification "
+            "flow yet, so turning this on currently stops all mail."
+        ),
+    )
+    NOTIFY_EMAIL_CONTENT_MODE: Literal["full", "minimal"] = Field(
+        default="full",
+        title="How much email messages reveal",
+        description=(
+            "`full` names the card and the person who acted, which makes the message useful "
+            "on its own. `minimal` only says that something happened and links back to the "
+            "app. Mail leaves the instance and is stored on someone else's server, so pick "
+            "`minimal` when card names are sensitive."
+        ),
+        examples=["full", "minimal"],
+    )
+    NOTIFY_EMAIL_SUPPRESS_WINDOW_SECONDS: int = Field(
+        default=120,
+        title="Delay before an immediate mail goes out (seconds)",
+        description=(
+            "How long a message waits before being sent. If the user reads the notification in "
+            "the app within that window, no mail is sent at all. Keeps people who are looking "
+            "at the app right now out of their own inbox. Set to 0 to send without delay."
+        ),
+    )
+    NOTIFY_DEFAULT_MODES: Dict[str, Dict[str, str]] = Field(
+        default_factory=lambda: {
+            "card_shared": {"in_app": "immediate", "email": "immediate"},
+            "card_invited": {"in_app": "immediate", "email": "immediate"},
+            "public_link_opened": {"in_app": "immediate", "email": "immediate"},
+            "reminder_due": {"in_app": "immediate", "email": "immediate"},
+        },
+        title="Instance default notification modes",
+        description=(
+            "The delivery mode used for a notification type and channel when the user has not "
+            "chosen one. Keyed by notification type (`card_shared`, `card_invited`, "
+            "`public_link_opened`, `reminder_due`), then by channel (`in_app`, `email`, "
+            "`webhook`). Modes are `off`, `immediate`, `hourly` and `daily`; `in_app` and "
+            "`webhook` accept only `off` and `immediate`. Users can override every entry "
+            "unless it is listed in NOTIFY_DISABLED_TYPES."
+        ),
+        examples=[
+            {
+                "card_shared": {"in_app": "immediate", "email": "immediate"},
+                "card_invited": {"in_app": "immediate", "email": "immediate"},
+                "public_link_opened": {"in_app": "immediate", "email": "off"},
+                "reminder_due": {"in_app": "immediate", "email": "immediate"},
+            }
+        ],
+    )
+    NOTIFY_DISABLED_TYPES: List[str] = Field(
+        default_factory=list,
+        title="Notification types disabled instance-wide",
+        description=(
+            "Notification types nobody may receive, whatever their personal settings say. Known "
+            "types are `card_shared`, `card_invited`, `public_link_opened` and `reminder_due`. "
+            "The settings UI shows those entries as locked by the administrator. Listing "
+            "`reminder_due` also stops the reminder scan, so due reminders are not delivered on "
+            "any channel. Empty by default."
+        ),
+        examples=[["public_link_opened"]],
+    )
+    NOTIFY_DISPATCH_IN_PROCESS: bool = Field(
+        default=True,
+        title="Send queued messages from the server process",
+        description=(
+            "When true the server itself drains the queue of pending messages in a "
+            "background task, which is what a normal single-container deployment wants. "
+            "Turn it off only if something else drains the queue, so that queued messages "
+            "are not delivered twice."
+        ),
+    )
+    NOTIFY_DISPATCH_TICK_SECONDS: int = Field(
+        default=30,
+        title="Dispatcher tick (seconds)",
+        description=(
+            "How often the background sender looks for due messages. It also wakes up "
+            "immediately when something is queued, so this is only the fallback interval."
+        ),
+    )
+    NOTIFY_MAX_ATTEMPTS: int = Field(
+        default=6,
+        title="Delivery attempts before giving up",
+        description=(
+            "How often a message is retried after a temporary failure (with growing backoff) "
+            "before it is marked failed and left for inspection. Permanent failures, such as "
+            "a rejected address, are never retried."
+        ),
+    )
+    NOTIFY_OUTBOX_RETENTION_DAYS: int = Field(
+        default=30,
+        title="Keep sent messages for (days)",
+        description=(
+            "How long successfully sent rows stay in the outbox table before they are pruned. "
+            "Failed rows are kept longer so an operator can still see what broke."
+        ),
+    )
+    NOTIFY_FEED_RETENTION_DAYS: int = Field(
+        default=180,
+        title="Keep in-app notifications for (days)",
+        description=(
+            "How long read notifications stay in the in-app feed before they are pruned. The "
+            "feed grows forever otherwise. Set to 0 to keep everything."
+        ),
+    )
+    NOTIFY_EMAIL_MAX_PER_USER_PER_HOUR: int = Field(
+        default=20,
+        title="Maximum emails per user per hour",
+        description=(
+            "A blunt backstop against flooding a single recipient. Messages over the limit are "
+            "dropped rather than queued forever."
+        ),
+    )
+    NOTIFY_WEBHOOK_ENABLED: bool = Field(
+        default=False,
+        title="Enable per-user webhooks",
+        description=(
+            "Master switch for the webhook channel, which POSTs a small JSON body to a URL "
+            "each user configures for themselves. Off by default: it lets signed-in users make "
+            "the server issue outbound HTTP requests."
+        ),
+    )
+    NOTIFY_WEBHOOK_ALLOW_PRIVATE_IPS: bool = Field(
+        default=False,
+        title="Allow webhooks to private addresses",
+        description=(
+            "When false, webhook URLs resolving to loopback, link-local or private network "
+            "ranges are refused, which is what stops a user pointing a webhook at services "
+            "reachable only from the server. Turn it on only for a trusted, single-user "
+            "instance on a private network."
+        ),
+    )
+
+    # ── Push notifications (browser and installed-PWA, chunk P1) ─────────────
+    # OS-level notifications delivered through the Web Push standard. See
+    # docs/plans/SYSTEM_NOTIFICATIONS.md.
+    NOTIFY_PUSH_ENABLED: bool = Field(
+        default=False,
+        title="Enable push notifications",
+        description=(
+            "Master switch for the push channel. When false the server never sends a push "
+            "message, no subscription can be created, and the push column of the "
+            "notification settings is hidden in the UI. When true, VAPID_PUBLIC_KEY, "
+            "VAPID_PRIVATE_KEY and VAPID_CONTACT_EMAIL are required, checked at startup. "
+            "Generate a key pair with ./gen_vapid_keys.sh."
+        ),
+    )
+    VAPID_PUBLIC_KEY: Optional[str] = Field(
+        default=None,
+        title="VAPID public key",
+        description=(
+            "The application server's public key, base64url-encoded. Required when "
+            "NOTIFY_PUSH_ENABLED is true. Not a secret: served to the client through "
+            "/api/public-config, which is what lets a browser subscribe. Generate with "
+            "./gen_vapid_keys.sh."
+        ),
+    )
+    VAPID_PRIVATE_KEY: Optional[SecretStr] = Field(
+        default=None,
+        title="VAPID private key",
+        description=(
+            "The application server's private key, base64url-encoded. Required when "
+            "NOTIFY_PUSH_ENABLED is true. Never leaves the server; signs the VAPID JWT that "
+            "proves a push request came from this instance. Supply it through the "
+            "environment rather than committing it to a config file. Generate with "
+            "./gen_vapid_keys.sh."
+        ),
+    )
+    VAPID_CONTACT_EMAIL: Optional[str] = Field(
+        default=None,
+        title="VAPID contact address",
+        description=(
+            "Contact address for the push services this instance calls, in case one needs "
+            "to reach an operator about abuse. Required when NOTIFY_PUSH_ENABLED is true. "
+            "Becomes the VAPID JWT's `sub` claim as `mailto:<address>`."
+        ),
+        examples=["admin@example.com"],
+    )
+    NOTIFY_PUSH_CONTENT_MODE: Literal["full", "minimal"] = Field(
+        default="minimal",
+        title="How much push notifications reveal",
+        description=(
+            "`full` names the card and the person who acted, `minimal` only says that "
+            "something happened and links back to the app. Independent of "
+            "NOTIFY_EMAIL_CONTENT_MODE and defaults to `minimal`: a push notification sits "
+            "on a lock screen, which can be visible to anyone near the device, a more "
+            "exposed surface than an email behind an inbox app's own unlock."
+        ),
+        examples=["full", "minimal"],
+    )
+    NOTIFY_PUSH_TTL_SECONDS: int = Field(
+        default=86400,
+        title="Push message time-to-live (seconds)",
+        description=(
+            "How long a push service should hold a message for a device that is offline, "
+            "before giving up on delivering it. Maps to the Web Push `TTL` header."
+        ),
+    )
+    NOTIFY_PUSH_MAX_PER_USER_PER_HOUR: int = Field(
+        default=20,
+        title="Maximum push notifications per user per hour",
+        description=(
+            "A blunt backstop against flooding a single recipient's devices. Messages over "
+            "the limit are dropped rather than queued forever. A phone buzzing repeatedly is "
+            "a worse experience than a full inbox, so this exists even though the equivalent "
+            "email limit is rarely hit."
         ),
     )
 
@@ -546,6 +954,116 @@ class Config(BaseSettings):
         if self.SET_SESSION_COOKIE_SECURE is None:
             self.SET_SESSION_COOKIE_SECURE = self.SERVER_PUBLIC_URL.startswith("https://")
 
+        return self
+
+    @model_validator(mode="after")
+    def _resolve_and_validate_email(self) -> "Config":
+        """Fill EMAIL_FROM_NAME from APP_NAME and reject a half-configured mailer.
+
+        A mail setup that is switched on but missing a sender address (or an SMTP
+        host) can only fail later, once per message, inside a background task
+        where nobody looks. Fail at boot instead: the instance does not start
+        until the operator finishes the configuration.
+        """
+        if self.EMAIL_FROM_NAME is None:
+            self.EMAIL_FROM_NAME = self.APP_NAME
+
+        if not self.EMAIL_ENABLED:
+            return self
+
+        if not self.EMAIL_FROM_ADDRESS:
+            raise ValueError(
+                "EMAIL_ENABLED is true but EMAIL_FROM_ADDRESS is not set. "
+                "Set the address messages are sent from, or set EMAIL_ENABLED to false."
+            )
+        if self.EMAIL_TRANSPORT == "smtp" and not self.EMAIL_SMTP_HOST:
+            raise ValueError(
+                "EMAIL_ENABLED is true and EMAIL_TRANSPORT is 'smtp', but EMAIL_SMTP_HOST is "
+                "not set. Point it at your mail server, or pick another EMAIL_TRANSPORT "
+                "('console' or 'file' for local development)."
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _validate_and_check_email_branding(self) -> "Config":
+        """Validate the chunk E7 branding settings and render every template.
+
+        EMAIL_BRAND_COLOR and EMAIL_LOGO_URL land straight in message markup, so a
+        malformed value must not reach the mailer. Rendering every bundled
+        template name here (through the override directory when one is set) is
+        section 0.5's "fail loudly at startup" rule applied to templates: a
+        broken operator override, or a bug in a bundled template, must stop the
+        instance from starting rather than dead-lettering mail the first time
+        somebody's card gets shared.
+        """
+        from checkcheckserver.notify import branding as _branding
+
+        try:
+            _branding.validate_hex_color(self.EMAIL_BRAND_COLOR)
+        except ValueError as exc:
+            raise ValueError(
+                f"EMAIL_BRAND_COLOR must be a hex color in the form #rrggbb, got "
+                f"{self.EMAIL_BRAND_COLOR!r}."
+            ) from exc
+
+        if self.EMAIL_LOGO_URL:
+            parsed = urlparse(self.EMAIL_LOGO_URL)
+            if parsed.scheme not in ("http", "https") or not parsed.netloc:
+                raise ValueError(
+                    f"EMAIL_LOGO_URL must be an absolute http(s) URL, got "
+                    f"{self.EMAIL_LOGO_URL!r}."
+                )
+
+        if self.EMAIL_TEMPLATE_DIR and not Path(self.EMAIL_TEMPLATE_DIR).is_dir():
+            raise ValueError(
+                f"EMAIL_TEMPLATE_DIR {self.EMAIL_TEMPLATE_DIR!r} is not a directory."
+            )
+
+        from checkcheckserver.notify import templating as _templating
+
+        _templating.check_all_templates(self)
+        return self
+
+    @model_validator(mode="after")
+    def _validate_push(self) -> "Config":
+        """Reject a half-configured push setup at startup, not on first delivery.
+
+        Same reasoning as ``_resolve_and_validate_email``: a queued push message
+        can only fail once per row, in a background task where nobody is looking,
+        so a missing or malformed VAPID key must stop the instance from starting
+        instead.
+        """
+        if not self.NOTIFY_PUSH_ENABLED:
+            return self
+
+        missing = [
+            name
+            for name, value in (
+                ("VAPID_PUBLIC_KEY", self.VAPID_PUBLIC_KEY),
+                ("VAPID_PRIVATE_KEY", self.VAPID_PRIVATE_KEY),
+                ("VAPID_CONTACT_EMAIL", self.VAPID_CONTACT_EMAIL),
+            )
+            if not value
+        ]
+        if missing:
+            raise ValueError(
+                "NOTIFY_PUSH_ENABLED is true but "
+                f"{', '.join(missing)} {'is' if len(missing) == 1 else 'are'} not set. "
+                "Generate a key pair with ./gen_vapid_keys.sh, or set NOTIFY_PUSH_ENABLED "
+                "to false."
+            )
+
+        from checkcheckserver.notify import push as _push
+
+        try:
+            _push.validate_vapid_keys(
+                public_key=self.VAPID_PUBLIC_KEY,
+                private_key=self.VAPID_PRIVATE_KEY.get_secret_value(),
+            )
+        except ValueError as exc:
+            raise ValueError(
+                f"VAPID_PUBLIC_KEY / VAPID_PRIVATE_KEY are not a usable key pair: {exc}"
+            ) from exc
         return self
 
     def get_server_url(self) -> str:

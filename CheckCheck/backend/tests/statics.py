@@ -12,6 +12,14 @@ TEST_USER_NAME = "testuser01"
 TEST_USER_PW = "testuserpw_secure1"
 TEST_USER_EMAIL = "testuser01@test.de"
 
+# Sender address the test instance (and the mail_capture fixture) is configured
+# with. Tests may assert on it.
+MAIL_CAPTURE_FROM_ADDRESS = "checkcheck-tests@example.com"
+
+# Declared as SHARING_INTERNAL_EMAIL_DOMAINS on the test instance (chunk E6), so
+# the "that address looks like a colleague" hint has a real domain to fire on.
+INTERNAL_TEST_EMAIL_DOMAIN = "internal-test.de"
+
 # ── OIDC mock constants — consumed by tests_oidc_mapping.py and conftest.py ────
 OIDC_TEST_PROVIDER_DISPLAY_NAME = "LocalTestOIDC"
 OIDC_TEST_PROVIDER_SLUG = "localtestoidc"

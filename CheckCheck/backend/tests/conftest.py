@@ -49,6 +49,8 @@ from statics import (
     OIDC_TEST_PROVIDER_SLUG,
     OIDC_TEST_ROLE_GROUP,
     OIDC_TEST_MAPPED_ROLE,
+    MAIL_CAPTURE_FROM_ADDRESS,
+    INTERNAL_TEST_EMAIL_DOMAIN,
 )
 
 PROVISIONING_DATA_PATH = TESTS_DIR / "provisioning_data" / "test_users.yaml"
@@ -81,6 +83,34 @@ def set_config_for_test_env():
         os.environ["SHARING_REQUIRE_INVITE_ACCEPT"] = "True"
     else:
         os.environ["SHARING_REQUIRE_INVITE_ACCEPT"] = "False"
+
+    # Mail: switched on so the mail-facing endpoints are reachable in tests, with
+    # the `null` transport so the test server itself can never send anything.
+    #
+    # NOTIFY_DISPATCH_IN_PROCESS=False is the important part. The server runs as a
+    # subprocess, so a dispatcher inside it would deliver queued rows through the
+    # server's own (null) transport, where no test can see them, and would race
+    # every assertion about the queue. With it off, the outbox tests drive
+    # `drain_once()` in *this* process against the same database, with a capturing
+    # transport installed, and observe the actual message.
+    os.environ["EMAIL_ENABLED"] = "True"
+    os.environ["EMAIL_TRANSPORT"] = "null"
+    os.environ["EMAIL_FROM_ADDRESS"] = MAIL_CAPTURE_FROM_ADDRESS
+    os.environ["NOTIFY_DISPATCH_IN_PROCESS"] = "False"
+
+    # Chunk E6: mailing a public link is off by default in production, so the
+    # test instance has to switch it on for those endpoints to be reachable at
+    # all. The "…but not on an instance that disabled it" case cannot be an HTTP
+    # test for the same reason the invite gate cannot (it is a process-level
+    # flag), so it is asserted against the gate dependency directly.
+    # One internal domain is declared so the client's "that address looks like a
+    # colleague" hint has something real to be driven by.
+    os.environ["SHARING_PUBLIC_LINK_EMAIL_ENABLED"] = "True"
+    os.environ["SHARING_INTERNAL_EMAIL_DOMAINS"] = json.dumps([INTERNAL_TEST_EMAIL_DOMAIN])
+    # Webhooks stay OFF here: tests_notification_prefs.py asserts what a locked
+    # channel looks like against this instance, and the webhook channel is the
+    # one that is locked. Everything about the channel itself is driven in-process
+    # with a substituted Config (tests_notification_webhooks.py).
 
 
 # Set at module level so it is in place during pytest's collection phase.
@@ -243,6 +273,28 @@ def _teardown_postgres():
 # ─────────────────────────────────────────────────────────────────────────────
 
 
+def _rebind_engine_in_test_process(url: str):
+    """Point the app's shared async engine at the database under test.
+
+    Tests that do database work in this process (the outbox tests call
+    ``drain_once()`` directly) go through ``checkcheckserver.db._session``, whose
+    engine is built at *import* time from ``SQL_DATABASE_URL``. Some test modules
+    import the app's auth code during collection, which drags that engine in
+    before this fixture has chosen the database, so under ``--db=postgres`` it
+    would otherwise be left pointing at the SQLite fallback and in-process work
+    would silently land in the wrong database. ``_session`` imported the engine by
+    value, so both modules have to be rebound.
+    """
+    from sqlalchemy.ext.asyncio import create_async_engine
+
+    import checkcheckserver.db._engine as engine_module
+    import checkcheckserver.db._session as session_module
+
+    engine = create_async_engine(url, future=True)
+    engine_module.db_engine = engine
+    session_module.db_engine = engine
+
+
 @pytest.fixture(scope="session")
 def database(request):
     db = request.config.getoption("--db")
@@ -266,11 +318,57 @@ def database(request):
 
     os.environ["SQL_DATABASE_URL"] = url
     logger.info("Database URL: %s", url.replace(_PG_PW, "***"))
+    _rebind_engine_in_test_process(url)
 
     yield
 
     if db == "postgres":
         _teardown_postgres()
+
+
+# ── mail harness ──────────────────────────────────────────────────────────────
+
+
+@pytest.fixture
+def mail_capture():
+    """A capturing email transport, installed for the duration of one test.
+
+    Every message an in-process caller sends through
+    ``notify.transports.get_email_transport()`` lands in ``.sent`` (the
+    :class:`OutgoingEmail`) and ``.messages`` (the rendered MIME message)
+    instead of going anywhere. Set ``.raise_on_send`` to a
+    ``TransientEmailError``/``PermanentEmailError`` to make the next send fail,
+    which is how the dispatcher's retry and dead-letter behaviour gets tested.
+
+    Scope note: this patches the *test* process, not the server subprocess that
+    conftest boots. It is for code called directly from a test (the dispatcher's
+    ``drain_once()``), not for mail triggered by an HTTP request against the live
+    server. That is not a gap: the test environment runs the server with
+    NOTIFY_DISPATCH_IN_PROCESS=False, so a row queued over HTTP stays in the
+    outbox until a test drains it here and sees the message.
+    """
+    from checkcheckserver.config import Config
+    from checkcheckserver.notify.transports import (
+        CapturingEmailTransport,
+        reset_email_transport,
+        set_email_transport,
+    )
+
+    # The test environment has mail switched off, so give the capturing
+    # transport a config that looks like a configured instance. Otherwise every
+    # captured message would render without a sender address.
+    transport = CapturingEmailTransport(
+        Config(
+            EMAIL_ENABLED=True,
+            EMAIL_TRANSPORT="null",
+            EMAIL_FROM_ADDRESS=MAIL_CAPTURE_FROM_ADDRESS,
+        )
+    )
+    set_email_transport(transport)
+    try:
+        yield transport
+    finally:
+        reset_email_transport()
 
 
 def _start_server() -> subprocess.Popen:

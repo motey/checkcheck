@@ -1,0 +1,45 @@
+{# Shared layout for every outgoing message and the unsubscribe page (chunk E7).
+
+Table-based, inline-styled, 600px max width, single column: the shape that
+survives Outlook's Word rendering engine and every other mail client, and
+happens to also be a perfectly ordinary web page. Overriding this file alone
+is enough to rebrand every message, since every partial extends it by name
+through the same template loader. #}
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+{% block head_extra %}{% endblock %}
+<title>{% block title %}{{ app_name }}{% endblock %}</title>
+</head>
+<body style="margin:0;padding:0;background-color:#f4f5f7;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#f4f5f7;">
+<tr>
+<td align="center" style="padding:24px 16px;">
+<table role="presentation" width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;background-color:#ffffff;">
+<tr>
+<td style="background-color:{{ brand_color }};padding:20px 32px;">
+{% if logo_url %}
+<img src="{{ logo_url }}" alt="{{ app_name }}" height="28" style="display:block;border:0;outline:none;">
+{% else %}
+<span style="font-family:system-ui,-apple-system,Segoe UI,Helvetica,Arial,sans-serif;color:{{ brand_fg }};font-size:20px;font-weight:600;">{{ app_name }}</span>
+{% endif %}
+</td>
+</tr>
+<tr>
+<td style="padding:32px;font-family:system-ui,-apple-system,Segoe UI,Helvetica,Arial,sans-serif;font-size:15px;line-height:1.5;color:#1f2328;">
+{% block content %}{% endblock %}
+</td>
+</tr>
+<tr>
+<td style="padding:16px 32px 28px 32px;border-top:1px solid #e7e9ec;font-family:system-ui,-apple-system,Segoe UI,Helvetica,Arial,sans-serif;font-size:13px;line-height:1.5;color:#59636e;">
+{% block footer %}{% endblock %}
+</td>
+</tr>
+</table>
+</td>
+</tr>
+</table>
+</body>
+</html>

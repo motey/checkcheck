@@ -53,6 +53,14 @@
             </div>
           </template>
 
+          <template #notification-settings-leading>
+            <UIcon name="i-lucide-bell-ring" class="size-5 shrink-0 text-muted" />
+          </template>
+          <template #notification-settings-label>
+            <span data-testid="menu-notification-settings">Notifications</span>
+            <span v-if="!online" class="ml-1 text-xs text-muted">(offline)</span>
+          </template>
+
           <template #api-keys-leading>
             <UIcon name="i-lucide-key-round" class="size-5 shrink-0 text-muted" />
           </template>
@@ -71,18 +79,26 @@
       </div>
     </div>
 
-    <!-- API keys manager, opened from the user menu (declarative v-model:open
-         so it mounts once and can't double-dialog). -->
+    <!-- Both panes are places: the URL is the single source of truth and the
+         modals mount once (declarative v-model:open, so they can't
+         double-dialog). Every close path (the close button, Escape, a backdrop
+         click) lands in the setter below and therefore in closeSettings(),
+         because a dialog that closes while the URL still names it cannot be
+         reopened without navigating away first. -->
     <ApiKeysModal v-model:open="apiKeysOpen" />
+    <NotificationSettingsModal v-model:open="notificationSettingsOpen" />
   </div>
 </template>
 
 <script setup lang="ts">
 import type { DropdownMenuItem } from "@nuxt/ui";
 import { useUserStore } from "@/stores/user";
+import { usePublicConfigStore } from "@/stores/publicConfig";
 import { useConnectivity } from "@/composables/useConnectivity";
+import { useAppRoute } from "~/composables/useAppRoute";
 import { isLocalFirstEnabled } from "@/utils/localFirst";
 import { clearLocalState } from "@/utils/localSnapshot";
+import { unregisterPushOnLogout } from "@/utils/pushLifecycle";
 
 const emit = defineEmits<{ toggleSidebar: [] }>();
 
@@ -106,17 +122,52 @@ const initials = computed(() => {
   return (parts[0][0] + parts[1][0]).toUpperCase();
 });
 
-const apiKeysOpen = ref(false);
+// The two settings panes are URL-reflected places (/settings/notifications and
+// /settings/api-keys), so no component holds a boolean for either: these
+// computeds read the route and their setters navigate.
+const { settingsPane, openSettings, closeSettings } = useAppRoute();
+
+function paneModel(pane: "notifications" | "api-keys") {
+  return computed({
+    get: () => settingsPane.value === pane,
+    set: (open: boolean) => {
+      // Only the user closing the dialog drives a route change; opening is
+      // already what put the pane in the URL. And only the pane that is really
+      // on screen may act on it: both dialogs are mounted at all times and share
+      // one closeSettings(), so a stray `update:open=false` from the closed one
+      // (Reka emits on mount and on teardown) would otherwise close whichever
+      // pane had just opened, leaving the URL back at "/" a frame later.
+      if (!open && settingsPane.value === pane) closeSettings();
+    },
+  });
+}
+const apiKeysOpen = paneModel("api-keys");
+const notificationSettingsOpen = paneModel("notifications");
+
+// Notifications only exist where sharing does (nothing else emits any), so the
+// entry follows the same feature gate as the bell itself: an instance with
+// sharing off has no preferences worth a dialog.
+const publicConfig = usePublicConfigStore();
 
 const userMenuItems = computed(
   () =>
     [
+      ...(publicConfig.sharingEnabled
+        ? [
+            {
+              label: "Notifications",
+              slot: "notification-settings" as const,
+              // Deliberately NOT disabled offline: the dialog opens and explains
+              // that its controls need a connection (WI-12), which is more use
+              // than a menu entry that does nothing.
+              onSelect: () => openSettings("notifications"),
+            },
+          ]
+        : []),
       {
         label: "API keys",
         slot: "api-keys" as const,
-        onSelect: () => {
-          apiKeysOpen.value = true;
-        },
+        onSelect: () => openSettings("api-keys"),
       },
       {
         label: "Logout",
@@ -130,6 +181,13 @@ const userMenuItems = computed(
 
 async function logout() {
   const { $checkapi } = useNuxtApp();
+  // Take this device's push subscription with the session (N5, finding 5.2):
+  // otherwise A's card names, actor names and reminder text keep landing on the
+  // lock screen of a browser B is now using, which is a more exposed surface
+  // than a mail sitting in an inbox app. Before the logout POST, because
+  // deleting the server row needs the cookie that POST is about to invalidate;
+  // best-effort and time-boxed inside, so logout never hangs on a push service.
+  await unregisterPushOnLogout().catch(() => {});
   try {
     await $checkapi("/api/auth/logout", { method: "POST" });
   } catch {

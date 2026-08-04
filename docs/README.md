@@ -29,6 +29,6 @@ historical notes.
 
 | Folder | Contents |
 |--------|----------|
-| [`plans/`](plans/) | Forward-looking and in-progress plans only: this session's [`DOCUMENTATION_PLAN.md`](plans/DOCUMENTATION_PLAN.md), the [`improvements-2026-07.md`](plans/improvements-2026-07.md) batch, and the 2.5 / 3.0 idea docs. |
+| [`plans/`](plans/) | Forward-looking and in-progress plans only: the [`EMAIL_NOTIFICATIONS.md`](plans/EMAIL_NOTIFICATIONS.md) sub-project and the 2.5 / 3.0 idea docs. Finished plans move to `archive/`. |
 | [`testing/`](testing/) | Testing guides. |
 | [`archive/`](archive/) | Superseded or finished docs kept for history: the shipped 2.0 plan and work items, the 2.0 / phase reviews, the card-sharing plans, point-in-time status notes, and the legacy repo-local `memory/` notes. |

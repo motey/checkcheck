@@ -90,7 +90,12 @@ test.describe("logout", () => {
     // located at the page level by its testid).
     await page.locator("[data-testid=user-menu]").click();
     await page.locator("[data-testid=logout-button]").click();
-    await page.waitForURL("/login", { timeout: 10_000 });
-    await expect(page).toHaveURL("/login");
+    // The landing URL carries `?logout=1`, which is what suppresses OIDC
+    // auto-login so the user actually sees the login form instead of being
+    // bounced straight back into their still-active SSO session. Match the path,
+    // not the whole URL: an exact "/login" stopped matching when that flag was
+    // added, and this assertion has been failing ever since.
+    await page.waitForURL(/\/login(\?|$)/, { timeout: 10_000 });
+    await expect(page).toHaveURL(/\/login(\?|$)/);
   });
 });

@@ -30,6 +30,13 @@ export default defineConfig({
     // Kills the card hover-lift and FormKit drag reflow animations, so a shot
     // taken mid-transition is impossible.
     reducedMotion: "reduce",
+    // Pinned, and load-bearing since chunk T: the board writes the *device's*
+    // time zone into the notification settings at boot, so an unpinned zone
+    // would render whichever one the machine taking the picture is in. That is
+    // a diff on every maintainer's run and it publishes their location into
+    // public docs. Any shot that includes a date, a reminder or the time-zone
+    // picker depends on this.
+    timezoneId: "Europe/Berlin",
     trace: "off",
     video: "off",
   },

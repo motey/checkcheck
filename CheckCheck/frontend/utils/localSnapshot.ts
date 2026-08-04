@@ -3,6 +3,7 @@ import { watchDebounced } from "@vueuse/core";
 import { useCheckListsStore } from "@/stores/checklist";
 import { useCheckListsItemStore } from "@/stores/checklist_item";
 import { useCheckListsLabelStore } from "@/stores/label";
+import { useReminderStore } from "@/stores/reminder";
 import { useUserStore } from "@/stores/user";
 import { usePublicConfigStore } from "@/stores/publicConfig";
 import {
@@ -19,6 +20,7 @@ import { combineGuards, defaultEditGuard } from "@/utils/editGuard";
 import { emitSyncNotice } from "@/utils/syncNotices";
 import { beginSync, endSync } from "@/utils/syncStatus";
 import { useOutbox } from "@/composables/useOutbox";
+import { unsubscribePushLocally } from "@/utils/pushLifecycle";
 
 // ── Store snapshot registry (WI-6) ───────────────────────────────────────────
 //
@@ -148,6 +150,9 @@ function resetBoardStores(pinia: Pinia): void {
   (useCheckListsStore(pinia) as any).$reset();
   (useCheckListsItemStore(pinia) as any).$reset();
   (useCheckListsLabelStore(pinia) as any).$reset();
+  // Reminders are keyed by card but belong to the user who set them (R4), so
+  // they are exactly the kind of thing user B must not inherit from user A.
+  (useReminderStore(pinia) as any).$reset();
 }
 
 /**
@@ -170,6 +175,12 @@ export async function reconcileAccount(pinia: Pinia, userId: string): Promise<bo
       console.warn("[localFirst] failed to clear outbox on account switch", err);
     }
     resetBoardStores(pinia); // drop A's hydrated board from memory
+    // The previous session ended without a clean logout (crash, closed tab,
+    // expired cookie), so Navbar's unregister never ran and this browser is
+    // still subscribed to push for A (N5, finding 5.2). Only the local half is
+    // possible here: the server row is A's and B's cookie cannot delete it, so
+    // it dies on its next delivery instead (404/410 → the drain drops it).
+    await unsubscribePushLocally().catch(() => {});
     await writeSnapshotOwner(userId);
     return true;
   }

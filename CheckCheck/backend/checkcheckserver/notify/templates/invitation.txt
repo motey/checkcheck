@@ -1,0 +1,19 @@
+Hello,
+
+{{ opening }}
+
+{% if note %}
+{% for line in note.splitlines() %}
+> {{ line }}
+{% endfor %}
+
+{% endif %}
+Open the list here: {{ url }}
+
+With this link you can {{ permission_sentence }}.
+{% if password_protected %}
+The link is protected by a passphrase. Ask the person who sent it to you: it is deliberately not in this message.
+{% endif %}
+
+{{ "-- " }}
+You received this because somebody using {{ app_name }} entered your address. It is a one-off message; you are not subscribed to anything and no account was created for you. If it was not meant for you, please ignore it and do not pass the link on.

@@ -1,8 +1,10 @@
 # Markdown support for the card description (`text`) field
 
-**Status:** 📋 Planned. Implementation happens in a separate session. Read this
-document top to bottom before writing any code; it captures the research so you
-do not have to re-derive it.
+**Status:** ✅ Done (2026-07-19), archived 2026-08-01. Shipped in
+`frontend/utils/markdown.ts` and `components/MarkdownHelp.vue`, with focus-swap
+editing on card notes and slim inline-only Markdown on item text. Covered by
+`tests/unit/markdown.spec.ts` and `tests/e2e/markdown-notes.spec.ts`. The brief
+below is retained as the design record.
 
 **Feature:** Render the card description as Markdown. The card description is the
 `text` field on `CheckList` (labelled "notes" in the UI, "A text that will be

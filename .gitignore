@@ -399,4 +399,12 @@ CheckCheck/frontend/test-results/
 CheckCheck/frontend/tests/e2e/.auth/
 CheckCheck/frontend/tests/e2e/.e2e-server.pid
 NEXT_SESSION.md
+
+# Dev mail sink: .eml files written by EMAIL_TRANSPORT=file
+# (./run_dev_backend_server_with_oidc*.sh --mail=file)
+dev_mail/
+
+# Rendered email previews, one .html per message kind
+# (CheckCheck/backend/render_email_previews.py)
+CheckCheck/backend/email_preview/
 CheckCheck/frontend/tests/screenshots/.auth/

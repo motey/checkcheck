@@ -15,7 +15,7 @@ the naive-UTC ``created_at``/``updated_at`` convention (its ``server_seq`` colum
 is stamped like any other row but never queried — harmless).
 
 See ``api/group_share_reconcile.py`` for the materialize/reconcile logic and
-``docs/plans/GROUP_SHARE_LIVING_MEMBERSHIP.md`` for the full design.
+``docs/archive/GROUP_SHARE_LIVING_MEMBERSHIP.md`` for the full design.
 """
 
 import uuid

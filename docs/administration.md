@@ -72,6 +72,67 @@ A few behaviours worth knowing when you support users:
   notifications, and label create/rename/delete do not work offline. This is not
   a bug; those surfaces queue nothing while disconnected.
 
+## Notifications, email and webhooks
+
+Notifications appear in the app's bell by default and go no further. Sending them
+as email is opt-in per instance and takes a mail server: see
+[configuration.md](configuration.md#email). Things to know when supporting users:
+
+- **Users choose their own modes**, per notification type and per channel, under
+  "Notifications" in the avatar menu, or straight at `/settings/notifications`
+  (the API keys pane is `/settings/api-keys`), which is worth knowing when you
+  are telling somebody where to click. You set the instance defaults with
+  `NOTIFY_DEFAULT_MODES`, and you can take a type away from everybody with
+  `NOTIFY_DISABLED_TYPES`, which the settings dialog then shows as locked by the
+  administrator.
+- **"No mail arrived" is usually one of three things**: `EMAIL_ENABLED` is off,
+  `NOTIFY_EMAIL_REQUIRE_VERIFIED` is on (there is no verification flow yet, so it
+  blocks everything), or the recipient hit `NOTIFY_EMAIL_MAX_PER_USER_PER_HOUR`.
+  The user's own "Send test email" button separates a mail-server problem from a
+  preference problem, and failed messages stay in the `notification_outbox` table
+  with the reason in `last_error`.
+- **Sending happens in a background task inside the server**
+  (`NOTIFY_DISPATCH_IN_PROCESS`), not in the request, so a dead mail server slows
+  nothing down. Digests are batched per user and sent in that user's timezone.
+- **A user's timezone follows the device they sign in from.** The app stores the
+  browser's own zone the first time it sees it, so a digest lands at the local
+  hour without anyone visiting the settings dialog, and writes it again whenever
+  that device reports a different zone (somebody who has travelled). A zone the
+  user picks in the dialog is left alone until then, and existing reminders are
+  unaffected in every case, since each keeps the timezone it was created with.
+  Note that the "has this device moved" marker is per browser, so signing in on
+  a second device in another zone does move the stored value.
+- **Webhooks are off by default** and let a signed-in user make the server issue
+  outbound HTTP requests, which is why the target is checked against private and
+  loopback ranges on every attempt. Requests are not signed, so the URL itself is
+  the credential: a user whose receiver needs to trust the request should put an
+  unguessable token in the path. See
+  [configuration.md](configuration.md#webhooks).
+- **Date reminders are a notification type like any other** (`reminder_due`), so
+  a user's own choices in that dialog decide whether a due reminder reaches them
+  in the app, by mail, or by webhook. Two things about it differ from the rest:
+  it is the one type whose instance default sends mail immediately (a reminder
+  the user only sees next time they open the app is not a reminder), and it
+  refuses the digest modes, since a reminder held back until tomorrow morning is
+  not one either. Adding `reminder_due` to `NOTIFY_DISABLED_TYPES` is the whole
+  off switch: it locks the type in the dialog, stops the loop that watches for
+  due rows, and makes the app refuse to store new reminders. Existing rows are
+  kept and resume if you switch it back on.
+- **"My reminder never arrived" is usually one of four things**: the card was
+  deleted or the share was revoked (a reminder is dropped silently at fire time
+  when the user can no longer open the card), the type is in
+  `NOTIFY_DISABLED_TYPES`, `NOTIFY_DISPATCH_IN_PROCESS` is off with nothing else
+  draining the outbox, or the user set the reminder in a timezone they have since
+  changed (the reminder keeps the timezone it was created with, on purpose, so
+  that moving does not shift every existing repeat). Reminders are personal: only
+  the user who set one is ever notified, so "my collaborator did not get it" is
+  the feature working.
+- **Mailing a public link** to someone without an account is a separate switch
+  (`SHARING_PUBLIC_LINK_EMAIL_ENABLED`, off by default) and is rate-limited per
+  sender, since it lets an account holder make your server mail an address of
+  their choosing. See
+  [configuration.md](configuration.md#sending-a-public-link-by-email).
+
 ## API tokens
 
 Users can mint API tokens in the token manager. Two settings govern them:

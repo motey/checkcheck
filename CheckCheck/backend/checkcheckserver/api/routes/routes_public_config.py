@@ -38,6 +38,13 @@ class PublicConfig(BaseModel):
     sharing_require_invite_accept: bool = Field(
         description="Whether a share creates a pending invite the target must accept before gaining access (invite mode).",
     )
+    sharing_public_link_email_enabled: bool = Field(
+        description=(
+            "Whether an owner may mail an existing public link to an address of their "
+            "choosing. When false, hide that field inside the public-links section. True "
+            "only when the instance can also send mail at all."
+        ),
+    )
     api_token_default_expiry_days: Optional[int] = Field(
         default=None,
         description="Default API-key validity in whole days, surfaced so the token manager can pre-select it. Null when the server default is no expiry.",
@@ -47,6 +54,26 @@ class PublicConfig(BaseModel):
     )
     server_version: str = Field(
         description="The running server's version string (from checkcheckserver.__version__), surfaced so the web client can display it.",
+    )
+    email_enabled: bool = Field(
+        description="Whether the instance can send email at all. When false, the notification settings hide the email column entirely (there is nothing to configure).",
+    )
+    webhook_enabled: bool = Field(
+        description="Whether per-user notification webhooks are allowed. When false, the notification settings hide the webhook column.",
+    )
+    push_enabled: bool = Field(
+        description=(
+            "Whether the instance can send push notifications at all. When false, the "
+            "notification settings hide the push column and no subscription can be created."
+        ),
+    )
+    vapid_public_key: Optional[str] = Field(
+        default=None,
+        description=(
+            "The instance's VAPID public key, base64url-encoded. Not a secret; the client "
+            "needs it as the applicationServerKey when subscribing. Null when push_enabled "
+            "is false."
+        ),
     )
 
 
@@ -71,7 +98,20 @@ async def get_public_config() -> PublicConfig:
         sharing_public_links_enabled=config.SHARING_PUBLIC_LINKS_ENABLED,
         sharing_user_search_enabled=config.SHARING_USER_SEARCH_ENABLED,
         sharing_require_invite_accept=config.SHARING_REQUIRE_INVITE_ACCEPT,
+        # Reported as the *endpoint* behaves: it needs the sharing switches, its
+        # own switch and a working mailer, so a client that only saw its own flag
+        # would render a field that 404s.
+        sharing_public_link_email_enabled=(
+            config.SHARING_ENABLED
+            and config.SHARING_PUBLIC_LINKS_ENABLED
+            and config.SHARING_PUBLIC_LINK_EMAIL_ENABLED
+            and config.EMAIL_ENABLED
+        ),
         api_token_default_expiry_days=_default_api_token_expiry_days(),
         api_token_allow_never_expire=config.API_TOKEN_ALLOW_NEVER_EXPIRE,
         server_version=server_version,
+        email_enabled=config.EMAIL_ENABLED,
+        webhook_enabled=config.NOTIFY_WEBHOOK_ENABLED,
+        push_enabled=config.NOTIFY_PUSH_ENABLED,
+        vapid_public_key=config.VAPID_PUBLIC_KEY if config.NOTIFY_PUSH_ENABLED else None,
     )

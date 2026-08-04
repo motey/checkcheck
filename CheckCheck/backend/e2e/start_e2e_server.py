@@ -71,6 +71,49 @@ def _configure_env() -> None:
     os.environ["AUTH_ACCESS_TOKEN_EXPIRES_MINUTES"] = "1000"
     os.environ["LOG_LEVEL"] = "WARNING"
     os.environ["APP_PROVISIONING_DATA_YAML_FILES"] = json.dumps([str(PROVISIONING)])
+    # Notification settings (chunk E5) only show their email half on an instance
+    # that can send mail, so this one can: the `null` transport accepts every
+    # message and discards it, which exercises the whole queue-and-dispatch path
+    # without a mail server and without anything leaving the process.
+    os.environ.setdefault("EMAIL_ENABLED", "true")
+    os.environ.setdefault("EMAIL_TRANSPORT", "null")
+    os.environ.setdefault("EMAIL_FROM_ADDRESS", "checkcheck-e2e@test.de")
+    # One notification type is administrator-disabled, so the dialog's locked
+    # state has something real to render. Nothing in the suite depends on
+    # `public_link_opened` notifications (opening a public link still works; only
+    # the owner's notification about it is suppressed).
+    os.environ.setdefault("NOTIFY_DISABLED_TYPES", json.dumps(["public_link_opened"]))
+    # Chunk E6: mailing a public link is off in production by default, so the E2E
+    # instance switches it on and declares one internal domain, which is what
+    # gives the "that address looks like a colleague's" callout something real to
+    # fire on. Both are setdefault, so a spec run can override either — an empty
+    # domain list is how the "no callout ever appears" case would be driven, and
+    # the pure-function version of it lives in tests/unit/publicLinkEmail.spec.ts.
+    os.environ.setdefault("SHARING_PUBLIC_LINK_EMAIL_ENABLED", "true")
+    os.environ.setdefault(
+        "SHARING_INTERNAL_EMAIL_DOMAINS", json.dumps(["internal-e2e.example"])
+    )
+    # The webhook channel is on here too, so its column and its URL field are
+    # real in the settings dialog. Nothing is ever actually POSTed by the suite:
+    # a saved URL is only called once a notification of a type the user switched
+    # the channel on for happens, and no spec does that. The "instance without
+    # webhooks" case is covered by the unit test of `visibleChannels`.
+    os.environ.setdefault("NOTIFY_WEBHOOK_ENABLED", "true")
+    # The push channel (chunk P2), same reasoning: on here so its column, the
+    # "Enable notifications" flow and the device list are real in the settings
+    # dialog. This VAPID pair is a throwaway (valid in shape, tied to no real
+    # push service) — the same one tests_notification_push.py uses. Nothing in
+    # the E2E suite talks to a real push endpoint; a mocked PushManager stands
+    # in for the browser API (see tests/e2e/notification-settings.spec.ts), and
+    # the resulting fake `endpoint` fails harmlessly in the background dispatcher
+    # if a spec ever exercises "send test push".
+    os.environ.setdefault("NOTIFY_PUSH_ENABLED", "true")
+    os.environ.setdefault(
+        "VAPID_PUBLIC_KEY",
+        "BH-DWhYfjSH5OVS2sjII4dGEP46ueAfPWQklJ_zITJqoWtfKgjHBTDxE_X5jdPms-zR3R9b43oCqYFnxwmwk_PY",
+    )
+    os.environ.setdefault("VAPID_PRIVATE_KEY", "Mp6hqDn1uEMxJwMvqchFdkrCiID8zYUIvTwDI-rmLSA")
+    os.environ.setdefault("VAPID_CONTACT_EMAIL", "admin@test.de")
     # Invite-mode E2E pass: SHARING_REQUIRE_INVITE_ACCEPT is left untouched here so
     # the caller's environment wins. The default pass leaves it unset (→ False, the
     # production default: shares are accepted instantly). The invite-flow pass —
@@ -88,7 +131,51 @@ def _configure_env() -> None:
         )
 
 
+# The push endpoints the E2E suite registers are fakes on `fake.push.example`,
+# a name that deliberately resolves to nothing. Chunk N2 judges every endpoint
+# before it becomes a row (resolve the host, then refuse anything that is not
+# public unicast), so an unresolvable name is a 400 and the entire push flow in
+# the settings dialog stopped being reachable from the browser suite.
+#
+# Pointing the suite at a real host instead would put a DNS lookup and,
+# eventually, an outbound POST to somebody else's server in the middle of a
+# test. So the E2E server process teaches the guard exactly one name family
+# instead: `*.push.example` resolves to a fixed public address. Nothing else is
+# touched, and no connection is ever made to that address (the guard only
+# judges it; the dispatcher hands the URL to `pywebpush`, which resolves the
+# real name itself and fails harmlessly). The guard's actual behaviour stays
+# covered by the backend's own tests, which do not run through this file.
+_FAKE_PUSH_SUFFIX = ".push.example"
+_FAKE_PUSH_ADDRESS = "93.184.216.34"
+
+
+def _install_fake_push_resolver() -> None:
+    from checkcheckserver.notify import net_guard
+
+    real_async = net_guard.resolve_addresses
+    real_sync = net_guard.resolve_addresses_sync
+
+    def _is_fake(host: str) -> bool:
+        return host.endswith(_FAKE_PUSH_SUFFIX)
+
+    async def resolve_addresses(host: str, port: int):
+        if _is_fake(host):
+            return [_FAKE_PUSH_ADDRESS]
+        return await real_async(host, port)
+
+    def resolve_addresses_sync(host: str, port: int):
+        if _is_fake(host):
+            return [_FAKE_PUSH_ADDRESS]
+        return real_sync(host, port)
+
+    # `require_public_https_target` reads these through the module globals, so
+    # replacing the attributes is enough for both callers.
+    net_guard.resolve_addresses = resolve_addresses
+    net_guard.resolve_addresses_sync = resolve_addresses_sync
+
+
 def _server_target() -> None:
+    _install_fake_push_resolver()
     from checkcheckserver.main import start
 
     start()

@@ -22,6 +22,13 @@ export type NotificationState = {
   items: NotificationReadType[];
   // Whether the dropdown is open (drives useSync's live re-list).
   open: boolean;
+  // The effective preference matrix behind the settings dialog (E5). Null until
+  // the dialog has opened once; never snapshotted to IndexedDB, since this is an
+  // online-only surface that must always show what the server actually holds.
+  settings: NotificationSettingsType | null;
+  // This user's subscribed devices for the push column's device list (P2).
+  // Empty until the dialog has opened once, same as `settings`.
+  pushSubscriptions: PushSubscriptionInfoType[];
 };
 
 export const useNotificationStore = defineStore("notification", {
@@ -30,6 +37,8 @@ export const useNotificationStore = defineStore("notification", {
       unreadCount: 0,
       items: [],
       open: false,
+      settings: null,
+      pushSubscriptions: [],
     } as NotificationState),
   actions: {
     async refreshUnread(): Promise<number> {
@@ -102,6 +111,156 @@ export const useNotificationStore = defineStore("notification", {
     // can re-list (the visible feed) in addition to refreshing the badge.
     setOpen(open: boolean) {
       this.open = open;
+    },
+
+    // ── Preferences (E5) ────────────────────────────────────────────────────
+    //
+    // Online-only, like every other notification mutation (WI-12): the matrix is
+    // resolved server-side out of the user's choices *and* the instance
+    // configuration, so a queued write would be replaying a decision taken
+    // against a matrix nobody can see. `assertOnline` throws before any request
+    // is made and nothing reaches the outbox; the dialog disables its controls
+    // while offline, this is the backstop.
+    //
+    // These three pass `skipErrorToast` because the dialog owns their error
+    // wording (a 409 on the test mail means something specific and useful).
+
+    async fetchSettings(): Promise<NotificationSettingsType> {
+      assertOnline("Notification settings can't be loaded offline.");
+      const { $checkapi } = useNuxtApp();
+      const res = await $checkapi("/api/user/me/notification-settings", {
+        method: "get",
+        skipErrorToast: true,
+      });
+      this.settings = res;
+      return res;
+    },
+
+    // A partial patch: the body names only what changed, and the response is the
+    // whole effective matrix afterwards, which is what we store. That makes the
+    // dialog self-correcting: a rejected or capped entry comes back as the
+    // server sees it rather than as the UI hoped.
+    async saveSettings(update: NotificationSettingsUpdateType): Promise<NotificationSettingsType> {
+      assertOnline("Notification settings can't be changed offline.");
+      const { $checkapi } = useNuxtApp();
+      const res = await $checkapi("/api/user/me/notification-settings", {
+        method: "put",
+        body: update,
+        skipErrorToast: true,
+      });
+      this.settings = res;
+      return res;
+    },
+
+    // 202 means queued, not delivered: the dispatcher sends it within its next
+    // tick. 409 (no address / mail off) and 429 (one a minute) are the useful
+    // failures and reach the caller as thrown FetchErrors.
+    async sendTestEmail(): Promise<TestEmailResultType> {
+      assertOnline("A test message needs a connection.");
+      const { $checkapi } = useNuxtApp();
+      return await $checkapi("/api/user/me/notification-settings/test-email", {
+        method: "post",
+        skipErrorToast: true,
+      });
+    },
+
+    // The webhook twin (E6), with the same contract: 202 queued, 409 nowhere to
+    // send it, 429 one a minute. A URL the server refuses to call (one resolving
+    // into a private network) still gets a 202 here and fails in the queue: the
+    // check happens at delivery time, since a host name's address can change
+    // between saving it and using it.
+    async sendTestWebhook(): Promise<TestWebhookResultType> {
+      assertOnline("A test webhook needs a connection.");
+      const { $checkapi } = useNuxtApp();
+      return await $checkapi("/api/user/me/notification-settings/test-webhook", {
+        method: "post",
+        skipErrorToast: true,
+      });
+    },
+
+    // ── Push subscriptions (P2) ─────────────────────────────────────────────
+    //
+    // A user can have several devices, unlike the single `webhook_url`, so
+    // these are a small list rather than a field on `settings`. Online-only for
+    // the same reason as the rest of this store's mutations (WI-12): there is
+    // nothing sensible to queue for a browser API call the outbox cannot replay.
+
+    async listPushSubscriptions(): Promise<PushSubscriptionInfoType[]> {
+      assertOnline("Push subscriptions can't be loaded offline.");
+      const { $checkapi } = useNuxtApp();
+      try {
+        this.pushSubscriptions = await $checkapi("/api/user/me/push-subscriptions", {
+          method: "get",
+          skipErrorToast: true,
+        });
+      } catch (error) {
+        console.error(
+          "Could not list push subscriptions 'GET /api/user/me/push-subscriptions'",
+          error
+        );
+        throw error;
+      }
+      return this.pushSubscriptions;
+    },
+
+    // Upserts on `endpoint` server-side, so registering again for the same
+    // device (the normal re-subscribe-on-load pattern) replaces that row here
+    // too rather than growing a duplicate.
+    async registerPushSubscription(
+      body: PushSubscriptionRegisterType
+    ): Promise<PushSubscriptionInfoType> {
+      assertOnline("Push notifications can't be enabled offline.");
+      const { $checkapi } = useNuxtApp();
+      let res: PushSubscriptionInfoType;
+      try {
+        res = await $checkapi("/api/user/me/push-subscriptions", {
+          method: "post",
+          body,
+          skipErrorToast: true,
+        });
+      } catch (error) {
+        console.error(
+          "Could not register push subscription 'POST /api/user/me/push-subscriptions'",
+          error
+        );
+        throw error;
+      }
+      this.pushSubscriptions = [
+        res,
+        ...this.pushSubscriptions.filter((s) => s.endpoint !== res.endpoint),
+      ];
+      return res;
+    },
+
+    async deletePushSubscription(id: string): Promise<void> {
+      assertOnline("Push subscriptions can't be changed offline.");
+      const { $checkapi } = useNuxtApp();
+      try {
+        await $checkapi("/api/user/me/push-subscriptions/{subscription_id}", {
+          path: { subscription_id: id },
+          method: "delete",
+          skipErrorToast: true,
+        });
+      } catch (error) {
+        console.error(
+          "Could not delete push subscription 'DELETE .../push-subscriptions/{id}'",
+          error
+        );
+        throw error;
+      }
+      this.pushSubscriptions = this.pushSubscriptions.filter((s) => s.id !== id);
+    },
+
+    // 202 queued, not delivered: same contract as the email/webhook test
+    // endpoints. 409 (push off, or no subscribed device) and 429 (one a
+    // minute) reach the caller as thrown FetchErrors.
+    async sendTestPush(): Promise<TestPushResultType> {
+      assertOnline("A test push needs a connection.");
+      const { $checkapi } = useNuxtApp();
+      return await $checkapi("/api/user/me/notification-settings/test-push", {
+        method: "post",
+        skipErrorToast: true,
+      });
     },
   },
 });

@@ -202,8 +202,15 @@ def test_public_config_unauthenticated_returns_flags():
             "sharing_public_links_enabled",
             "sharing_user_search_enabled",
             "sharing_require_invite_accept",
+            # chunk E6: whether the client renders the "send this link to
+            # someone without an account" field inside the public-link block.
+            "sharing_public_link_email_enabled",
             "api_token_default_expiry_days",
             "api_token_allow_never_expire",
+            # notification transports (chunk E1): the client hides the email and
+            # webhook columns of the notification settings when these are off.
+            "email_enabled",
+            "webhook_enabled",
         ],
     )
     # the flags must be booleans
@@ -212,7 +219,10 @@ def test_public_config_unauthenticated_returns_flags():
         "sharing_public_links_enabled",
         "sharing_user_search_enabled",
         "sharing_require_invite_accept",
+        "sharing_public_link_email_enabled",
         "api_token_allow_never_expire",
+        "email_enabled",
+        "webhook_enabled",
     ):
         assert isinstance(res[key], bool), f"{key} must be a bool, got {type(res[key])}"
     # the default-expiry hint is an int (whole days) or null (server default is never)
@@ -237,7 +247,17 @@ def test_public_config_reflects_server_flags():
             "sharing_public_links_enabled": server_config.SHARING_PUBLIC_LINKS_ENABLED,
             "sharing_user_search_enabled": server_config.SHARING_USER_SEARCH_ENABLED,
             "sharing_require_invite_accept": server_config.SHARING_REQUIRE_INVITE_ACCEPT,
+            # Reported as the endpoint behaves, so it is the AND of every switch
+            # it needs rather than its own flag alone.
+            "sharing_public_link_email_enabled": (
+                server_config.SHARING_ENABLED
+                and server_config.SHARING_PUBLIC_LINKS_ENABLED
+                and server_config.SHARING_PUBLIC_LINK_EMAIL_ENABLED
+                and server_config.EMAIL_ENABLED
+            ),
             "api_token_allow_never_expire": server_config.API_TOKEN_ALLOW_NEVER_EXPIRE,
             "api_token_default_expiry_days": expected_default_days,
+            "email_enabled": server_config.EMAIL_ENABLED,
+            "webhook_enabled": server_config.NOTIFY_WEBHOOK_ENABLED,
         },
     )

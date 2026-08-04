@@ -23,7 +23,7 @@ is left exactly as the owner set it (no group upgrade or downgrade).
 The per-recipient mechanics (invite gate, grid position, notifications, the
 hard-delete seq-advance) are reused from ``api/share_ops.py`` so group access
 behaves identically to individual sharing. See
-``docs/plans/GROUP_SHARE_LIVING_MEMBERSHIP.md``.
+``docs/archive/GROUP_SHARE_LIVING_MEMBERSHIP.md``.
 """
 
 from typing import Optional, Sequence

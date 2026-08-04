@@ -43,6 +43,18 @@ dependencies = [
     "python-multipart",
     "alembic",
     "email-validator",
+    # Async SMTP client for outgoing notification mail (checkcheckserver/notify).
+    # Async so a slow mail server cannot block the event loop; the dispatcher
+    # relies on its timeout to keep an attempt bounded.
+    "aiosmtplib",
+    # Email and unsubscribe-page templates (checkcheckserver/notify/templates).
+    # Already present transitively via FastAPI's own dependency tree; declared
+    # explicitly because chunk E7 imports it directly.
+    "jinja2>=3.1.2",
+    # Web Push (checkcheckserver/notify/push.py, chunk P1 of the system-notifications
+    # plan): RFC 8291 payload encryption and RFC 8292 VAPID JWT signing. Synchronous
+    # (built on requests), so the transport calls it through asyncio.to_thread.
+    "pywebpush>=2.0.0",
 ]
 dynamic = ["version"]
 version = "0.1.0"
@@ -65,6 +77,9 @@ dev = [
 test = [
     "requests>=2.32.4",
     "pytest>=8.0",
+    # In-process SMTP server for the mail round-trip test, so the real SMTP path
+    # is exercised without Docker or a network.
+    "aiosmtpd>=1.4.6",
 ]
 # Docs-only: renders docs/CONFIG_REFERENCE.md + config.example.yml from the
 # config model (see ../../gen_config_docs.sh). Not a runtime dependency.

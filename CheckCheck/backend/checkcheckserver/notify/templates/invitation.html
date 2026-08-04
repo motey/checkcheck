@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% import "macros.html" as m %}
+{% block title %}{{ app_name }}{% endblock %}
+{% block content %}
+<p style="margin:0 0 16px 0;">Hello,</p>
+<p style="margin:0 0 16px 0;">{{ opening }}</p>
+{% if note %}
+<blockquote style="margin:0 0 16px 0;padding:8px 14px;border-left:3px solid #d8dee4;color:#59636e;white-space:pre-wrap;">{{ note }}</blockquote>
+{% endif %}
+{{ m.button(url, "Open the list", brand_color, brand_fg) }}
+<p style="margin:0 0 16px 0;font-size:13px;word-break:break-all;">{{ url }}</p>
+<p style="margin:0 0 16px 0;">With this link you can {{ permission_sentence }}.</p>
+{% if password_protected %}
+<p style="margin:0;">The link is protected by a passphrase. Ask the person who sent it to you: it is deliberately not in this message.</p>
+{% endif %}
+{% endblock %}
+{% block footer %}
+<p style="margin:0;">You received this because somebody using {{ app_name }} entered your address. It is a one-off message; you are not subscribed to anything and no account was created for you. If it was not meant for you, please ignore it and do not pass the link on.</p>
+{% endblock %}

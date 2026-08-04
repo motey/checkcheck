@@ -1,0 +1,6 @@
+Hello {{ greeting }},
+
+this is a test message from {{ app_name }} at {{ public_url }}.
+If it reached you, the email setup of this instance works.
+
+Nobody else received a copy, and you can ignore this message.

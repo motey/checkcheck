@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "CheckCheck REST API",
-    "version": "0.3.1.dev3+g05c558786.d20260719"
+    "version": "0.3.2.dev11+gd9f3364bd.d20260802"
   },
   "paths": {
     "/api/health": {
@@ -1021,6 +1021,641 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/NotificationRead"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/user/me/notification-settings": {
+      "get": {
+        "tags": [
+          "Notifications"
+        ],
+        "summary": "Get Notification Settings",
+        "description": "The current user's effective notification settings: for every notification type and channel the mode actually in force, what the user picked, what it would fall back to, and whether an administrator locked it. A user who has never saved anything gets the instance defaults; no row is created by reading.",
+        "operationId": "get_notification_settings_api_user_me_notification_settings_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotificationSettings"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      },
+      "put": {
+        "tags": [
+          "Notifications"
+        ],
+        "summary": "Update Notification Settings",
+        "description": "Update the current user's notification settings, partially: only the entries and fields present in the body change. Returns the full effective settings afterwards. Returns 400 for an unknown notification type, channel, mode or time zone, and 409 for an entry the administrator has locked.",
+        "operationId": "update_notification_settings_api_user_me_notification_settings_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NotificationSettingsUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotificationSettings"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/user/me/notification-settings/test-email": {
+      "post": {
+        "tags": [
+          "Notifications"
+        ],
+        "summary": "Send Test Email",
+        "description": "Queue a test message to the current user's own email address, to check that the instance's mail setup works. The message is sent by the background dispatcher, so a 202 means queued, not delivered. Returns 409 when the instance has email switched off or the account has no address, and 429 at most once a minute.",
+        "operationId": "send_test_email_api_user_me_notification_settings_test_email_post",
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TestEmailResult"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/user/me/notification-settings/test-webhook": {
+      "post": {
+        "tags": [
+          "Notifications"
+        ],
+        "summary": "Send Test Webhook",
+        "description": "Queue a test POST to the current user's own webhook URL, to check that it is reachable and that the guard against private addresses is not in the way. The request is made by the background dispatcher, so a 202 means queued, not delivered; a URL this server refuses to call fails in the queue and the reason is in the server log. Returns 409 when the instance has webhooks switched off or the account has no URL saved, and 429 at most once a minute.",
+        "operationId": "send_test_webhook_api_user_me_notification_settings_test_webhook_post",
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TestWebhookResult"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/user/me/push-subscriptions": {
+      "get": {
+        "tags": [
+          "Notifications"
+        ],
+        "summary": "List Push Subscriptions",
+        "description": "The current user's subscribed devices, for the settings dialog's device list.",
+        "operationId": "list_push_subscriptions_api_user_me_push_subscriptions_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/PushSubscriptionInfo"
+                  },
+                  "type": "array",
+                  "title": "Response List Push Subscriptions Api User Me Push Subscriptions Get"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "Notifications"
+        ],
+        "summary": "Register Push Subscription",
+        "description": "Register (or refresh) one browser or installed-PWA push subscription for the current user. Upserts on `endpoint`, so calling this again for the same device (the normal pattern: a page re-checks its subscription on every load) updates the existing row instead of creating a duplicate. Returns 409 while the instance has push switched off or when the endpoint is already registered to a different account (the browser should resubscribe to get a fresh endpoint), and 400 when the endpoint is not an `https://` URL with a publicly routable host. Registering past the per-user device cap succeeds and drops the least recently used device.",
+        "operationId": "register_push_subscription_api_user_me_push_subscriptions_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PushSubscriptionRegister"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PushSubscriptionInfo"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/user/me/push-subscriptions/{subscription_id}": {
+      "delete": {
+        "tags": [
+          "Notifications"
+        ],
+        "summary": "Delete Push Subscription",
+        "description": "Remove one of the current user's push subscriptions, for example when they turn notifications off on that device. 404 when it does not exist or belongs to someone else.",
+        "operationId": "delete_push_subscription_api_user_me_push_subscriptions__subscription_id__delete",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "subscription_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Subscription Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/user/me/notification-settings/test-push": {
+      "post": {
+        "tags": [
+          "Notifications"
+        ],
+        "summary": "Send Test Push",
+        "description": "Queue a test push to every one of the current user's subscribed devices, to check that the instance's push setup works. The message is sent by the background dispatcher, so a 202 means queued, not delivered. Returns 409 when the instance has push switched off or the account has no subscribed device, and 429 at most once a minute.",
+        "operationId": "send_test_push_api_user_me_notification_settings_test_push_post",
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TestPushResult"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/notifications/unsubscribe": {
+      "get": {
+        "tags": [
+          "Notifications"
+        ],
+        "summary": "Unsubscribe Confirm",
+        "description": "The unsubscribe link carried by every notification email. Shows what would be switched off and a button that does it; nothing changes on this request, so a mail scanner following the link cannot unsubscribe anybody. An invalid, forged or expired token gets the same neutral page as any other failure.",
+        "operationId": "unsubscribe_confirm_api_notifications_unsubscribe_get",
+        "parameters": [
+          {
+            "name": "token",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "The signed token from the message.",
+              "title": "Token"
+            },
+            "description": "The signed token from the message."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "text/html": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Notifications"
+        ],
+        "summary": "Unsubscribe Apply",
+        "description": "Switches the email channel off for exactly one notification type and one user, named by the signed token. Also the RFC 8058 one-click target advertised by the List-Unsubscribe-Post header, so a mail client can do it without opening a browser. Never touches any other type, any other channel, or anybody else's settings.",
+        "operationId": "unsubscribe_apply_api_notifications_unsubscribe_post",
+        "parameters": [
+          {
+            "name": "token",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "The signed token from the message.",
+              "title": "Token"
+            },
+            "description": "The signed token from the message."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "text/html": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/checklist/{checklist_id}/reminders": {
+      "get": {
+        "tags": [
+          "Reminders"
+        ],
+        "summary": "List Card Reminders",
+        "description": "The current user's own reminders on this card, soonest first. Never anybody else's: a reminder is personal, and a card shared with five people can carry five independent reminders that none of them can see. Needs `view` permission on the card.",
+        "operationId": "list_card_reminders_api_checklist__checklist_id__reminders_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "checklist_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Checklist Id"
+            }
+          },
+          {
+            "name": "include_finished",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "description": "Also return reminders that have already fired or were cancelled. They are kept for 30 days and are not going to fire again.",
+              "default": false,
+              "title": "Include Finished"
+            },
+            "description": "Also return reminders that have already fired or were cancelled. They are kept for 30 days and are not going to fire again."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ReminderRead"
+                  },
+                  "title": "Response List Card Reminders Api Checklist  Checklist Id  Reminders Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Reminders"
+        ],
+        "summary": "Create Card Reminder",
+        "description": "Set a reminder on this card for yourself. Needs `view` permission, since reminding yourself about a card you can only read changes nothing for anybody else, and notifies nobody but you.\n\nReturns 400 for a time that has passed or a time zone that is not an IANA name, and 409 when you are at the per-card or per-account limit, or when an administrator has switched reminders off on this server.",
+        "operationId": "create_card_reminder_api_checklist__checklist_id__reminders_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "checklist_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Checklist Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReminderCreate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReminderRead"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/reminder/{reminder_id}": {
+      "patch": {
+        "tags": [
+          "Reminders"
+        ],
+        "summary": "Update Reminder",
+        "description": "Change the time, the repeat rule or the note of one of your own reminders. Partial: a field you leave out keeps its stored value.\n\nSending a new `remind_at` also revives a reminder that had already fired or been cancelled, which is how a snooze works; that counts against the limits again, so it can return 409. Returns 400 for a time that has passed, and **404 for a reminder that is not yours**, exactly as for one that does not exist.",
+        "operationId": "update_reminder_api_reminder__reminder_id__patch",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "reminder_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Reminder Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReminderUpdate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReminderRead"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Reminders"
+        ],
+        "summary": "Remove Reminder",
+        "description": "Remove one of your own reminders. A real delete, not a tombstone: this table is not part of the sync feed, so there is no offline client that could resurrect the row. 404 for a reminder that is not yours, exactly as for one that does not exist.",
+        "operationId": "remove_reminder_api_reminder__reminder_id__delete",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "reminder_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Reminder Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/user/me/reminders": {
+      "get": {
+        "tags": [
+          "Reminders"
+        ],
+        "summary": "List My Reminders",
+        "description": "Every reminder the current user still has coming, across all cards, soonest first. Reminders on cards the user can no longer open are left out: they will be cancelled the moment they would have fired, so showing them would only promise something that is not going to happen.",
+        "operationId": "list_my_reminders_api_user_me_reminders_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 200,
+              "minimum": 1,
+              "default": 100,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ReminderRead"
+                  },
+                  "title": "Response List My Reminders Api User Me Reminders Get"
                 }
               }
             }
@@ -2668,6 +3303,92 @@
         "responses": {
           "204": {
             "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/sharing/public-link-email-options": {
+      "get": {
+        "tags": [
+          "Checklist Sharing"
+        ],
+        "summary": "Get Public Link Email Options",
+        "description": "What the client needs to render the 'send this link to someone without an account' field: whether the instance accepts it at all, the limits it enforces, and the email domains the operator declared as their own organisation's (for a soft 'add them as a collaborator instead' hint). Requires a session, unlike /public-config: the domain list is the operator's information, not the internet's.",
+        "operationId": "get_public_link_email_options_api_sharing_public_link_email_options_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicLinkEmailOptions"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/checklist/{checklist_id}/public-share/email": {
+      "post": {
+        "tags": [
+          "Checklist Sharing"
+        ],
+        "summary": "Send Public Link By Email",
+        "description": "Mail one of this card's existing public links to an address. The recipient needs no account: the link is a capability and grants whatever level it was created at. Owner only. Never creates, enables or upgrades a link, never includes the link's passphrase, and never repeats the recipient's address in a response. 202 means queued, not delivered. Returns 409 when the instance cannot send mail or the link is disabled or expired, and 429 once the sender's hourly limit is reached.",
+        "operationId": "send_public_link_by_email_api_checklist__checklist_id__public_share_email_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "checklist_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Checklist Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PublicLinkEmailRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicLinkEmailResult"
+                }
+              }
+            }
           },
           "422": {
             "description": "Validation Error",
@@ -7265,6 +7986,86 @@
         "type": "object",
         "title": "LabelUpdate"
       },
+      "NotificationChannelSetting": {
+        "properties": {
+          "mode": {
+            "$ref": "#/components/schemas/NotificationMode",
+            "description": "The mode actually in force, after user choice and admin caps."
+          },
+          "user_choice": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/NotificationMode"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "What the user explicitly picked here, or null when the entry is inherited. Null and a value equal to `default_mode` look the same today but behave differently once an administrator changes the default, so the dialog should show the difference."
+          },
+          "default_mode": {
+            "$ref": "#/components/schemas/NotificationMode",
+            "description": "What this entry falls back to when the user has picked nothing."
+          },
+          "locked": {
+            "type": "boolean",
+            "title": "Locked",
+            "description": "True when the administrator decided this, not the user."
+          },
+          "locked_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Locked Reason",
+            "description": "Plain-language reason to show next to a locked entry."
+          },
+          "allowed_modes": {
+            "items": {
+              "$ref": "#/components/schemas/NotificationMode"
+            },
+            "type": "array",
+            "title": "Allowed Modes",
+            "description": "The modes this entry accepts. A digest is email-only, and some types narrow it further: `reminder_due` offers only `off` and `immediate` on email, because a reminder held back for a digest is not a reminder."
+          },
+          "mode_restriction_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mode Restriction Reason",
+            "description": "Plain-language reason why this type offers fewer modes than its channel otherwise would, or null when it offers all of them. Unlike `locked_reason` this is a property of the notification type, not something an administrator configured."
+          }
+        },
+        "type": "object",
+        "required": [
+          "mode",
+          "default_mode",
+          "locked",
+          "allowed_modes"
+        ],
+        "title": "NotificationChannelSetting",
+        "description": "One cell of the matrix: what happens for this type on this channel."
+      },
+      "NotificationMode": {
+        "type": "string",
+        "enum": [
+          "off",
+          "immediate",
+          "hourly",
+          "daily"
+        ],
+        "title": "NotificationMode",
+        "description": "How much of a channel a user wants for one notification type.\n\n``off``\n    Never deliver this type on this channel.\n``immediate``\n    Deliver as it happens (for email, after the suppress window, so reading\n    it in the app first cancels the mail).\n``hourly`` / ``daily``\n    Collect into a digest. Email only, and assembled in chunk E4."
+      },
       "NotificationRead": {
         "properties": {
           "id": {
@@ -7325,15 +8126,165 @@
         ],
         "title": "NotificationRead"
       },
+      "NotificationSettings": {
+        "properties": {
+          "types": {
+            "items": {
+              "$ref": "#/components/schemas/NotificationTypeSettings"
+            },
+            "type": "array",
+            "title": "Types",
+            "description": "The full matrix, one entry per notification type the server knows."
+          },
+          "timezone": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Timezone",
+            "description": "The user's IANA time zone, or null to use UTC."
+          },
+          "webhook_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Webhook Url",
+            "description": "Where this user's notification webhooks are POSTed, or null. Only called for types whose webhook mode is not `off`."
+          },
+          "email_enabled": {
+            "type": "boolean",
+            "title": "Email Enabled",
+            "description": "Whether this instance sends email at all. When false, every email entry is locked off."
+          },
+          "webhook_enabled": {
+            "type": "boolean",
+            "title": "Webhook Enabled",
+            "description": "Whether this instance allows per-user webhooks at all."
+          },
+          "push_enabled": {
+            "type": "boolean",
+            "title": "Push Enabled",
+            "description": "Whether this instance can send push notifications at all."
+          }
+        },
+        "type": "object",
+        "required": [
+          "types",
+          "email_enabled",
+          "webhook_enabled",
+          "push_enabled"
+        ],
+        "title": "NotificationSettings",
+        "description": "Everything the settings dialog needs in one response."
+      },
+      "NotificationSettingsUpdate": {
+        "properties": {
+          "prefs": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "additionalProperties": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "type": "object"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Prefs",
+            "description": "Partial matrix as {type: {channel: mode}}. Modes are `off`, `immediate`, `hourly` and `daily`; `in_app` and `webhook` accept only `off` and `immediate`, and `reminder_due` accepts only those two on email as well. A null mode restores the instance default for that entry.",
+            "examples": [
+              {
+                "card_shared": {
+                  "email": "daily"
+                }
+              }
+            ]
+          },
+          "timezone": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Timezone",
+            "description": "IANA time zone name such as `Europe/Berlin`. Null clears it.",
+            "examples": [
+              "Europe/Berlin"
+            ]
+          },
+          "webhook_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Webhook Url",
+            "description": "Where this user's webhooks are POSTed. Null clears it. Rejected while the instance has webhooks switched off. Whether the URL may actually be called is decided again at delivery time, since a host name's address can change in between."
+          }
+        },
+        "type": "object",
+        "title": "NotificationSettingsUpdate",
+        "description": "A partial update. Anything not named here keeps its stored value.\n\n``prefs`` is merged entry by entry, so sending one type with one channel\nchanges exactly that cell. A **null mode** removes the user's choice for that\ncell, which puts it back to inheriting the instance default; that is always\nallowed, even for an entry an administrator has locked, since it only ever\ndrops an override.\n\n``timezone`` and ``webhook_url`` follow the same rule at field level: leaving\nthe field out keeps the stored value, sending null clears it."
+      },
       "NotificationType": {
         "type": "string",
         "enum": [
           "card_shared",
           "card_invited",
-          "public_link_opened"
+          "public_link_opened",
+          "reminder_due"
         ],
         "title": "NotificationType",
         "description": "What a notification is about. Stored as a string (enum-as-string like\n``SharePermission`` / ``ShareStatus``)."
+      },
+      "NotificationTypeSettings": {
+        "properties": {
+          "type": {
+            "type": "string",
+            "title": "Type",
+            "description": "Notification type, e.g. `card_shared`."
+          },
+          "channels": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/NotificationChannelSetting"
+            },
+            "type": "object",
+            "title": "Channels",
+            "description": "One entry per channel: `in_app`, `email`, `webhook`."
+          }
+        },
+        "type": "object",
+        "required": [
+          "type",
+          "channels"
+        ],
+        "title": "NotificationTypeSettings"
       },
       "PaginatedResponse_CheckListApiWithSubObj_": {
         "properties": {
@@ -7561,6 +8512,11 @@
             "title": "Sharing Require Invite Accept",
             "description": "Whether a share creates a pending invite the target must accept before gaining access (invite mode)."
           },
+          "sharing_public_link_email_enabled": {
+            "type": "boolean",
+            "title": "Sharing Public Link Email Enabled",
+            "description": "Whether an owner may mail an existing public link to an address of their choosing. When false, hide that field inside the public-links section. True only when the instance can also send mail at all."
+          },
           "api_token_default_expiry_days": {
             "anyOf": [
               {
@@ -7582,6 +8538,33 @@
             "type": "string",
             "title": "Server Version",
             "description": "The running server's version string (from checkcheckserver.__version__), surfaced so the web client can display it."
+          },
+          "email_enabled": {
+            "type": "boolean",
+            "title": "Email Enabled",
+            "description": "Whether the instance can send email at all. When false, the notification settings hide the email column entirely (there is nothing to configure)."
+          },
+          "webhook_enabled": {
+            "type": "boolean",
+            "title": "Webhook Enabled",
+            "description": "Whether per-user notification webhooks are allowed. When false, the notification settings hide the webhook column."
+          },
+          "push_enabled": {
+            "type": "boolean",
+            "title": "Push Enabled",
+            "description": "Whether the instance can send push notifications at all. When false, the notification settings hide the push column and no subscription can be created."
+          },
+          "vapid_public_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Vapid Public Key",
+            "description": "The instance's VAPID public key, base64url-encoded. Not a secret; the client needs it as the applicationServerKey when subscribing. Null when push_enabled is false."
           }
         },
         "type": "object",
@@ -7590,8 +8573,12 @@
           "sharing_public_links_enabled",
           "sharing_user_search_enabled",
           "sharing_require_invite_accept",
+          "sharing_public_link_email_enabled",
           "api_token_allow_never_expire",
-          "server_version"
+          "server_version",
+          "email_enabled",
+          "webhook_enabled",
+          "push_enabled"
         ],
         "title": "PublicConfig",
         "description": "The subset of server feature flags the web client needs to decide which\nsharing UI to render. Mirrors the like-named ``Config`` switches."
@@ -7691,6 +8678,98 @@
         ],
         "title": "PublicLinkCreateResult",
         "description": "Returned only by create \u2014 the one and only time the token is exposed."
+      },
+      "PublicLinkEmailOptions": {
+        "properties": {
+          "enabled": {
+            "type": "boolean",
+            "title": "Enabled",
+            "description": "Whether this instance accepts the send-a-link-by-email call at all."
+          },
+          "internal_email_domains": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Internal Email Domains",
+            "description": "Domains whose addresses probably belong to people who already have an account here. The client uses them for a soft 'add them as a collaborator instead' hint. Never a block: sending anyway is always allowed."
+          },
+          "max_message_length": {
+            "type": "integer",
+            "title": "Max Message Length",
+            "description": "Longest personal note the server accepts, in characters."
+          },
+          "max_per_hour": {
+            "type": "integer",
+            "title": "Max Per Hour",
+            "description": "How many links one user may mail per hour. 0 means no limit."
+          }
+        },
+        "type": "object",
+        "required": [
+          "enabled",
+          "internal_email_domains",
+          "max_message_length",
+          "max_per_hour"
+        ],
+        "title": "PublicLinkEmailOptions",
+        "description": "What the client needs to render the field, and nothing more.\n\nAuthenticated on purpose. ``internal_email_domains`` is what an operator\ndeclared about their own organisation; it drives a hint in the client and has\nno business on the unauthenticated bootstrap endpoint."
+      },
+      "PublicLinkEmailRequest": {
+        "properties": {
+          "link_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Link Id",
+            "description": "Which of the card's existing public links to send. It must already exist, be enabled and not have expired."
+          },
+          "to": {
+            "type": "string",
+            "title": "To",
+            "description": "The recipient's email address. Never echoed back, in any response."
+          },
+          "message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Message",
+            "description": "Optional personal note, included as a quotation. Capped at 500 characters."
+          }
+        },
+        "type": "object",
+        "required": [
+          "link_id",
+          "to"
+        ],
+        "title": "PublicLinkEmailRequest"
+      },
+      "PublicLinkEmailResult": {
+        "properties": {
+          "queued_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Queued Id",
+            "description": "Id of the queued delivery, for support and log correlation."
+          },
+          "queued_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Queued At",
+            "description": "Naive UTC time the message entered the queue."
+          }
+        },
+        "type": "object",
+        "required": [
+          "queued_id",
+          "queued_at"
+        ],
+        "title": "PublicLinkEmailResult",
+        "description": "Deliberately says nothing about the recipient.\n\nA 202 means the message is queued; the background dispatcher sends it. There\nis no delivery receipt here on purpose: reporting one would turn this into an\naddress validator for anybody with an account."
       },
       "PublicLinkRead": {
         "properties": {
@@ -7797,6 +8876,318 @@
         },
         "type": "object",
         "title": "PublicLinkUpdateRequest"
+      },
+      "PushSubscriptionInfo": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "endpoint": {
+            "type": "string",
+            "title": "Endpoint",
+            "description": "The subscription's own endpoint URL, so the client can tell which row is 'this device' by comparing it to its own current subscription."
+          },
+          "user_agent": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "User Agent"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "last_seen_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Last Seen At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "endpoint",
+          "created_at",
+          "last_seen_at"
+        ],
+        "title": "PushSubscriptionInfo"
+      },
+      "PushSubscriptionKeys": {
+        "properties": {
+          "p256dh": {
+            "type": "string",
+            "maxLength": 255,
+            "title": "P256Dh",
+            "description": "The subscription's public key (base64url)."
+          },
+          "auth": {
+            "type": "string",
+            "maxLength": 255,
+            "title": "Auth",
+            "description": "The subscription's auth secret (base64url)."
+          }
+        },
+        "type": "object",
+        "required": [
+          "p256dh",
+          "auth"
+        ],
+        "title": "PushSubscriptionKeys"
+      },
+      "PushSubscriptionRegister": {
+        "properties": {
+          "endpoint": {
+            "type": "string",
+            "maxLength": 1024,
+            "title": "Endpoint",
+            "description": "The push service URL for this subscription."
+          },
+          "keys": {
+            "$ref": "#/components/schemas/PushSubscriptionKeys"
+          },
+          "user_agent": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 512
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "User Agent",
+            "description": "The browser's user agent, for labelling this device later."
+          }
+        },
+        "type": "object",
+        "required": [
+          "endpoint",
+          "keys"
+        ],
+        "title": "PushSubscriptionRegister",
+        "description": "The shape ``PushSubscription.toJSON()`` produces in the browser."
+      },
+      "ReminderCreate": {
+        "properties": {
+          "remind_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Remind At",
+            "description": "When to remind. Send it with an offset (`2026-08-03T09:00:00+02:00`) or as UTC; a value without an offset is read as UTC. Must be in the future.",
+            "examples": [
+              "2026-08-03T09:00:00+02:00"
+            ]
+          },
+          "recurrence": {
+            "$ref": "#/components/schemas/ReminderRecurrence",
+            "description": "`none` fires once and is then done. The repeating rules are computed on the wall clock of the reminder's own time zone, so `daily` stays at the same local hour across a daylight-saving change.",
+            "default": "none"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note",
+            "description": "Optional text of your own, shown in the notification.",
+            "examples": [
+              "Call the plumber"
+            ]
+          },
+          "timezone": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Timezone",
+            "description": "IANA zone to compute the recurrence in. Only used when the account has no time zone in its notification settings, which is where this normally comes from; ignored otherwise. Null means UTC.",
+            "examples": [
+              "Europe/Berlin"
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "remind_at"
+        ],
+        "title": "ReminderCreate"
+      },
+      "ReminderRead": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "checklist_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Checklist Id",
+            "description": "The card this reminder is about."
+          },
+          "checklist_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Checklist Name",
+            "description": "Name of that card, or null when the caller can no longer see it (the card was deleted, or the share was revoked). Such a reminder is cancelled the moment it would have fired."
+          },
+          "remind_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Remind At",
+            "description": "Naive UTC. The next (or only) time this fires."
+          },
+          "timezone": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Timezone",
+            "description": "IANA zone the recurrence is computed in, snapshotted when the reminder was created. Null means UTC."
+          },
+          "recurrence": {
+            "$ref": "#/components/schemas/ReminderRecurrence"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note",
+            "description": "The user's own text."
+          },
+          "status": {
+            "$ref": "#/components/schemas/ReminderStatus"
+          },
+          "last_fired_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Fired At"
+          },
+          "fire_count": {
+            "type": "integer",
+            "title": "Fire Count"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "checklist_id",
+          "remind_at",
+          "recurrence",
+          "status",
+          "fire_count",
+          "created_at"
+        ],
+        "title": "ReminderRead",
+        "description": "One reminder, plus the name of the card it is about.\n\nThe name is resolved here rather than left to the client (plan section 7):\nthe \"my reminders\" list spans cards, and a second round trip per row to\nrender a heading is the kind of thing that is easy to add and impossible to\ntake back."
+      },
+      "ReminderRecurrence": {
+        "type": "string",
+        "enum": [
+          "none",
+          "daily",
+          "weekly",
+          "monthly"
+        ],
+        "title": "ReminderRecurrence",
+        "description": "How often a reminder repeats (enum-as-string, like the rest).\n\nDeliberately three simple rules rather than an RRULE: \"every second Tuesday\"\nmeans adopting a calendar library, which is a decision on its own and not one\na checklist app has earned yet. All three are computed in the row's own time\nzone, see ``notify/recurrence.py``."
+      },
+      "ReminderStatus": {
+        "type": "string",
+        "enum": [
+          "pending",
+          "done",
+          "cancelled"
+        ],
+        "title": "ReminderStatus",
+        "description": "Lifecycle of one reminder row.\n\n``pending``\n    Waiting for ``remind_at``. A recurring reminder stays here forever,\n    rolling its ``remind_at`` forward after each fire.\n``done``\n    A one-off that fired. Kept for a while so the user can see it happened,\n    then pruned by the dispatcher's hourly housekeeping.\n``cancelled``\n    Will not fire: the fire-time check found the card tombstoned or the\n    user's access gone (plan decision 2). Not an error, and deliberately\n    silent, since it usually follows something the user did on purpose."
+      },
+      "ReminderUpdate": {
+        "properties": {
+          "remind_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Remind At",
+            "description": "A new time, in the future. Sending one also puts a reminder that had already finished back to `pending`, which is what a snooze is."
+          },
+          "recurrence": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ReminderRecurrence"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note",
+            "description": "Null clears the note."
+          }
+        },
+        "type": "object",
+        "title": "ReminderUpdate",
+        "description": "A partial update. A field that is absent keeps its stored value.\n\nThe card and the time zone are not in here on purpose: a reminder is about\none card for its whole life, and its zone is a snapshot taken at creation\n(plan decision 5) so that changing the account's zone later does not shift\nevery existing recurring reminder."
       },
       "SharePermission": {
         "type": "string",
@@ -8005,6 +9396,90 @@
           "cl_id"
         ],
         "title": "SyncNotification"
+      },
+      "TestEmailResult": {
+        "properties": {
+          "queued_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Queued Id",
+            "description": "Id of the queued delivery, for support and log correlation."
+          },
+          "to": {
+            "type": "string",
+            "title": "To",
+            "description": "The address it was queued for (the caller's own)."
+          },
+          "queued_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Queued At",
+            "description": "Naive UTC time the message entered the queue."
+          }
+        },
+        "type": "object",
+        "required": [
+          "queued_id",
+          "to",
+          "queued_at"
+        ],
+        "title": "TestEmailResult"
+      },
+      "TestPushResult": {
+        "properties": {
+          "queued_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Queued Id",
+            "description": "Id of the queued delivery, for support and log correlation."
+          },
+          "subscription_count": {
+            "type": "integer",
+            "title": "Subscription Count",
+            "description": "How many of the caller's devices this will be pushed to."
+          },
+          "queued_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Queued At",
+            "description": "Naive UTC time the message entered the queue."
+          }
+        },
+        "type": "object",
+        "required": [
+          "queued_id",
+          "subscription_count",
+          "queued_at"
+        ],
+        "title": "TestPushResult"
+      },
+      "TestWebhookResult": {
+        "properties": {
+          "queued_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Queued Id",
+            "description": "Id of the queued delivery, for support and log correlation."
+          },
+          "url": {
+            "type": "string",
+            "title": "Url",
+            "description": "The URL it was queued for (the caller's own)."
+          },
+          "queued_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Queued At",
+            "description": "Naive UTC time the message entered the queue."
+          }
+        },
+        "type": "object",
+        "required": [
+          "queued_id",
+          "url",
+          "queued_at"
+        ],
+        "title": "TestWebhookResult"
       },
       "TransferOwnershipRequest": {
         "properties": {
