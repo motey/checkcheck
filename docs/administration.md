@@ -92,6 +92,12 @@ as email is opt-in per instance and takes a mail server: see
 - **Sending happens in a background task inside the server**
   (`NOTIFY_DISPATCH_IN_PROCESS`), not in the request, so a dead mail server slows
   nothing down. Digests are batched per user and sent in that user's timezone.
+- **A user's timezone follows the device they sign in from.** The app compares
+  the browser's own zone against the stored one on every sign-in and quietly
+  stores the difference, so a digest lands at the local hour without anyone
+  visiting the settings dialog. The trade-off is that the picker in that dialog
+  is not a pin: signing in from another zone overwrites it. Existing reminders
+  are unaffected, since each keeps the timezone it was created with.
 - **Webhooks are off by default** and let a signed-in user make the server issue
   outbound HTTP requests, which is why the target is checked against private and
   loopback ranges on every attempt. Requests are not signed, so the URL itself is

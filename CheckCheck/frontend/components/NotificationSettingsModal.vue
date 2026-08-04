@@ -132,6 +132,14 @@
                 data-testid="notification-timezone"
                 @update:model-value="onTimezoneChange"
               />
+              <!-- Decision 4: every login writes this device's zone over the
+                   stored one, so a zone picked here is not a pin. Said out loud
+                   because the alternative is a user discovering it from a digest
+                   landing at the wrong hour after a trip. -->
+              <p class="text-xs text-muted" data-testid="notification-timezone-sync-note">
+                Kept in sync with this device: signing in from a device in another
+                zone updates this. Reminders keep the zone they were created in.
+              </p>
             </div>
 
             <div class="flex flex-col gap-2 rounded-lg border border-default p-3">

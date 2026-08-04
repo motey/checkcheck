@@ -1,6 +1,7 @@
 # Plan: system notifications (browser and installed-PWA push)
 
-**Status:** P1 done (2026-08-03). Written 2026-08-03 with the maintainer, turning two rough
+**Status:** complete. P1 and P2 done 2026-08-03, T done 2026-08-04 (see the
+progress table in section 10). Written 2026-08-03 with the maintainer, turning two rough
 notes (auto-detect time zone; OS-level notifications for the browser and the
 installed PWA) into an implementation brief. Follows
 [`EMAIL_NOTIFICATIONS.md`](EMAIL_NOTIFICATIONS.md) and
@@ -395,7 +396,7 @@ touching the modal.
 |---|---|---|---|
 | P1 backend push channel | Done | 2026-08-03 | See below. |
 | P2 frontend subscribe flow and settings UI | Done | 2026-08-03 | See below. |
-| T time zone re-sync | Not started | | |
+| T time zone re-sync | Done | 2026-08-04 | See below. |
 
 ## P1 notes and deviations (2026-08-03)
 
@@ -519,3 +520,80 @@ Playwright suite (`./run_e2e_tests.sh`, 111 passed / 2 skipped — the invite-
 mode specs, which need a separate `SHARING_REQUIRE_INVITE_ACCEPT=1` pass — plus
 3 pre-existing flaky specs unrelated to this chunk that passed on Playwright's
 built-in retry, matching prior sessions' notes on DnD/sharing flakiness).
+
+## T notes and deviations (2026-08-04)
+
+Built as specified, frontend-only: no schema change, no new endpoint, no
+`openapi.json` movement. The existing partial `PUT
+/api/user/me/notification-settings` already accepts `{"timezone": ...}` and
+validates the name against the zone database (`prefs.validate_timezone`), so
+the whole chunk is a comparison plus a fire-and-forget write.
+
+`utils/timezoneSync.ts` holds both halves. `shouldSyncTimezone(stored,
+detected)` is the pure decision, and `syncTimezoneWithDevice()` is the
+best-effort action on top of it: `fetchSettings()`, compare, `saveSettings({
+timezone })`, every failure swallowed and returned as `"skipped"`. It goes
+through `stores/notification.ts` rather than `$checkapi` directly, so it
+inherits that store's `assertOnline` guard: offline the write never happens and
+nothing reaches the outbox, which is the same online-only rule the rest of the
+notification surface follows (WI-12).
+
+Three decisions inside that are worth stating, none of them contradicting the
+plan:
+
+- **The trigger is the board's boot, in `pages/index.vue`, on both paths.** In
+  the local-first path it runs *after* `reconcileAccount`, so a boot that drops
+  a previous user's cache cannot write that user's zone under the new session.
+  `pages/index.vue` is the only authenticated page in this app (the default
+  layout, the navbar and every board surface live under it), so "authenticated
+  app boot" and "this page mounted" are the same event; nothing needed a plugin
+  or a middleware.
+- **An empty stored zone plus a device on UTC is not a write.** Stored `null`
+  is the "never chosen" state and the server already reads it as UTC, so
+  writing an explicit `"UTC"` over it would change nothing and would do so on
+  every boot forever. Every other difference does write, including the
+  never-set case, which is decision 4 as written ("on every login", not "only
+  when unset").
+- **A zone the server refuses costs one 400 per boot and is left at that.** The
+  only realistic source is an engine reporting something `ZoneInfo` does not
+  know (`Etc/Unknown` on a misconfigured device). Remembering the refusal would
+  mean persisting client state for a case nobody has hit, so the failure is
+  simply swallowed.
+
+The copy decision 4 asked for is in `NotificationSettingsModal.vue` under the
+picker (`data-testid=notification-timezone-sync-note`): "Kept in sync with this
+device: signing in from a device in another zone updates this. Reminders keep
+the zone they were created in." The second sentence is the half the plan text
+did not spell out but the findings note (gap 11) did: a re-sync moves the daily
+digest hour, and it does **not** move existing reminders, which snapshot their
+zone at creation (decision 5, `_snapshot_timezone` in `routes_reminder.py`).
+Saying only "kept in sync" would have implied it moves everything.
+
+Still true, and deliberately so: a deliberately pinned zone cannot survive
+this. A user keeping home-city time while travelling loses the pin at the next
+login on the travelling device. That is decision 4's accepted cost, and the
+line above is what keeps it from being a surprise.
+
+Tests: `tests/unit/timezoneSync.spec.ts` (10 cases: the five
+`shouldSyncTimezone` pairs including the empty-stored-vs-UTC-device case and an
+engine that names no zone, plus five for the action itself, covering that a
+match sends nothing, that no zone at all spends no request, and that an offline
+read or a rejected write resolves rather than throwing at the mounted hook that
+never awaits it). Two Playwright specs in
+`tests/e2e/notification-settings.spec.ts` under `T time zone re-sync on login`:
+a context created with `timezoneId: "Pacific/Auckland"` logs in and the stored
+value follows, asserted through the API *before* the dialog is ever opened
+(then the picker is opened once to prove the round trip); and the picker's
+sync note is present. The describe resets the stored zone to `null` afterwards,
+because a leftover value would follow the reminder specs around (a new reminder
+defaults to the user's stored zone).
+
+Green: both backend suites (`./run_backend_tests_with_postgres.sh`, 545 passed
+/ 9 skipped, plus the invite-flow pass 11 passed / 10 skipped;
+`./run_backend_tests_with_sqlite.sh`, 544 passed / 10 skipped, plus its own
+invite pass) — unchanged by this chunk, run as the gate. Frontend: `bun run
+test:unit` 336 passed (326 before, plus the 10 new), and `./run_e2e_tests.sh`
+117 passed / 2 skipped (the invite-mode specs) / 1 flaky (`sharing-modal`
+ownership transfer, passed on retry). `archive.spec.ts` "delete forever" failed
+in that full run and passed on its own re-run, matching the flakiness the
+previous session's handoff already documented for it.

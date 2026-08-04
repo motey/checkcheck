@@ -35,6 +35,7 @@ import { useUserStore } from "@/stores/user";
 import { usePublicConfigStore } from "@/stores/publicConfig";
 import { isLocalFirstEnabled } from "@/utils/localFirst";
 import { runBackgroundSync, reconcileAccount } from "@/utils/localSnapshot";
+import { syncTimezoneWithDevice } from "@/utils/timezoneSync";
 
 // This page also responds to `/card/<cardId>` (see alias below). The board and
 // the modals stay mounted across that path change, so an opened card is just a
@@ -68,6 +69,8 @@ onMounted(() => {
   // Load the sidebar count badges once; kept fresh thereafter by useSync.
   checkListStore.fetchCounts();
   connect();
+  // Keep the stored notification time zone on this device's zone (chunk T).
+  void syncTimezoneWithDevice();
 });
 
 // Local-first boot ordering (Chunk A1). Resolve the authenticated user first,
@@ -88,6 +91,11 @@ async function bootLocalFirst(pinia: any): Promise<void> {
   // Advance the sync cursor in the background (best-effort; no-op offline). The
   // board already rendered from the hydrated snapshot (WI-10).
   runBackgroundSync(pinia).catch(() => {});
+  // Keep the stored notification time zone on this device's zone (chunk T).
+  // After the account reconcile above, so a boot that drops a previous user's
+  // cache does not write their zone under the new session, and fire-and-forget:
+  // a convenience write nothing else waits on.
+  void syncTimezoneWithDevice();
 }
 onUnmounted(disconnect);
 

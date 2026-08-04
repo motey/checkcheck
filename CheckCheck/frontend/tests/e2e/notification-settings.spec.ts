@@ -634,3 +634,60 @@ test.describe("E5 email deep link", () => {
     await expect(userPage.getByText(/Error 4\d\d/)).toHaveCount(0);
   });
 });
+
+test.describe("T time zone re-sync on login", () => {
+  test.setTimeout(30_000);
+
+  // The stored zone belongs to the shared admin account here, and a leftover
+  // value would follow the reminder specs around (a new reminder defaults to the
+  // user's stored zone). Put it back.
+  test.afterEach(async ({ page }) => {
+    await page.request
+      .put("/api/user/me/notification-settings", {
+        data: { timezone: null },
+        headers: { "Content-Type": "application/json" },
+      })
+      .catch(() => {});
+  });
+
+  const storedTimezone = (page: Page) =>
+    page.request
+      .get("/api/user/me/notification-settings")
+      .then((r) => r.json())
+      .then((settings) => settings.timezone ?? null);
+
+  test("a device in another zone updates the stored one at login, without opening the dialog", async ({
+    browser,
+  }) => {
+    // A browser that thinks it is in Auckland, logging in fresh: the board's
+    // boot compares `detectTimezone()` to the stored value and writes the
+    // difference. Nothing here touches the settings dialog, which is the whole
+    // point of the chunk (the digest hour used to be 08:00 UTC until somebody
+    // found the picker).
+    const ctx = await browser.newContext({ timezoneId: "Pacific/Auckland" });
+    const page = await ctx.newPage();
+    try {
+      await uiLogin(page, ADMIN);
+      await expect.poll(() => storedTimezone(page), { timeout: 10_000 }).toBe("Pacific/Auckland");
+
+      // And the dialog shows what was stored behind the user's back, rather than
+      // a picker still claiming UTC.
+      const dialog = await openSettings(page);
+      await expect(dialog.locator("[data-testid=notification-timezone]")).toContainText(
+        "Pacific/Auckland"
+      );
+    } finally {
+      await page.goto("about:blank").catch(() => {});
+      await ctx.close();
+    }
+  });
+
+  test("the picker says the zone follows the device", async ({ page }) => {
+    // Decision 4: this line is the whole reason a silent overwrite is acceptable.
+    await page.goto("/");
+    const dialog = await openSettings(page);
+    await expect(dialog.locator("[data-testid=notification-timezone-sync-note]")).toContainText(
+      "Kept in sync with this device"
+    );
+  });
+});
