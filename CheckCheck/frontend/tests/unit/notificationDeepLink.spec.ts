@@ -1,12 +1,16 @@
 import { describe, it, expect, vi } from "vitest";
 import {
   handleNotificationDeepLink,
+  looksLikeCardId,
   parseNotificationDeepLink,
   type DeepLinkQuery,
 } from "@/utils/notificationDeepLink";
 
 // The email deep link `/?card=<cl_id>&n=<notification_id>` (chunk E5): the query
 // parameters a notification message carries, and what the client does with them.
+
+/** A real card id shape: `?card=` only routes for something that could be one. */
+const CARD_ID = "3f2504e0-4f89-41d3-9a0c-0305e82c3301";
 
 describe("parseNotificationDeepLink", () => {
   it("reads both parameters", () => {
@@ -62,13 +66,27 @@ describe("handleNotificationDeepLink", () => {
   }
 
   it("turns ?card= into the app's card route, keeping n for the next pass", async () => {
-    const { ctx, replace, url } = context({ card: "cl-1", n: "notif-1" });
+    const { ctx, replace, url } = context({ card: CARD_ID, n: "notif-1" });
     const outcome = await handleNotificationDeepLink(ctx);
     expect(outcome).toBe("redirected");
-    expect(replace).toHaveBeenCalledWith({ path: "/card/cl-1", query: { n: "notif-1" } });
+    expect(replace).toHaveBeenCalledWith({ path: `/card/${CARD_ID}`, query: { n: "notif-1" } });
     // Nothing is marked read on the redirect pass: the card is not on screen yet.
     expect(ctx.markRead).not.toHaveBeenCalled();
     expect(url.query).toEqual({ n: "notif-1" });
+  });
+
+  // Finding 10: `card` is whatever the URL carried, and it reaches a router
+  // path. A crafted value cannot leave the origin, but it must not produce a
+  // route either: the user stays on the page the link landed them on.
+  it("drops a ?card= value that cannot be a card id, leaving the user on the board", async () => {
+    const { ctx, replace, url } = context({ card: "../../admin", n: "notif-1" });
+    const outcome = await handleNotificationDeepLink(ctx);
+    expect(outcome).toBe("redirected");
+    expect(replace).toHaveBeenCalledWith({ path: "/", query: { n: "notif-1" } });
+    expect(url.path).toBe("/");
+    // And `n` survives, so the second pass still marks the notification read.
+    expect(await handleNotificationDeepLink(ctx)).toBe("marked");
+    expect(ctx.markRead).toHaveBeenCalledWith("notif-1");
   });
 
   it("marks the notification read after the card rendered, then strips n", async () => {
@@ -156,5 +174,27 @@ describe("handleNotificationDeepLink", () => {
     // user back to where the link pointed.
     expect(markRead).toHaveBeenCalledWith("notif-1");
     expect(replace).not.toHaveBeenCalled();
+  });
+});
+
+// Finding 10's shape check on its own: the ids the mail links carry are UUIDs.
+describe("looksLikeCardId", () => {
+  it("accepts a UUID in either case", () => {
+    expect(looksLikeCardId(CARD_ID)).toBe(true);
+    expect(looksLikeCardId(CARD_ID.toUpperCase())).toBe(true);
+  });
+
+  it("rejects anything else, including path fragments and empty values", () => {
+    for (const value of [
+      "cl-1",
+      "../../admin",
+      `${CARD_ID}/../login`,
+      `  ${CARD_ID}`,
+      "",
+      null,
+      undefined,
+    ]) {
+      expect(looksLikeCardId(value)).toBe(false);
+    }
   });
 });

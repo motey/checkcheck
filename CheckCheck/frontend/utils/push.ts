@@ -21,6 +21,53 @@ export function urlBase64ToUint8Array(base64Url: string): Uint8Array {
 }
 
 /**
+ * Whether a browser subscription was created with the VAPID key the server signs
+ * with today (chunk N5, finding 5). A rotated key leaves old subscriptions
+ * signed for a key the push service no longer accepts, which N3 turns into a
+ * permanently failing row rather than anything the user can see, so the client
+ * has to notice and resubscribe.
+ *
+ * `options.applicationServerKey` is absent on browsers that do not expose
+ * `PushSubscriptionOptions`. Absent is not evidence of a mismatch, so it counts
+ * as a match: unsubscribing on "don't know" would churn a working subscription
+ * on every enable.
+ */
+export function applicationServerKeyMatches(
+  subscriptionKey: ArrayBuffer | null | undefined,
+  vapidKey: string
+): boolean {
+  if (!subscriptionKey) return true;
+  let expected: Uint8Array;
+  try {
+    expected = urlBase64ToUint8Array(vapidKey);
+  } catch {
+    return true; // an unreadable server key is not the subscription's fault
+  }
+  const actual = new Uint8Array(subscriptionKey);
+  if (actual.length !== expected.length) return false;
+  return actual.every((byte, i) => byte === expected[i]);
+}
+
+/**
+ * The message shown next to the Enable button when registering fails.
+ *
+ * The 409s from `POST /api/user/me/push-subscriptions` are written for the
+ * person reading them (N4): "this device belongs to another account, sign out
+ * there or clear this site's data, and try again" is a thing a user on a shared
+ * browser can act on, unlike a generic failure toast. So a 409's own detail is
+ * passed straight through, and everything else gets the generic line.
+ */
+export function pushEnableErrorMessage(
+  status: number | undefined,
+  detail: string | null | undefined
+): string {
+  const generic = "Could not enable push notifications on this device.";
+  if (status !== 409) return generic;
+  const trimmed = typeof detail === "string" ? detail.trim() : "";
+  return trimmed || "This device is already registered to another account.";
+}
+
+/**
  * iOS/iPadOS, including iPadOS 13+ which reports its UA as "Macintosh" but
  * exposes multi-touch (a real Mac does not). Safari on iOS is the one platform
  * where Web Push needs the home-screen install, not just a granted permission

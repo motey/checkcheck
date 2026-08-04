@@ -13,6 +13,8 @@ import { test, expect, type Browser, type BrowserContext, type Page } from "@pla
 // render.
 
 const TEST_USER = { username: "testuser01", password: "testuserpw_secure1" };
+// The account tests/e2e/auth.setup.ts persists the shared storage state for.
+const ADMIN = { username: "admin3", password: "password123" };
 
 // REQUIRED: the board opens a persistent SSE connection (/api/sync) that blocks
 // Playwright teardown if left open. Navigate every page to about:blank.
@@ -27,6 +29,27 @@ async function openSettings(page: Page) {
   const dialog = page.locator("[data-testid=notification-settings]");
   await expect(dialog).toBeVisible({ timeout: 5_000 });
   return dialog;
+}
+
+/** Log in through the UI in this page's own context and land on the board. */
+async function uiLogin(page: Page, creds: { username: string; password: string }) {
+  await page.goto("/login");
+  await page.waitForSelector("form");
+  await page.locator("[data-testid=login-username]").fill(creds.username);
+  await page.locator("[data-testid=login-password]").fill(creds.password);
+  await page.locator('form button[type="submit"]').click();
+  await page.waitForURL("/");
+}
+
+/** Remove every push subscription of whoever *page* is authenticated as. */
+async function clearPushSubscriptions(page: Page): Promise<void> {
+  const subs: Array<{ id: string }> = await page.request
+    .get("/api/user/me/push-subscriptions")
+    .then((r) => (r.ok() ? r.json() : []))
+    .catch(() => []);
+  for (const sub of subs) {
+    await page.request.delete(`/api/user/me/push-subscriptions/${sub.id}`).catch(() => {});
+  }
 }
 
 /** The caller's stored preferences, straight from the API. */
@@ -233,12 +256,40 @@ test.describe("P2 push notifications", () => {
   // subscribing for real. The true wire protocol (VAPID JWT shape, encrypted
   // payload) is covered by the backend's own tests_notification_push.py, not
   // here.
+  //
+  // The fake subscription is kept in `localStorage`, not on `window`: a real
+  // one outlives the page, and N5's whole subject is what happens to it across
+  // a reload, a logout and an account switch. An init script re-runs on every
+  // navigation, so a window-scoped fake would quietly vanish exactly where
+  // these tests need it to persist.
   async function mockPush(page: Page): Promise<void> {
     await page.addInitScript(() => {
+      const STORE_KEY = "__e2eFakePushSub";
+      const readStored = (): string | null => {
+        try {
+          return localStorage.getItem(STORE_KEY);
+        } catch {
+          return null; // opaque origin (about:blank)
+        }
+      };
+      const writeStored = (endpoint: string | null): void => {
+        try {
+          if (endpoint) localStorage.setItem(STORE_KEY, endpoint);
+          else localStorage.removeItem(STORE_KEY);
+        } catch {
+          /* opaque origin */
+        }
+      };
       class FakePushSubscription {
         endpoint: string;
         constructor(endpoint: string) {
           this.endpoint = endpoint;
+        }
+        // The real property the VAPID-key check reads. `null` means "this
+        // browser does not expose the key", which N5 treats as "no evidence of
+        // a mismatch": the fake has no key to expose.
+        get options() {
+          return { applicationServerKey: null };
         }
         toJSON() {
           return {
@@ -250,20 +301,20 @@ test.describe("P2 push notifications", () => {
           };
         }
         unsubscribe(): Promise<boolean> {
-          (window as unknown as { __fakeSub: unknown }).__fakeSub = null;
+          writeStored(null);
           return Promise.resolve(true);
         }
       }
       const fakePushManager = {
         subscribe: async () => {
-          const sub = new FakePushSubscription(
-            `https://fake.push.example/${Math.random().toString(36).slice(2)}`
-          );
-          (window as unknown as { __fakeSub: unknown }).__fakeSub = sub;
-          return sub;
+          const endpoint = `https://fake.push.example/${Math.random().toString(36).slice(2)}`;
+          writeStored(endpoint);
+          return new FakePushSubscription(endpoint);
         },
-        getSubscription: async () =>
-          (window as unknown as { __fakeSub: FakePushSubscription | null }).__fakeSub ?? null,
+        getSubscription: async () => {
+          const endpoint = readStored();
+          return endpoint ? new FakePushSubscription(endpoint) : null;
+        },
       };
       const fakeRegistration = { pushManager: fakePushManager };
       Object.defineProperty(navigator.serviceWorker, "ready", {
@@ -287,13 +338,7 @@ test.describe("P2 push notifications", () => {
   // Every test here enables at least one device; remove it so the suite stays
   // order-independent (the admin user is shared across every test in this file).
   test.afterEach(async ({ page }) => {
-    const subs: Array<{ id: string }> = await page.request
-      .get("/api/user/me/push-subscriptions")
-      .then((r) => (r.ok() ? r.json() : []))
-      .catch(() => []);
-    for (const sub of subs) {
-      await page.request.delete(`/api/user/me/push-subscriptions/${sub.id}`).catch(() => {});
-    }
+    await clearPushSubscriptions(page);
   });
 
   test("the push column and device block render on an instance with push on", async ({ page }) => {
@@ -366,6 +411,88 @@ test.describe("P2 push notifications", () => {
       timeout: 5_000,
     });
     await expect(block.locator("[data-testid=notification-test-push]")).toBeDisabled();
+  });
+
+  // ── N5: the browser's subscription follows the session it belongs to ───────
+
+  test("a subscription the previous user left behind does not dead-end the next one", async ({
+    browser,
+  }) => {
+    // Finding 5.1: B used to find the Enable button disabled and unexplained,
+    // because `getSubscription()` still returned A's subscription while the
+    // device list (correctly) showed none of B's. This context logs in itself,
+    // so it must not start from the shared admin auth state.
+    const ctx = await browser.newContext();
+    const page = await ctx.newPage();
+    try {
+      await mockPush(page);
+      await uiLogin(page, ADMIN);
+      let block = (await openSettings(page)).locator("[data-testid=notification-push]");
+      await block.locator("[data-testid=notification-push-enable]").click();
+      await expect(block.locator("[data-testid=notification-push-device]")).toHaveCount(1, {
+        timeout: 10_000,
+      });
+
+      // A's session ends without a clean logout: an expired cookie, a closed
+      // tab, a crash. The browser keeps the subscription, and the row on the
+      // server stays A's, which is the state the fix has to survive.
+      await ctx.clearCookies();
+      await uiLogin(page, TEST_USER);
+
+      block = (await openSettings(page)).locator("[data-testid=notification-push]");
+      await expect(block.locator("[data-testid=notification-push-device]")).toHaveCount(0);
+      const enable = block.locator("[data-testid=notification-push-enable]");
+      await expect(enable).toBeEnabled();
+      await expect(enable).toContainText("Enable notifications on this device");
+
+      // And it actually works: B gets a row of their own rather than N4's 409
+      // for re-registering A's endpoint.
+      await enable.click();
+      await expect(block.locator("[data-testid=notification-push-device]")).toHaveCount(1, {
+        timeout: 10_000,
+      });
+      await expect(block.locator("[data-testid=notification-push-error]")).toHaveCount(0);
+    } finally {
+      // B's row, removed with B's own session before the context goes away.
+      await clearPushSubscriptions(page).catch(() => {});
+      await page.goto("about:blank").catch(() => {});
+      await ctx.close();
+    }
+  });
+
+  test("logging out takes this device's push subscription with it", async ({ page, browser }) => {
+    // Finding 5.2: A's card names kept arriving on the lock screen of a browser
+    // A had logged out of. The row must be gone from the server, not merely
+    // ignored by the client. Asserted through the *shared* admin session, which
+    // is the same account and survives this context's logout (the endpoint
+    // deletes one session, not all of the user's).
+    const ctx = await browser.newContext();
+    const other = await ctx.newPage();
+    const rowCount = async () =>
+      page.request
+        .get("/api/user/me/push-subscriptions")
+        .then((r) => (r.ok() ? r.json() : []))
+        .then((rows: unknown[]) => rows.length);
+    try {
+      await mockPush(other);
+      await uiLogin(other, ADMIN);
+      const block = (await openSettings(other)).locator("[data-testid=notification-push]");
+      await block.locator("[data-testid=notification-push-enable]").click();
+      await expect(block.locator("[data-testid=notification-push-device]")).toHaveCount(1, {
+        timeout: 10_000,
+      });
+      await expect.poll(rowCount, { timeout: 10_000 }).toBe(1);
+
+      await other.keyboard.press("Escape");
+      await other.locator("[data-testid=user-menu]").click();
+      await other.locator("[data-testid=logout-button]").click();
+      await other.waitForURL(/\/login/, { timeout: 10_000 });
+
+      await expect.poll(rowCount, { timeout: 10_000 }).toBe(0);
+    } finally {
+      await other.goto("about:blank").catch(() => {});
+      await ctx.close();
+    }
   });
 
   test("an iPhone outside standalone mode is told to add the app to its home screen, not offered a button", async ({
@@ -443,6 +570,16 @@ test.describe("E5 email deep link", () => {
     expect(res.ok()).toBeTruthy();
     return cl.id;
   }
+
+  // Finding 10: `card` reaches a router path, so a crafted value cannot leave
+  // the origin, but it must not produce a route either.
+  test("a ?card= value that is not a card id leaves the user on the board", async ({ page }) => {
+    await page.goto(`/?card=${encodeURIComponent("../../admin")}`);
+    await page.waitForSelector("[data-testid=checklist-board]");
+    expect(page.url()).not.toContain("card=");
+    expect(page.url()).not.toContain("admin");
+    await expect(page.getByText(/Error 4\d\d/)).toHaveCount(0);
+  });
 
   test("?card=&n= opens the card and marks exactly that notification read", async ({
     page,

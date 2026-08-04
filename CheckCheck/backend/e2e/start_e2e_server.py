@@ -131,7 +131,51 @@ def _configure_env() -> None:
         )
 
 
+# The push endpoints the E2E suite registers are fakes on `fake.push.example`,
+# a name that deliberately resolves to nothing. Chunk N2 judges every endpoint
+# before it becomes a row (resolve the host, then refuse anything that is not
+# public unicast), so an unresolvable name is a 400 and the entire push flow in
+# the settings dialog stopped being reachable from the browser suite.
+#
+# Pointing the suite at a real host instead would put a DNS lookup and,
+# eventually, an outbound POST to somebody else's server in the middle of a
+# test. So the E2E server process teaches the guard exactly one name family
+# instead: `*.push.example` resolves to a fixed public address. Nothing else is
+# touched, and no connection is ever made to that address (the guard only
+# judges it; the dispatcher hands the URL to `pywebpush`, which resolves the
+# real name itself and fails harmlessly). The guard's actual behaviour stays
+# covered by the backend's own tests, which do not run through this file.
+_FAKE_PUSH_SUFFIX = ".push.example"
+_FAKE_PUSH_ADDRESS = "93.184.216.34"
+
+
+def _install_fake_push_resolver() -> None:
+    from checkcheckserver.notify import net_guard
+
+    real_async = net_guard.resolve_addresses
+    real_sync = net_guard.resolve_addresses_sync
+
+    def _is_fake(host: str) -> bool:
+        return host.endswith(_FAKE_PUSH_SUFFIX)
+
+    async def resolve_addresses(host: str, port: int):
+        if _is_fake(host):
+            return [_FAKE_PUSH_ADDRESS]
+        return await real_async(host, port)
+
+    def resolve_addresses_sync(host: str, port: int):
+        if _is_fake(host):
+            return [_FAKE_PUSH_ADDRESS]
+        return real_sync(host, port)
+
+    # `require_public_https_target` reads these through the module globals, so
+    # replacing the attributes is enough for both callers.
+    net_guard.resolve_addresses = resolve_addresses
+    net_guard.resolve_addresses_sync = resolve_addresses_sync
+
+
 def _server_target() -> None:
+    _install_fake_push_resolver()
     from checkcheckserver.main import start
 
     start()

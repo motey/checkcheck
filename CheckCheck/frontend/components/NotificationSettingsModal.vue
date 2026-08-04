@@ -442,6 +442,10 @@ watch(open, (isOpen) => {
     testResult.value = null;
     webhookResult.value = null;
     pushTestResult.value = null;
+    // Including the registration error (N5): reopening the dialog re-reconciles
+    // the device list, so last time's "already registered to another account"
+    // must not be sitting under a button that now works.
+    pushError.value = null;
     return;
   }
   void load();

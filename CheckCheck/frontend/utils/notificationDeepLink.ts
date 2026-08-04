@@ -40,6 +40,20 @@ function firstValue(value: QueryValue): string | null {
   return trimmed === "" ? null : trimmed;
 }
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Whether a `?card=` value can name a card at all (finding 10).
+ *
+ * Card ids are UUIDs, and `card` is whatever the URL carried: it reaches a
+ * router *path*, so a crafted value stays same-origin and this is a nit rather
+ * than an open redirect, but "/card/../../whatever" is still a confusing place
+ * to send somebody who clicked a link in their mail.
+ */
+export function looksLikeCardId(value: string | null | undefined): boolean {
+  return typeof value === "string" && UUID_RE.test(value);
+}
+
 function without(query: DeepLinkQuery, ...keys: string[]): DeepLinkQuery {
   const next = { ...query };
   for (const key of keys) delete next[key];
@@ -95,10 +109,15 @@ export type DeepLinkOutcome =
  * meantime must not be dragged back to the link's card.
  */
 export async function handleNotificationDeepLink(ctx: DeepLinkContext): Promise<DeepLinkOutcome> {
-  const link = parseNotificationDeepLink(ctx.current().query);
+  const here = ctx.current();
+  const link = parseNotificationDeepLink(here.query);
 
   if (link.cardId) {
-    await ctx.replace({ path: `/card/${link.cardId}`, query: link.cardQuery });
+    // A value that cannot be a card id is dropped rather than routed to: the
+    // user stays where the link landed them (the board, for a mail link) with
+    // `card` stripped, and `n` is still consumed on the next pass.
+    const path = looksLikeCardId(link.cardId) ? `/card/${link.cardId}` : here.path;
+    await ctx.replace({ path, query: link.cardQuery });
     return "redirected";
   }
 

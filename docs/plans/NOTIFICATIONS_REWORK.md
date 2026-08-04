@@ -352,11 +352,68 @@ the previous user's notifications after logout.
 | N2 push endpoint guard | **done 2026-08-03** | Finding 1 closed, test gap 2 closed. Landed **before N3**. Both suites green (533 passed on Postgres, 532 on SQLite, plus the invite-flow pass). |
 | N3 push delivery correctness | **done 2026-08-03** | Findings 2 and 9 closed, test gaps 3 and 5 closed. Both suites green (541 passed on Postgres, 540 on SQLite, plus the invite-flow pass). |
 | N4 push ownership and limits | **done 2026-08-03** | Findings 3, 4 and 8 closed, test gaps 1 and 4 closed. Both suites green (545 passed on Postgres, 544 on SQLite, plus the invite-flow pass). |
-| N5 frontend push lifecycle | not started | |
+| N5 frontend push lifecycle | **done 2026-08-04** | Findings 5 and 10 closed, test gaps 8, 9 and 10 closed. Frontend gates green: 326 vitest cases (17 files), 115 Playwright cases (2 known flakes, both passing on retry). |
 
 Update this table at the end of every session, and record deviations from the plan in a short
 "N*x* notes and deviations" section below it, the way
 [`SYSTEM_NOTIFICATIONS.md`](SYSTEM_NOTIFICATIONS.md) does.
+
+### N5 notes and deviations
+
+- **The reconciled endpoint *is* `currentEndpoint`.** The plan asked for `isSubscribedHere` to be
+  driven off the reconciled value "rather than `!!currentEndpoint`"; it is driven off
+  `!!currentEndpoint` because `refresh()` now refuses to store an endpoint the server does not list.
+  Keeping a second flag beside it would have created two pieces of state that can disagree, for a
+  question with one answer: "this browser holds a subscription the server knows about". The ref's
+  doc comment says so, since the name no longer tells you.
+- **A new `utils/pushLifecycle.ts` holds the teardown**, rather than exporting it from
+  `composables/usePushSubscription.ts` as the plan implies. `reconcileAccount()` in
+  `utils/localSnapshot.ts` is one of the two callers, and importing the composable there would drag
+  the notification pinia store into localSnapshot's import graph (and into its unit test's mocking
+  burden) for two functions that need nothing but `navigator` and `$checkapi`. The layering is now
+  `utils/push.ts` (pure) → `utils/pushLifecycle.ts` (browser APIs + transport) → the composable
+  (reactivity).
+- **Logout unregisters *before* the logout POST, not next to `clearLocalState()`.** The plan's
+  ordering note ("the server row goes first while the session cookie is still valid") is only
+  achievable there: by the time `clearLocalState()` runs, `POST /api/auth/logout` has already
+  deleted the session and the `DELETE` would 401 and leave the row behind. It is time-boxed
+  (`withBudget`, 3 s) rather than merely `.catch()`ed, because `unsubscribe()` talks to the push
+  service and logout must not wait on one that has stopped answering.
+- **`enable()` frees the endpoint when it gets N4's 409.** The plan only asked for the message to be
+  surfaced, but "try again" is not true advice unless something drops the subscription that is
+  registered to the other account, and on that path `refresh()`'s reconciliation has already run
+  (or the unsubscribe it tried failed). So a 409 unsubscribes locally, and the second click mints an
+  endpoint nobody owns. The unit test asserts exactly that sequence.
+- **An absent `applicationServerKey` counts as a match.** Browsers that do not expose
+  `PushSubscriptionOptions` would otherwise be resubscribed on every enable. Only a key that is
+  present *and* different triggers the unsubscribe-then-resubscribe.
+- **The modal needed one line, not a new control.** `NotificationSettingsModal.vue` already rendered
+  `pushError` next to the Enable button (`notification-push-error`), and with reconciliation in
+  place `:disabled="pushIsSubscribedHere"` is correct rather than a dead end, so the only change is
+  clearing the error when the dialog closes: reopening re-reconciles, and last time's "registered to
+  another account" must not sit under a button that now works.
+- **N2 had silently broken the P2 push E2E tests, and this chunk had to fix that to run its gate.**
+  N2 judges the endpoint before it becomes a row, and the suite's fake endpoints live on
+  `fake.push.example`, which does not resolve: every registration was a 400, so four existing tests
+  and both new ones failed. N2 through N4 were backend chunks that only ran the backend suites, so
+  nothing caught it. The fix is in the E2E harness, not the server:
+  `backend/e2e/start_e2e_server.py` teaches the guard that `*.push.example` resolves to one fixed
+  public address, and leaves every other host to the real resolver. Pointing the suite at a real
+  hostname was the alternative, and it would have put a DNS lookup and an eventual outbound POST to
+  somebody else's server inside a test.
+- **The account-switch E2E ends A's session by clearing cookies, not by clicking Logout.** With the
+  logout hygiene in place a clean logout leaves nothing behind, so a "log out, log in as B" test
+  would assert the fix through the path that makes the assertion vacuous. Clearing the cookies is
+  the crash / expired-session case the safety net in `reconcileAccount()` exists for, and it is the
+  state where the browser really does still hold the previous user's subscription. The clean-logout
+  path has its own test, which asserts the server row is gone.
+- **The E2E push fake now lives in `localStorage`.** It was on `window`, which an init script resets
+  on every navigation: a subscription that vanishes on reload cannot be used to test what survives a
+  logout or an account switch. It also grew an `options` getter returning a null
+  `applicationServerKey`, which is the "browser does not expose the key" case above.
+- **`?card=` falls back to the current path, not a hard-coded `/`.** For a mail link that is the
+  board either way, and it means the rewrite drops the bad parameter without also moving a user who
+  followed a crafted link from somewhere else in the app.
 
 ### N4 notes and deviations
 

@@ -1,11 +1,13 @@
 import { describe, it, expect } from "vitest";
 import {
+  applicationServerKeyMatches,
   canOfferPushEnable,
   deviceLabel,
   isCurrentDevice,
   isIOSPlatform,
   isStandaloneDisplay,
   pushApiSupported,
+  pushEnableErrorMessage,
   urlBase64ToUint8Array,
 } from "@/utils/push";
 
@@ -118,5 +120,51 @@ describe("isCurrentDevice", () => {
     expect(isCurrentDevice("https://push.example/a", "https://push.example/b")).toBe(false);
     expect(isCurrentDevice("https://push.example/a", null)).toBe(false);
     expect(isCurrentDevice("https://push.example/a", undefined)).toBe(false);
+  });
+});
+
+// ── N5: the two decisions `enable()` makes before it talks to the server ─────
+
+describe("applicationServerKeyMatches", () => {
+  const key = "aGVsbG8"; // "hello"
+  const bytes = (base64Url: string) => {
+    const raw = urlBase64ToUint8Array(base64Url);
+    return raw.buffer.slice(raw.byteOffset, raw.byteOffset + raw.byteLength) as ArrayBuffer;
+  };
+
+  it("matches a subscription made with the same key", () => {
+    expect(applicationServerKeyMatches(bytes(key), key)).toBe(true);
+  });
+
+  it("rejects a subscription made with a rotated key", () => {
+    // Same length, different bytes: a rotation the server would 403 forever.
+    expect(applicationServerKeyMatches(bytes("aGVsbG"), key)).toBe(false);
+    expect(applicationServerKeyMatches(bytes("d29ybGQ"), key)).toBe(false);
+  });
+
+  it("treats an unknown key as a match, not a mismatch", () => {
+    // Browsers that do not expose PushSubscriptionOptions: resubscribing on
+    // "don't know" would churn a working device on every enable.
+    expect(applicationServerKeyMatches(null, key)).toBe(true);
+    expect(applicationServerKeyMatches(undefined, key)).toBe(true);
+  });
+});
+
+describe("pushEnableErrorMessage", () => {
+  it("passes a 409's own detail through, because it is written for the user", () => {
+    const detail =
+      "This device is already registered to another account. Sign out there, or clear this site's data in this browser, and try again.";
+    expect(pushEnableErrorMessage(409, detail)).toBe(detail);
+  });
+
+  it("still says something useful for a 409 with no detail", () => {
+    expect(pushEnableErrorMessage(409, null)).toContain("another account");
+    expect(pushEnableErrorMessage(409, "   ")).toContain("another account");
+  });
+
+  it("does not leak an arbitrary failure's message into the dialog", () => {
+    const generic = "Could not enable push notifications on this device.";
+    expect(pushEnableErrorMessage(500, "Internal Server Error")).toBe(generic);
+    expect(pushEnableErrorMessage(undefined, null)).toBe(generic);
   });
 });

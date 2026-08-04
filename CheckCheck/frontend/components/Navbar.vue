@@ -95,6 +95,7 @@ import { usePublicConfigStore } from "@/stores/publicConfig";
 import { useConnectivity } from "@/composables/useConnectivity";
 import { isLocalFirstEnabled } from "@/utils/localFirst";
 import { clearLocalState } from "@/utils/localSnapshot";
+import { unregisterPushOnLogout } from "@/utils/pushLifecycle";
 
 const emit = defineEmits<{ toggleSidebar: [] }>();
 
@@ -162,6 +163,13 @@ const userMenuItems = computed(
 
 async function logout() {
   const { $checkapi } = useNuxtApp();
+  // Take this device's push subscription with the session (N5, finding 5.2):
+  // otherwise A's card names, actor names and reminder text keep landing on the
+  // lock screen of a browser B is now using, which is a more exposed surface
+  // than a mail sitting in an inbox app. Before the logout POST, because
+  // deleting the server row needs the cookie that POST is about to invalidate;
+  // best-effort and time-boxed inside, so logout never hangs on a push service.
+  await unregisterPushOnLogout().catch(() => {});
   try {
     await $checkapi("/api/auth/logout", { method: "POST" });
   } catch {
