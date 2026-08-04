@@ -63,9 +63,19 @@ def nudge() -> None:
 
 
 def channels_enabled(cfg: Optional[Config] = None) -> bool:
-    """Whether anything can ever reach the outbox on this instance."""
+    """Whether anything can ever reach the outbox on this instance.
+
+    All three delivery channels, not just the two the outbox started with: a
+    push row is queued the moment ``NOTIFY_PUSH_ENABLED`` is on and the
+    recipient has a device, and leaving push out here meant an instance with
+    push but neither mail nor webhooks queued rows the drain below never looked
+    at. ``in_app`` is not in the list because the bell reads the notification
+    table directly and never produces an outbox row.
+    """
     cfg = cfg or config
-    return bool(cfg.EMAIL_ENABLED or cfg.NOTIFY_WEBHOOK_ENABLED)
+    return bool(
+        cfg.EMAIL_ENABLED or cfg.NOTIFY_WEBHOOK_ENABLED or cfg.NOTIFY_PUSH_ENABLED
+    )
 
 
 def dispatch_enabled(cfg: Optional[Config] = None) -> bool:

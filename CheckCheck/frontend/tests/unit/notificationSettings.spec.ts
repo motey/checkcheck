@@ -8,6 +8,7 @@ import {
   prefsPatch,
   timezoneItems,
   timezonePatchValue,
+  timezoneSelectValue,
   typeRows,
   typeWording,
   looksLikeWebhookUrl,
@@ -209,6 +210,18 @@ describe("timezone picker", () => {
   it("maps the UTC entry back to a null timezone, which clears it", () => {
     expect(timezonePatchValue(UTC_VALUE)).toBeNull();
     expect(timezonePatchValue("Europe/Berlin")).toBe("Europe/Berlin");
+  });
+
+  it("shows a stored literal UTC on the one UTC entry the list has", () => {
+    // The list carries UTC exactly once, as `UTC_VALUE`, so a row holding the
+    // literal string would otherwise select nothing and the picker would look
+    // empty. A row really can hold it: the login-time re-sync writes the
+    // device's zone, and a device can be on UTC.
+    expect(timezoneSelectValue("UTC")).toBe(UTC_VALUE);
+    expect(timezoneSelectValue(null)).toBe(UTC_VALUE);
+    expect(timezoneSelectValue(undefined)).toBe(UTC_VALUE);
+    expect(timezoneSelectValue("")).toBe(UTC_VALUE);
+    expect(timezoneSelectValue("Europe/Berlin")).toBe("Europe/Berlin");
   });
 });
 

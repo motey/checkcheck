@@ -311,6 +311,20 @@ export function timezonePatchValue(value: string): string | null {
   return value === UTC_VALUE ? null : value;
 }
 
+/**
+ * Stored zone -> the value the picker should show.
+ *
+ * A stored literal `"UTC"` and a stored `null` are the same instant, and
+ * `timezoneItems` offers only one entry for them (the `UTC_VALUE` one), so the
+ * literal has to be folded onto it or the select shows nothing at all. A row
+ * really can hold `"UTC"`: the API accepts it, and the login-time re-sync
+ * (`utils/timezoneSync.ts`) writes it over a previously stored zone when the
+ * device is on UTC.
+ */
+export function timezoneSelectValue(stored: string | null | undefined): string {
+  return !stored || stored === "UTC" ? UTC_VALUE : stored;
+}
+
 // ── webhook target (chunk E6) ────────────────────────────────────────────────
 //
 // The same shallow check the server does on the way in. What actually matters,

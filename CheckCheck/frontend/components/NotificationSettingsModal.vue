@@ -357,6 +357,7 @@ import {
   testWebhookMessage,
   timezoneItems,
   timezonePatchValue,
+  timezoneSelectValue,
   typeRows,
   visibleChannels,
   webhookUrlPatchValue,
@@ -471,7 +472,7 @@ async function load(): Promise<void> {
   loadError.value = false;
   try {
     const res = await store.fetchSettings();
-    timezone.value = res.timezone ?? UTC_VALUE;
+    timezone.value = timezoneSelectValue(res.timezone);
     webhookUrl.value = res.webhook_url ?? "";
     if (res.push_enabled) await refreshPush().catch(() => {});
   } catch {
@@ -563,7 +564,7 @@ async function save(key: string, update: NotificationSettingsUpdateType): Promis
   busyCell.value = key;
   try {
     const res = await store.saveSettings(update);
-    timezone.value = res.timezone ?? UTC_VALUE;
+    timezone.value = timezoneSelectValue(res.timezone);
     webhookUrl.value = res.webhook_url ?? "";
     flashSaved();
   } catch (err) {
@@ -579,7 +580,7 @@ async function save(key: string, update: NotificationSettingsUpdateType): Promis
     });
     // Show what the server actually holds rather than the control's guess.
     await store.fetchSettings().catch(() => {});
-    timezone.value = settings.value?.timezone ?? UTC_VALUE;
+    timezone.value = timezoneSelectValue(settings.value?.timezone);
     webhookUrl.value = settings.value?.webhook_url ?? "";
   } finally {
     busyCell.value = null;

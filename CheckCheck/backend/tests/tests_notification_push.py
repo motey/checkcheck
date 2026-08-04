@@ -1261,6 +1261,48 @@ def test_boot_accepts_a_real_vapid_key_pair():
     assert config.NOTIFY_PUSH_ENABLED is True
 
 
+# ── the dispatcher gate ──────────────────────────────────────────────────────
+
+
+def test_a_push_only_instance_counts_as_having_a_channel():
+    """Push is a delivery channel, so it has to open the drain like the other two.
+
+    ``dispatch_once`` skips ``drain_once`` entirely while ``channels_enabled``
+    is false ("nothing can have queued anything"), and that used to be true of a
+    push-only instance: rows were queued the moment a user had a device and were
+    then never looked at. An operator without an SMTP server is exactly who turns
+    push on.
+    """
+    from checkcheckserver.config import Config
+    from checkcheckserver.notify.dispatcher import channels_enabled, dispatch_enabled
+
+    push_only = _config(
+        EMAIL_ENABLED=False,
+        EMAIL_FROM_ADDRESS=None,
+        NOTIFY_WEBHOOK_ENABLED=False,
+        # Nothing else that would keep the loop alive on its own, so the
+        # assertion below is about push and nothing but push.
+        NOTIFY_FEED_RETENTION_DAYS=0,
+        NOTIFY_DISABLED_TYPES=["reminder_due"],
+        NOTIFY_DISPATCH_IN_PROCESS=True,
+    )
+    assert channels_enabled(push_only) is True
+    assert dispatch_enabled(push_only) is True
+
+    # The same instance with push switched off has nothing to deliver again,
+    # which is the case the gate was written for.
+    silent = Config(
+        EMAIL_ENABLED=False,
+        NOTIFY_WEBHOOK_ENABLED=False,
+        NOTIFY_PUSH_ENABLED=False,
+        NOTIFY_FEED_RETENTION_DAYS=0,
+        NOTIFY_DISABLED_TYPES=["reminder_due"],
+        NOTIFY_DISPATCH_IN_PROCESS=True,
+    )
+    assert channels_enabled(silent) is False
+    assert dispatch_enabled(silent) is False
+
+
 # ── the disabled instance, over HTTP ─────────────────────────────────────────
 #
 # The live test server has NOTIFY_PUSH_ENABLED off (no VAPID keys configured),
