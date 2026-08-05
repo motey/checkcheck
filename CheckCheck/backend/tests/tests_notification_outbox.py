@@ -687,6 +687,17 @@ def test_lifespan_starts_the_dispatcher_and_stops_it_again(monkeypatch):
     monkeypatch.setattr(dispatcher, "config", _config(NOTIFY_DISPATCH_IN_PROCESS=True))
     monkeypatch.setattr(dispatcher, "dispatch_once", fake_dispatch_once)
     monkeypatch.setattr(dispatcher, "_prune", fake_prune)
+    # Since chunk K1 the lifespan also resolves the instance's VAPID keys, which
+    # touches the database. Stubbed out here for two reasons: this test is about
+    # the task's start and cancellation, and — the one that actually bites — it
+    # drives its own `asyncio.run` without disposing the engine, so a real query
+    # would leave an asyncpg connection in the pool bound to a loop that no
+    # longer exists and the next test in this file would fail on it.
+    # `tests_vapid_keys.py` asserts the lifespan really does resolve.
+    async def fake_resolve(cfg=None):
+        return None
+
+    monkeypatch.setattr(dispatcher.vapid, "resolve_at_startup", fake_resolve)
 
     async def body():
         async with dispatcher.lifespan(app=None):
@@ -711,8 +722,15 @@ def test_dispatcher_is_off_when_it_would_have_nothing_to_do():
 
     # (the test environment itself runs with NOTIFY_DISPATCH_IN_PROCESS off, so
     # every case that expects the loop to run has to ask for it explicitly)
+    #
+    # Push is switched off in every case here, and has to be said out loud since
+    # chunk K1 made it the default: an instance with push on has a channel, so
+    # "no channel" is not something the absence of mail and webhooks establishes
+    # any more.
     def cfg(**overrides):
-        return _config(NOTIFY_DISPATCH_IN_PROCESS=True, **overrides)
+        return _config(
+            NOTIFY_DISPATCH_IN_PROCESS=True, NOTIFY_PUSH_ENABLED=False, **overrides
+        )
 
     assert dispatch_enabled(cfg(EMAIL_ENABLED=True)) is True
     assert (
@@ -752,6 +770,11 @@ def test_dispatcher_is_off_when_it_would_have_nothing_to_do():
         )
         is False
     )
+    # A channel is a channel: an instance with neither mail nor webhooks but push
+    # on (the default since chunk K1) can queue push rows, and leaving them
+    # undrained was the bug that put push in `channels_enabled` in the first place.
+    assert channels_enabled(_config(EMAIL_ENABLED=False, EMAIL_FROM_ADDRESS=None)) is True
+
     # The escape hatch for "something else drains the queue" (decision 2 of the
     # plan), and what the test server runs with.
     assert dispatch_enabled(_config(NOTIFY_DISPATCH_IN_PROCESS=False)) is False

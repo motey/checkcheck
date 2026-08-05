@@ -580,33 +580,38 @@ class Config(BaseSettings):
     # OS-level notifications delivered through the Web Push standard. See
     # docs/plans/SYSTEM_NOTIFICATIONS.md.
     NOTIFY_PUSH_ENABLED: bool = Field(
-        default=False,
+        default=True,
         title="Enable push notifications",
         description=(
             "Master switch for the push channel. When false the server never sends a push "
             "message, no subscription can be created, and the push column of the "
-            "notification settings is hidden in the UI. When true, VAPID_PUBLIC_KEY, "
-            "VAPID_PRIVATE_KEY and VAPID_CONTACT_EMAIL are required, checked at startup. "
-            "Generate a key pair with ./gen_vapid_keys.sh."
+            "notification settings is hidden in the UI. On by default and needs no "
+            "configuration: an instance with no VAPID_PUBLIC_KEY / VAPID_PRIVATE_KEY set "
+            "generates its own key pair on first boot and keeps it in the database. Whether "
+            "a browser will actually subscribe is decided by the browser, which requires the "
+            "page to be a secure context: https, or http on localhost."
         ),
     )
     VAPID_PUBLIC_KEY: Optional[str] = Field(
         default=None,
         title="VAPID public key",
         description=(
-            "The application server's public key, base64url-encoded. Required when "
-            "NOTIFY_PUSH_ENABLED is true. Not a secret: served to the client through "
-            "/api/public-config, which is what lets a browser subscribe. Generate with "
-            "./gen_vapid_keys.sh."
+            "The application server's public key, base64url-encoded. Optional: leave it "
+            "unset and the instance generates a key pair for itself on first boot. Set it "
+            "only to pin a pair of your own, in which case VAPID_PRIVATE_KEY has to be set "
+            "too (generate both with ./gen_vapid_keys.sh) and nothing is generated. Not a "
+            "secret: served to the client through /api/public-config, which is what lets a "
+            "browser subscribe."
         ),
     )
     VAPID_PRIVATE_KEY: Optional[SecretStr] = Field(
         default=None,
         title="VAPID private key",
         description=(
-            "The application server's private key, base64url-encoded. Required when "
-            "NOTIFY_PUSH_ENABLED is true. Never leaves the server; signs the VAPID JWT that "
-            "proves a push request came from this instance. Supply it through the "
+            "The application server's private key, base64url-encoded. Optional, and set "
+            "together with VAPID_PUBLIC_KEY or not at all: an instance with neither "
+            "generates its own pair on first boot. Never leaves the server; signs the VAPID "
+            "JWT that proves a push request came from this instance. Supply it through the "
             "environment rather than committing it to a config file. Generate with "
             "./gen_vapid_keys.sh."
         ),
@@ -616,8 +621,10 @@ class Config(BaseSettings):
         title="VAPID contact address",
         description=(
             "Contact address for the push services this instance calls, in case one needs "
-            "to reach an operator about abuse. Required when NOTIFY_PUSH_ENABLED is true. "
-            "Becomes the VAPID JWT's `sub` claim as `mailto:<address>`."
+            "to reach an operator about abuse. Becomes the VAPID JWT's `sub` claim as "
+            "`mailto:<address>`. Optional: without it the claim falls back to "
+            "ADMIN_USER_EMAIL, and then to SERVER_PUBLIC_URL, both of which a push service "
+            "accepts."
         ),
         examples=["admin@example.com"],
     )
@@ -1030,27 +1037,36 @@ class Config(BaseSettings):
 
         Same reasoning as ``_resolve_and_validate_email``: a queued push message
         can only fail once per row, in a background task where nobody is looking,
-        so a missing or malformed VAPID key must stop the instance from starting
-        instead.
+        so a malformed VAPID key must stop the instance from starting instead.
+
+        What is *not* an error since chunk K1 is setting neither half. That used
+        to be the common case and it refused to boot; it now means "generate one
+        for me", which ``notify/vapid.py`` does on first boot (decision 3 of
+        ``docs/plans/PUSH_KEYS_AND_SHARE_SETTING.md``). Setting exactly one half
+        is still an error, because an operator who set one meant to set both, and
+        silently generating a pair over the top of a half-configured one would
+        make a typo look like it worked.
+
+        The contact address is no longer required either: the JWT's ``sub``
+        claim has a fallback (``notify/vapid.resolve_subject``). Nothing here can
+        touch the database or the event loop, so generation itself belongs in the
+        lifespan, not in this validator.
         """
         if not self.NOTIFY_PUSH_ENABLED:
             return self
 
-        missing = [
-            name
-            for name, value in (
-                ("VAPID_PUBLIC_KEY", self.VAPID_PUBLIC_KEY),
-                ("VAPID_PRIVATE_KEY", self.VAPID_PRIVATE_KEY),
-                ("VAPID_CONTACT_EMAIL", self.VAPID_CONTACT_EMAIL),
+        if not self.VAPID_PUBLIC_KEY and not self.VAPID_PRIVATE_KEY:
+            return self
+        if not self.VAPID_PUBLIC_KEY or not self.VAPID_PRIVATE_KEY:
+            missing, given = (
+                ("VAPID_PUBLIC_KEY", "VAPID_PRIVATE_KEY")
+                if not self.VAPID_PUBLIC_KEY
+                else ("VAPID_PRIVATE_KEY", "VAPID_PUBLIC_KEY")
             )
-            if not value
-        ]
-        if missing:
             raise ValueError(
-                "NOTIFY_PUSH_ENABLED is true but "
-                f"{', '.join(missing)} {'is' if len(missing) == 1 else 'are'} not set. "
-                "Generate a key pair with ./gen_vapid_keys.sh, or set NOTIFY_PUSH_ENABLED "
-                "to false."
+                f"{given} is set but {missing} is not. Both halves of a VAPID key pair "
+                "have to come from the same ./gen_vapid_keys.sh run. Set both, or unset "
+                "both and let this instance generate a pair for itself."
             )
 
         from checkcheckserver.notify import push as _push

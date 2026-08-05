@@ -15,6 +15,7 @@ from pydantic import BaseModel, Field
 from checkcheckserver import __version__ as server_version
 from checkcheckserver.config import Config
 from checkcheckserver.log import get_logger
+from checkcheckserver.notify import vapid
 
 config = Config()
 log = get_logger()
@@ -71,8 +72,10 @@ class PublicConfig(BaseModel):
         default=None,
         description=(
             "The instance's VAPID public key, base64url-encoded. Not a secret; the client "
-            "needs it as the applicationServerKey when subscribing. Null when push_enabled "
-            "is false."
+            "needs it as the applicationServerKey when subscribing. Either the configured "
+            "key or the one this instance generated for itself on first boot. Null when "
+            "push_enabled is false, and on the rare instance where the key could not be "
+            "resolved at startup (the server log says why)."
         ),
     )
 
@@ -93,6 +96,8 @@ def _default_api_token_expiry_days() -> Optional[int]:
     description="Public, unauthenticated feature flags the web client gates its sharing UI on.",
 )
 async def get_public_config() -> PublicConfig:
+    keys = vapid.get_keys()
+    vapid_key = keys.public_key if keys is not None else None
     return PublicConfig(
         sharing_enabled=config.SHARING_ENABLED,
         sharing_public_links_enabled=config.SHARING_PUBLIC_LINKS_ENABLED,
@@ -113,5 +118,10 @@ async def get_public_config() -> PublicConfig:
         email_enabled=config.EMAIL_ENABLED,
         webhook_enabled=config.NOTIFY_WEBHOOK_ENABLED,
         push_enabled=config.NOTIFY_PUSH_ENABLED,
-        vapid_public_key=config.VAPID_PUBLIC_KEY if config.NOTIFY_PUSH_ENABLED else None,
+        # From the holder the dispatcher's lifespan filled at startup, never
+        # from `config` directly: since chunk K1 the key an instance signs with
+        # is usually one it generated for itself, which only the database knows.
+        # `resolve_at_startup` returns nothing at all when push is off, so this
+        # needs no second flag check.
+        vapid_public_key=vapid_key,
     )

@@ -5,6 +5,54 @@ changes see [`../CHANGELOG.md`](../CHANGELOG.md).
 
 ---
 
+## Push notifications work without configuration (migration `0017`)
+
+Push used to need an operator: `NOTIFY_PUSH_ENABLED` defaulted to false, and
+turning it on without `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` /
+`VAPID_CONTACT_EMAIL` refused to boot. It now generates its own key pair on first
+boot. This ships as Alembic revision `0017`, which adds an `instance_secret`
+table and is applied automatically on server start. It adds a table only, so
+nothing existing is touched.
+
+- **`NOTIFY_PUSH_ENABLED` now defaults to true.** An instance that upgrades and
+  changes no settings gains the push column in the notification settings dialog
+  and can subscribe devices. Nothing is actually sent to anybody until a user
+  both enables push on a device and switches a notification type to push: the
+  instance defaults (`NOTIFY_DEFAULT_MODES`) still have no push entry, so every
+  push cell starts at "Off". Set `NOTIFY_PUSH_ENABLED: false` to keep the channel
+  hidden.
+- **The generated key pair lives in the database, in `instance_secret`.** Not in
+  a file: a container filesystem may be read-only or ephemeral, and two replicas
+  each writing their own file would sign with different keys, which is a broken
+  instance that looks healthy. Your existing database backup already covers it.
+- **Losing that table unsubscribes every device.** A database restored without
+  the `instance_secret` rows generates a fresh pair on the next boot, and every
+  existing `push_subscription` is then signed for a key its push service no
+  longer accepts. Those rows fail permanently rather than being deleted (the
+  server cannot tell "wrong key" from "wrong device" and refuses to unsubscribe
+  people over a server-side problem), so affected users have to press "Enable
+  notifications on this device" again. If you back up selectively, include
+  `instance_secret` with the rest.
+- **Configured keys still win.** If `VAPID_PUBLIC_KEY` and `VAPID_PRIVATE_KEY`
+  are set, they are used exactly as before and nothing is generated or written.
+  Setting only one of the two is now a startup error: both halves have to come
+  from the same `./gen_vapid_keys.sh` run.
+- **`VAPID_CONTACT_EMAIL` is no longer required.** Without it the VAPID JWT's
+  `sub` claim falls back to `ADMIN_USER_EMAIL`, and then to `SERVER_PUBLIC_URL`.
+  Set it if you want a push service to be able to reach a specific address.
+- **Whether a browser will subscribe is still the browser's decision.** Web Push
+  needs a secure context, so the app has to be served over https (or over
+  `http://localhost` for development). The settings dialog now says so, instead
+  of blaming the browser.
+- **The two share rows in the notification settings became one.** "A card is
+  shared with me" and "I am invited to a card" are the two halves of one event,
+  picked between by `SHARING_REQUIRE_INVITE_ACCEPT`, so only one of them could
+  ever fire on any given instance. The merged row writes both, which means a
+  user's choice already applies if you later flip that flag. No stored preference
+  is changed or lost.
+
+---
+
 ## Date reminders (migration `0015`)
 
 Users can set a reminder on a card ("remind me about this on Friday at 09:00",
@@ -13,12 +61,12 @@ optionally repeating). This ships as Alembic revision `0015`, which adds a singl
 adds a table only, so nothing existing is touched, and it needs no configuration
 to work.
 
-- **This one notification type does send mail by default.** Every other type
-  starts at in-app only, so that a release never signs your users up for mail
-  they did not ask for. `reminder_due` ships with `email: immediate` in the
-  instance defaults, because a reminder the user only sees the next time they
-  open the app is not a reminder. It still only leaves the server on an instance
-  where `EMAIL_ENABLED` is true, and any user can turn it off for themselves.
+- **Reminders send mail by default**, like every other notification type:
+  `NOTIFY_DEFAULT_MODES` ships `in_app: immediate, email: immediate` for all four
+  of them, because a reminder the user only sees the next time they open the app
+  is not a reminder. Nothing leaves the server unless `EMAIL_ENABLED` is true,
+  and any user can turn any of it off for themselves. To start your users at
+  in-app only instead, set the email entries in `NOTIFY_DEFAULT_MODES` to `off`.
 - **A reminder cannot go into a digest.** The email channel offers `off` and
   `immediate` for this type and nothing else, whatever `NOTIFY_DEFAULT_MODES`
   says. A digest mode configured for it (or saved by a user before an upgrade)

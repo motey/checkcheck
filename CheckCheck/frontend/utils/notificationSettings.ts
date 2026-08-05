@@ -112,8 +112,13 @@ export function channelWording(channel: string): { title: string; description: s
 
 const TYPE_WORDING: Record<string, { title: string; description: string }> = {
   card_shared: {
+    // The merged share row (chunk K2). Worded to cover both share policies
+    // without naming either: which of the two types actually fires is
+    // `SHARING_REQUIRE_INVITE_ACCEPT`, an instance-wide decision the user did
+    // not make and cannot change, so spelling it out here would explain the
+    // server's configuration rather than the notification.
     title: "A card is shared with me",
-    description: "Someone gives you access to one of their cards.",
+    description: "Someone gives you access to one of their cards, or invites you to one.",
   },
   card_invited: {
     title: "I am invited to a card",
@@ -207,59 +212,153 @@ export function cellDisplay(cell: ChannelCell): CellDisplay {
 
 export type CellView = CellDisplay & { channel: string; title: string; description: string };
 export type TypeRow = {
+  /** The row's identity: its `data-testid` suffix and its key. */
   type: string;
+  /**
+   * Every notification type this row's controls write. One entry for an ordinary
+   * row, two for the merged share row (see `typeRows`), and always what
+   * `prefsPatch` should be given.
+   */
+  types: string[];
   title: string;
   description: string;
   cells: CellView[];
 };
 
 /**
- * The whole dialog body: one row per notification type, one cell per channel
- * that is shown at all.
+ * The two halves of "somebody gave me access to a card", which chunk K2 merges
+ * into one row.
  *
- * *channels* defaults to in-app plus email; the caller drops `email` on an
- * instance without mail, where there is nothing to configure and every email
- * entry is locked off anyway.
+ * They are one event to a user and they are mutually exclusive to the server:
+ * `SHARING_REQUIRE_INVITE_ACCEPT` decides which of the two an instance emits, so
+ * on any given deployment the other one can never fire and its row was dead
+ * space in the dialog. First entry is the one whose identity the merged row
+ * keeps.
+ */
+export const SHARE_TYPES = ["card_shared", "card_invited"] as const;
+
+/**
+ * One cell standing for both share types.
+ *
+ * The *live* type's cell is what is displayed (decision 7), since that is the
+ * one whose mode is actually in force. The lock, though, is the OR of the two:
+ * a cap the administrator put on the type that is currently dormant would
+ * otherwise be invisible until they flipped the flag, and the control would let
+ * a user pick a mode the server was never going to honour. Same for the reason
+ * text, which comes from whichever half is locked.
+ */
+function mergeShareCells(live: ChannelCell, other: ChannelCell | undefined): ChannelCell {
+  if (!other?.locked || live.locked) return live;
+  return {
+    ...live,
+    locked: true,
+    locked_reason: live.locked_reason || other.locked_reason,
+    // A locked cell displays `mode` rather than the user's override, and the
+    // dormant half's cap is what will apply the moment it goes live.
+    mode: other.mode,
+  };
+}
+
+function cellViews(cells: Record<string, ChannelCell>, channels: readonly string[]): CellView[] {
+  return channels
+    .filter((channel) => cells[channel])
+    .map((channel) => {
+      const cellWording = channelWording(channel);
+      return {
+        channel,
+        title: cellWording.title,
+        description: cellWording.description,
+        ...cellDisplay(cells[channel]!),
+      };
+    });
+}
+
+/**
+ * The whole dialog body: one row per notification type, one cell per channel
+ * that is shown at all, with the two share types collapsed into a single row.
+ *
+ * *channels* defaults to every channel; the caller drops `email` on an instance
+ * without mail, where there is nothing to configure and every email entry is
+ * locked off anyway.
+ *
+ * *requireInviteAccept* is the instance's `SHARING_REQUIRE_INVITE_ACCEPT`, which
+ * picks which half of the merged share row is the live one. Left out (the client
+ * has not loaded the public config yet) it reads as false, which is the default
+ * share policy.
  */
 export function typeRows(
   types: TypeCells[] | undefined | null,
-  channels: readonly string[] = VISIBLE_CHANNELS
+  channels: readonly string[] = VISIBLE_CHANNELS,
+  requireInviteAccept: boolean | null | undefined = false
 ): TypeRow[] {
-  return (types ?? []).map((entry) => {
+  const entries = types ?? [];
+  const shareEntries = SHARE_TYPES.map((type) => entries.find((e) => e.type === type));
+  const [shared, invited] = shareEntries;
+  const live = requireInviteAccept ? invited ?? shared : shared ?? invited;
+  const dormant = live === shared ? invited : shared;
+  let mergedEmitted = false;
+
+  const rows: TypeRow[] = [];
+  for (const entry of entries) {
+    if ((SHARE_TYPES as readonly string[]).includes(entry.type)) {
+      if (mergedEmitted || !live) continue;
+      mergedEmitted = true;
+      // Keeps `card_shared`'s identity whenever that type exists at all, so the
+      // testids and the saved-cell keys the dialog and its specs use survive the
+      // merge.
+      const wording = typeWording(shared ? SHARE_TYPES[0] : live.type);
+      const merged: Record<string, ChannelCell> = {};
+      for (const channel of Object.keys(live.channels ?? {})) {
+        merged[channel] = mergeShareCells(
+          live.channels[channel]!,
+          dormant?.channels?.[channel]
+        );
+      }
+      rows.push({
+        type: shared ? SHARE_TYPES[0] : live.type,
+        // Both halves, in the order the server sent them, so one change keeps
+        // them in lockstep and neither can drift behind the other.
+        types: shareEntries.filter((e): e is TypeCells => !!e).map((e) => e.type),
+        title: wording.title,
+        description: wording.description,
+        cells: cellViews(merged, channels),
+      });
+      continue;
+    }
     const wording = typeWording(entry.type);
-    return {
+    rows.push({
       type: entry.type,
+      types: [entry.type],
       title: wording.title,
       description: wording.description,
-      cells: channels
-        .filter((channel) => entry.channels?.[channel])
-        .map((channel) => {
-          const cellWording = channelWording(channel);
-          return {
-            channel,
-            title: cellWording.title,
-            description: cellWording.description,
-            ...cellDisplay(entry.channels[channel]!),
-          };
-        }),
-    };
-  });
+      cells: cellViews(entry.channels ?? {}, channels),
+    });
+  }
+  return rows;
 }
 
 /**
  * The PUT body for one changed cell. `INHERIT_VALUE` becomes `null`, which is
  * how the API says "drop my override for this entry"; everything else is sent
- * as the mode itself. The patch names exactly one cell, so nothing the user did
- * not touch can be rewritten by a stale copy of the matrix.
+ * as the mode itself. The patch names exactly the cells that changed, so nothing
+ * the user did not touch can be rewritten by a stale copy of the matrix.
+ *
+ * *type* takes the row's whole `types` list, which is how the merged share row
+ * writes both halves in one request: the API has always accepted a multi-type
+ * patch, so the two can never end up disagreeing, and an operator who later
+ * flips `SHARING_REQUIRE_INVITE_ACCEPT` finds the user's choice already applies
+ * to the type that is now live.
  */
 export function prefsPatch(
-  type: string,
+  type: string | readonly string[],
   channel: string,
   choice: ModeChoice
 ): { prefs: Record<string, Record<string, string | null>> } {
-  return {
-    prefs: { [type]: { [channel]: choice === INHERIT_VALUE ? null : choice } },
-  };
+  const value = choice === INHERIT_VALUE ? null : choice;
+  const types = typeof type === "string" ? [type] : type;
+  const prefs: Record<string, Record<string, string | null>> = {};
+  for (const one of types) prefs[one] = { [channel]: value };
+  return { prefs };
 }
 
 // ── time zone ────────────────────────────────────────────────────────────────

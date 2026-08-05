@@ -6,9 +6,11 @@ import {
   canOfferPushEnable,
   isCurrentDevice,
   isIOSPlatform,
+  isSecureContextNow,
   isStandaloneDisplay,
   pushApiSupported,
   pushEnableErrorMessage,
+  pushUnavailableReason,
   urlBase64ToUint8Array,
 } from "@/utils/push";
 import { browserPushSubscription, unsubscribePushLocally } from "@/utils/pushLifecycle";
@@ -86,6 +88,20 @@ export function usePushSubscription() {
     canOfferPushEnable({
       isIOS: isIOS.value,
       isStandalone: isStandalone.value,
+      supported: supported.value,
+    })
+  );
+
+  // Web Push needs a secure context, which is the browser's rule about the page
+  // rather than anything the server can configure (chunk K2). Read reactively
+  // like the rest so the dialog says which of the three problems it is.
+  const secureContext = computed(() => isSecureContextNow());
+
+  const unavailableReason = computed(() =>
+    pushUnavailableReason({
+      isIOS: isIOS.value,
+      isStandalone: isStandalone.value,
+      secureContext: secureContext.value,
       supported: supported.value,
     })
   );
@@ -232,6 +248,8 @@ export function usePushSubscription() {
     busyId,
     error,
     supported,
+    secureContext,
+    unavailableReason,
     isIOS,
     isStandalone,
     canEnable,

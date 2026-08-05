@@ -1,13 +1,15 @@
-import { describe, it, expect } from "vitest";
+import { afterEach, describe, it, expect, vi } from "vitest";
 import {
   applicationServerKeyMatches,
   canOfferPushEnable,
   deviceLabel,
   isCurrentDevice,
   isIOSPlatform,
+  isSecureContextNow,
   isStandaloneDisplay,
   pushApiSupported,
   pushEnableErrorMessage,
+  pushUnavailableReason,
   urlBase64ToUint8Array,
 } from "@/utils/push";
 
@@ -75,6 +77,71 @@ describe("canOfferPushEnable", () => {
 
   it("is true on any other supported platform", () => {
     expect(canOfferPushEnable({ isIOS: false, isStandalone: false, supported: true })).toBe(true);
+  });
+});
+
+// ── which hint the dialog shows (chunk K2, decision 5) ───────────────────────
+//
+// The old dialog had one sentence, "This browser does not support push
+// notifications", for three separate problems, and it was wrong for two of them.
+
+describe("pushUnavailableReason", () => {
+  const ok = { isIOS: false, isStandalone: false, secureContext: true, supported: true };
+
+  it("is null when the button can be offered", () => {
+    expect(pushUnavailableReason(ok)).toBe(null);
+  });
+
+  it("names the missing certificate rather than blaming the browser", () => {
+    // The case the old wording got wrong: a page served over plain http on a LAN
+    // address or a hostname. The browser is right to refuse, and no server-side
+    // setting can change it, so the sentence has to name https.
+    expect(pushUnavailableReason({ ...ok, secureContext: false })).toBe("insecure_context");
+  });
+
+  it("prefers the insecure-context reason over the browser's missing APIs", () => {
+    // A browser on an insecure page often hides the push APIs, so both signals
+    // fire at once and only one of them explains anything.
+    expect(
+      pushUnavailableReason({ ...ok, secureContext: false, supported: false })
+    ).toBe("insecure_context");
+  });
+
+  it("asks for the home-screen install on iOS, but only on a secure page", () => {
+    expect(pushUnavailableReason({ ...ok, isIOS: true })).toBe("ios_install");
+    expect(pushUnavailableReason({ ...ok, isIOS: true, isStandalone: true })).toBe(null);
+    // Adding an http page to the home screen would not help either.
+    expect(pushUnavailableReason({ ...ok, isIOS: true, secureContext: false })).toBe(
+      "insecure_context"
+    );
+  });
+
+  it("blames the browser only when everything else is in order", () => {
+    expect(pushUnavailableReason({ ...ok, supported: false })).toBe("unsupported");
+  });
+});
+
+describe("isSecureContextNow", () => {
+  // This suite runs in node, where there is no `window` at all, so the flag is
+  // stubbed rather than poked at. That absence is itself one of the cases below.
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("reads window.isSecureContext", () => {
+    vi.stubGlobal("window", { isSecureContext: false });
+    expect(isSecureContextNow()).toBe(false);
+    vi.stubGlobal("window", { isSecureContext: true });
+    expect(isSecureContextNow()).toBe(true);
+  });
+
+  it("treats an environment without the flag as secure", () => {
+    // A missing global is a harness, not a deployment problem, and claiming
+    // otherwise would put a certificate warning in front of a developer who has
+    // nothing wrong with their setup.
+    vi.stubGlobal("window", {});
+    expect(isSecureContextNow()).toBe(true);
+    expect(typeof globalThis.window).toBe("object");
   });
 });
 
