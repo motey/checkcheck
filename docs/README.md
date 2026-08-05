@@ -12,6 +12,7 @@ historical notes.
 | [configuration.md](configuration.md) | Readable introduction to configuring an instance: source precedence, required secrets, common scenarios, OIDC. |
 | [CONFIG_REFERENCE.md](CONFIG_REFERENCE.md) | Generated reference for every config field. Do not hand-edit; regenerate with `./gen_config_docs.sh`. |
 | [deployment.md](deployment.md) | Running with Docker and compose, PostgreSQL, reverse proxies, backups, building the image. |
+| [production-stack.md](production-stack.md) | A complete opinionated production setup: Traefik for TLS, Keycloak for OIDC, scheduled PostgreSQL backups. |
 | [administration.md](administration.md) | First admin, roles, adding users, sharing switches, the offline kill switch. |
 | [pwa-install.md](pwa-install.md) | Installing the app on each platform, and the HTTPS/serving requirements that make an instance installable. |
 | [UPGRADING.md](UPGRADING.md) | Per-release upgrade notes; pairs with the root [CHANGELOG.md](../CHANGELOG.md). |

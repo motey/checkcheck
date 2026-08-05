@@ -50,8 +50,10 @@ class Config(BaseSettings):
 
     Every setting can come from three places, highest priority first:
 
-    1. an environment variable (nested settings join with a double underscore,
-       e.g. ``AUTH_OIDC_PROVIDERS__0__CLIENT_ID``),
+    1. an environment variable (fields holding an object or dictionary nest
+       with a double underscore, e.g. ``NOTIFY_DEFAULT_MODES__card_shared__email``;
+       lists of objects such as ``AUTH_OIDC_PROVIDERS`` cannot be assembled
+       from indexed variables and take one JSON value instead),
     2. a ``config.yml`` file (path from ``CHECKCHECK_CONFIG_FILE``),
     3. the default shown for each field below.
 

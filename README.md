@@ -4,6 +4,12 @@ A collaborative, self-hostable, offline-capable checklist app, inspired by Googl
 
 > Not affiliated with, endorsed by, or sponsored by Google. Google Keep is a trademark of Google LLC.
 
+Think of CheckCheck as a shared home for all your lists: the shopping list your
+family keeps updating together, the packing list you and your friends tick
+through while planning a holiday, or the to-dos for a move that everyone chips
+in on. Everyone sees the same up-to-date list on their own device, online or
+offline.
+
 It ships as a single container: a web UI backed by a REST API. Make lists, check things off,
 organise with labels, and share individual cards with other people. Because it
 is local-first, the app keeps working while you are offline and syncs back up
@@ -85,9 +91,15 @@ with the password you set.
 `SERVER_PUBLIC_URL` is the external URL users reach the app on. Here it is
 plain-HTTP localhost, which makes the session cookie non-Secure automatically so
 login works. Behind an HTTPS reverse proxy, set it to your real URL
-(`SERVER_PUBLIC_URL=https://your.domain`) — the cookie then becomes Secure on its
+(`SERVER_PUBLIC_URL=https://your.domain`): the cookie then becomes Secure on its
 own. See [docs/deployment.md](docs/deployment.md) for the production setup and
 reverse proxy notes.
+
+CheckCheck ships as the app itself: HTTPS termination, single sign-on, and
+scheduled backups are not built in. For a complete, opinionated production
+setup with all the trimmings (Traefik for TLS, Keycloak for OIDC login,
+backup containers for PostgreSQL), see
+[docs/production-stack.md](docs/production-stack.md).
 
 ## Configuration
 
@@ -137,6 +149,7 @@ CheckCheck is young. Know these before deploying:
 | [docs/configuration.md](docs/configuration.md) | Readable intro to configuring an instance: precedence, required secrets, common scenarios, OIDC. |
 | [docs/CONFIG_REFERENCE.md](docs/CONFIG_REFERENCE.md) | Generated reference for every config field (type, default, env var, description). |
 | [docs/deployment.md](docs/deployment.md) | Running with Docker and compose, PostgreSQL vs SQLite, reverse proxies, backups. |
+| [docs/production-stack.md](docs/production-stack.md) | A complete opinionated production setup: Traefik for TLS, Keycloak for OIDC, scheduled PostgreSQL backups. |
 | [docs/administration.md](docs/administration.md) | Day-to-day admin: the first admin, roles, adding users, sharing switches, the offline kill switch. |
 | [docs/pwa-install.md](docs/pwa-install.md) | Installing CheckCheck as an app: per-platform user steps and the HTTPS/serving requirements admins must meet. |
 | [docs/UPGRADING.md](docs/UPGRADING.md) | Per-release upgrade notes; pairs with [CHANGELOG.md](CHANGELOG.md). |

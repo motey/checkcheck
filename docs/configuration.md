@@ -30,10 +30,21 @@ as env vars, or skip the file entirely and set everything from the environment.
 
 ### Nested settings in environment variables
 
-Nested settings join with a double underscore `__`, and list entries use their
-index. For example, the client secret of the first OIDC provider is
-`AUTH_OIDC_PROVIDERS__0__CLIENT_SECRET`. Lists of objects get awkward fast this
-way, so if you use OIDC, prefer the YAML file (see below).
+Fields that hold an object or a dictionary nest with a double underscore `__`.
+For example, one leaf of the notification defaults is
+`NOTIFY_DEFAULT_MODES__card_shared__email=daily`. A nested variable replaces
+the whole branch it names: that example drops the default `in_app` entry of
+`card_shared`, so set every leaf of a branch you touch.
+
+Lists of objects cannot be assembled from indexed variables:
+`AUTH_OIDC_PROVIDERS__0__CLIENT_SECRET` does not work. The whole list takes
+one JSON value instead,
+
+```bash
+AUTH_OIDC_PROVIDERS='[{"ENABLED": true, "CLIENT_ID": "checkcheck", ...}]'
+```
+
+which gets awkward fast, so if you use OIDC, prefer the YAML file (see below).
 
 ## The three things you must set
 
@@ -69,19 +80,19 @@ The web-server settings split cleanly into two concerns:
   reverse proxy the app cannot reliably infer its own external scheme/host/port,
   so **set this explicitly in production.** Include a port only when the app is
   reached on a non-standard one (`https://host:8443`); never include a path. When
-  unset it is derived from the bind host/port — fine for local development only.
+  unset it is derived from the bind host/port, fine for local development only.
 
 `SET_SESSION_COOKIE_SECURE` (the session cookie's `Secure` flag) is **derived
 from `SERVER_PUBLIC_URL` by default**: Secure on an `https` URL, not Secure on
 `http`. That means it is correct in production and login still works over
-plain-HTTP localhost without any override — set it explicitly only to force a
+plain-HTTP localhost without any override. Set it explicitly only to force a
 value.
 
 > These names are new in 2.1. `SERVER_PUBLIC_URL` replaces the old
 > `SERVER_PROTOCOL` + `SERVER_HOSTNAME` pair, `SERVER_BIND_HOST`/`SERVER_BIND_PORT`
 > replace `SERVER_LISTENING_HOST`/`SERVER_LISTENING_PORT`, and
 > `SERVER_TRUSTED_PROXIES` replaces `SERVER_FORWARDED_ALLOW_IPS`. The old names
-> have been removed — update any config that still uses them.
+> have been removed; update any config that still uses them.
 
 ## Database
 
@@ -368,7 +379,7 @@ Authentik it is the application's *Redirect URIs/Origins*):
   full URI is
   `https://checkcheck.example.com/api/auth/oidc/callback/company-sso`.
 - The app builds this redirect URI from `SERVER_PUBLIC_URL` directly (not from
-  the request's forwarded headers), so it is stable and unspoofable — but that
+  the request's forwarded headers), so it is stable and unspoofable, but that
   also means `SERVER_PUBLIC_URL` **must** match the URL registered with the
   provider, scheme included. A mismatch (registering `https` while
   `SERVER_PUBLIC_URL` is `http://…`) is rejected by the provider as a
@@ -378,14 +389,14 @@ Notes:
 
 - `offline_access` in `SCOPES` is what gets you a refresh token, so sessions can
   be renewed without forcing the user to log in again. **Requesting the scope is
-  not enough — the provider must also be configured to grant it**, otherwise it
+  not enough: the provider must also be configured to grant it**, otherwise it
   silently issues no refresh token. In Authentik: open the application's
   *OAuth2/OpenID Provider* and add the built-in *"authentik default OAuth Mapping:
   OpenID 'offline_access'"* scope mapping to its **Selected Scopes** (Keycloak and
   most others grant `offline_access` out of the box). Symptom of a missing
   refresh token: the app works, then bounces to the login screen roughly every
   access-token lifetime (Authentik's default is 5 minutes) and again whenever a
-  backgrounded tab is reopened — because with no refresh token the session cannot
+  backgrounded tab is reopened, because with no refresh token the session cannot
   survive the access token expiring.
 - Set `AUTO_LOGIN: true` on a single provider to skip the local login form and
   redirect straight to it. Only do this when you also want to disable local
