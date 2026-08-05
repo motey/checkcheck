@@ -39,6 +39,12 @@ See more in the [screenshot gallery](docs/screenshots.md).
   server. Each user chooses per notification type whether to get a mail
   immediately, in an hourly or daily digest, or not at all. A per-user webhook
   can carry the same events into your own tooling.
+- **Device notifications.** Push notifications to phones and desktops via Web
+  Push. Deliberately conservative: nothing is sent until a user enables push
+  on a device and grants the browser permission, and even then only for the
+  notification types they switch on. Lock-screen content stays minimal by
+  default, and no admin setup is needed (the instance generates its own
+  VAPID keys).
 - **Offline-capable.** Local-first, so it keeps working while you are offline
   and syncs back up when the connection returns.
 - **Installable PWA.** Add it to your device like a native app. See
