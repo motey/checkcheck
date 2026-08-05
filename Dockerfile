@@ -34,8 +34,6 @@ ARG MODULENAME=checkcheckserver
 ARG APP_VERSION=0.0.1
 ARG LOG_LEVEL=INFO
 
-RUN python3 -m pip install --upgrade pip pip-tools
-
 # Static frontend produced by the stage above.
 COPY --from=frontend-build /frontend_build/.output/public /app
 ENV DOCKER_MODE=1
@@ -44,10 +42,13 @@ ENV FRONTEND_FILES_DIR=/app
 RUN mkdir -p /opt/$APPNAME/$MODULENAME
 WORKDIR /opt/$APPNAME
 
-# Resolve + install backend dependencies from pyproject.toml.
-COPY CheckCheck/backend/pyproject.toml /opt/$APPNAME/$MODULENAME/
-RUN pip-compile -o /opt/$APPNAME/requirements.txt /opt/$APPNAME/$MODULENAME/pyproject.toml
-RUN pip install -U -r /opt/$APPNAME/requirements.txt
+# Install backend dependencies from the PDM-exported lock file instead of
+# running pip-compile at build time: pip-tools relies on pip's internal API
+# and breaks whenever pip changes it (pip 26.2 + pip-tools 7.6.0 broke the
+# 0.4.0 release build). Regenerate the file locally with
+# ./build_requirement_files.sh whenever pyproject.toml changes.
+COPY CheckCheck/backend/requirements.txt /opt/$APPNAME/requirements.txt
+RUN python3 -m pip install -r /opt/$APPNAME/requirements.txt
 
 # Install the application.
 COPY CheckCheck/backend/checkcheckserver /opt/$APPNAME/$MODULENAME
