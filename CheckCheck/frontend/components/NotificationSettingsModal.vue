@@ -125,7 +125,7 @@
                       busyCell === cellKey(row.type, column.channel)
                     "
                     :data-testid="`notification-mode-${row.type}-${column.channel}`"
-                    @update:model-value="(v: ModeChoice) => onModeChange(row.type, column.channel, v)"
+                    @update:model-value="(v: ModeChoice) => onModeChange(row, column.channel, v)"
                   />
                   <!-- Decision 5: the reason moves into the cell as an icon with
                        a tooltip, and the wording stays in the DOM (and in the
@@ -175,7 +175,7 @@
                     class="w-full"
                     :disabled="cell.disabled || busyCell === cellKey(row.type, cell.channel)"
                     :data-testid="`notification-mode-${row.type}-${cell.channel}`"
-                    @update:model-value="(v: ModeChoice) => onModeChange(row.type, cell.channel, v)"
+                    @update:model-value="(v: ModeChoice) => onModeChange(row, cell.channel, v)"
                   />
                   <p
                     v-if="cell.hint"
@@ -347,8 +347,23 @@
               </p>
             </div>
 
+            <!-- Three different problems with three different audiences, and
+                 which one applies is decided in `pushUnavailableReason` rather
+                 than by the order of these blocks (K2, decision 5). The old
+                 wording said "this browser does not support push notifications"
+                 on a page that is not a secure context, which blames the browser
+                 for a deployment without a certificate. -->
             <p
-              v-if="pushIsIOS && !pushIsStandalone"
+              v-if="pushUnavailable === 'insecure_context'"
+              class="text-xs text-muted"
+              data-testid="notification-push-insecure-hint"
+            >
+              Push notifications need this site to be served over https. Ask
+              whoever runs this server; for development, http on localhost works
+              too.
+            </p>
+            <p
+              v-else-if="pushUnavailable === 'ios_install'"
               class="text-xs text-muted"
               data-testid="notification-push-ios-hint"
             >
@@ -356,7 +371,7 @@
               iPhone.
             </p>
             <p
-              v-else-if="!pushSupported"
+              v-else-if="pushUnavailable === 'unsupported'"
               class="text-xs text-muted"
               data-testid="notification-push-unsupported-hint"
             >
@@ -444,6 +459,7 @@
 import { computed, ref, watch } from "vue";
 import { useMediaQuery } from "@vueuse/core";
 import { useNotificationStore } from "@/stores/notification";
+import { usePublicConfigStore } from "@/stores/publicConfig";
 import { useConnectivity } from "@/composables/useConnectivity";
 import { usePushSubscription } from "@/composables/usePushSubscription";
 import { deviceLabel } from "@/utils/push";
@@ -476,6 +492,7 @@ import {
 const open = defineModel<boolean>("open", { default: false });
 
 const store = useNotificationStore();
+const publicConfig = usePublicConfigStore();
 const { online } = useConnectivity();
 const toast = useToast();
 const {
@@ -483,9 +500,7 @@ const {
   enabling: pushEnabling,
   busyId: pushBusyId,
   error: pushError,
-  supported: pushSupported,
-  isIOS: pushIsIOS,
-  isStandalone: pushIsStandalone,
+  unavailableReason: pushUnavailable,
   isSubscribedHere: pushIsSubscribedHere,
   isThisDevice: isThisPushDevice,
   refresh: refreshPush,
@@ -529,7 +544,12 @@ const rows = computed(() =>
       email_enabled: emailEnabled.value,
       webhook_enabled: webhookEnabled.value,
       push_enabled: pushEnabled.value,
-    })
+    }),
+    // Which half of the merged share row is the live one (K2, decision 7). From
+    // the public config rather than the settings response: it is the instance's
+    // share policy, not a notification flag, and the settings endpoint does not
+    // report it.
+    publicConfig.requireInviteAccept
   )
 );
 // Nothing to save until the field differs from what the server holds, which also
@@ -628,8 +648,12 @@ function errorStatus(err: unknown): number | undefined {
   return (err as any)?.statusCode ?? (err as any)?.response?.status;
 }
 
-async function onModeChange(type: string, channel: string, choice: ModeChoice): Promise<void> {
-  await save(cellKey(type, channel), prefsPatch(type, channel, choice));
+// Takes the whole row rather than a type string: the merged share row (K2)
+// writes two types in one patch, and the row is what knows which. The busy key
+// stays the row's own identity, so exactly the control the user touched is
+// disabled while its PUT is in flight.
+async function onModeChange(row: TypeRow, channel: string, choice: ModeChoice): Promise<void> {
+  await save(cellKey(row.type, channel), prefsPatch(row.types, channel, choice));
 }
 
 async function onTimezoneChange(value: string): Promise<void> {

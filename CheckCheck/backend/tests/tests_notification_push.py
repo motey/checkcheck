@@ -1,11 +1,17 @@
 """Tests for the push channel (chunk P1 of the system-notifications plan).
 
-Same harness and reasoning as ``tests_notification_webhooks.py``: the live test
-server is booted with ``NOTIFY_PUSH_ENABLED`` off (no VAPID keys configured), so
-the fan-out, the queue and the sender are exercised by calling them in this
-process with a config that has push switched on, and the two disabled-instance
-HTTP checks run straight against the live server without needing to touch its
-config.
+Same harness and reasoning as ``tests_notification_webhooks.py``: the fan-out,
+the queue and the sender are exercised by calling them in this process with a
+config of this module's own, against the same database the live server uses.
+Nothing here goes near a real push service; every send lands in
+``CapturingPushSender``.
+
+Since chunk K1 of ``docs/plans/PUSH_KEYS_AND_SHARE_SETTING.md`` the live test
+server has push **on** (that is now the default, and it generates its own VAPID
+pair, which ``tests_vapid_keys.py`` covers). So the disabled-instance checks at
+the bottom, which used to run straight against it, drive the route functions in
+this process with push switched off instead, the way the ownership and guard
+sections already do.
 
 The plan is ``docs/plans/SYSTEM_NOTIFICATIONS.md``, section 8 chunk P1.
 """
@@ -17,7 +23,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from utils import create_test_user, req
+from utils import create_test_user
 
 
 # A throwaway VAPID key pair, valid in shape (py_vapid loads it fine) but not
@@ -568,9 +574,9 @@ def test_send_sync_classifies_push_service_status_codes(monkeypatch):
 #
 # Modelled on tests_notification_webhooks.py's guard section. Registration is
 # driven in-process rather than over HTTP for the same reason the fan-out is:
-# the live test server has push switched off, so every HTTP call to the register
-# endpoint stops at the 409 before it ever reaches the guard. The route function
-# reads its module-level `config`, so that is what the fixture below swaps.
+# the assertions are about rows and refusals this module's own config decides,
+# and an HTTP call would use the live server's instead. The route function reads
+# its module-level `config`, so that is what the fixtures below swap.
 
 
 @pytest.fixture
@@ -580,6 +586,25 @@ def push_enabled_routes():
 
     original = routes.config
     routes.config = _config()
+    try:
+        yield routes
+    finally:
+        routes.config = original
+
+
+@pytest.fixture
+def push_disabled_routes():
+    """The settings router, with push switched off for one test.
+
+    The mirror of the fixture above, for the operator who turned the channel off
+    on purpose. That is no longer what the live test server looks like (K1 made
+    push the default), so it is the only way to assert what a disabled instance
+    does.
+    """
+    from checkcheckserver.api.routes import routes_notification_settings as routes
+
+    original = routes.config
+    routes.config = _config(NOTIFY_PUSH_ENABLED=False)
     try:
         yield routes
     finally:
@@ -1211,11 +1236,39 @@ def test_an_oversized_payload_actually_leaves_the_server(push_capture, user_fact
 # ── VAPID key validation (config boot check) ────────────────────────────────
 
 
-def test_boot_fails_loudly_when_push_is_enabled_without_vapid_keys():
+def test_boot_is_fine_with_push_enabled_and_no_vapid_keys():
+    """The opposite of what this used to assert, and the point of chunk K1.
+
+    Refusing to boot here is what made push opt-in on every instance nobody
+    hand-configured. Not setting either half now means "generate one for me",
+    which the dispatcher's lifespan does once the engine exists
+    (``tests_vapid_keys.py``).
+    """
     from checkcheckserver.config import Config
 
-    with pytest.raises(Exception, match="VAPID"):
-        Config(NOTIFY_PUSH_ENABLED=True, EMAIL_ENABLED=False)
+    config = Config(NOTIFY_PUSH_ENABLED=True, EMAIL_ENABLED=False)
+    assert config.NOTIFY_PUSH_ENABLED is True
+    assert config.VAPID_PUBLIC_KEY is None
+    assert config.VAPID_PRIVATE_KEY is None
+
+
+@pytest.mark.parametrize("half", ["VAPID_PUBLIC_KEY", "VAPID_PRIVATE_KEY"])
+def test_boot_fails_loudly_on_half_a_configured_key_pair(half):
+    """Decision 3: an operator who set one half meant to set both.
+
+    Generating a pair over the top of a typo would make the mistake look like it
+    worked, and the instance would sign with a key the operator never chose.
+    """
+    from checkcheckserver.config import Config
+
+    values = {
+        "VAPID_PUBLIC_KEY": _TEST_VAPID_PUBLIC_KEY,
+        "VAPID_PRIVATE_KEY": _TEST_VAPID_PRIVATE_KEY,
+    }
+    values.pop(half)
+
+    with pytest.raises(Exception, match=f"{half} is not"):
+        Config(NOTIFY_PUSH_ENABLED=True, EMAIL_ENABLED=False, **values)
 
 
 def test_boot_fails_loudly_on_a_malformed_vapid_key():
@@ -1303,47 +1356,79 @@ def test_a_push_only_instance_counts_as_having_a_channel():
     assert dispatch_enabled(silent) is False
 
 
-# ── the disabled instance, over HTTP ─────────────────────────────────────────
+# ── the disabled instance ────────────────────────────────────────────────────
 #
-# The live test server has NOTIFY_PUSH_ENABLED off (no VAPID keys configured),
-# so these run straight against it rather than in-process.
+# An operator who deliberately turned the channel off. These used to run against
+# the live server, which had push off for want of a configured key; since chunk
+# K1 that is no longer what an unconfigured instance looks like, so the routes
+# are driven in-process with a config that really has the switch off.
 
 
-def test_public_config_reports_push_disabled():
-    public_config = req("api/public-config")
-    assert public_config["push_enabled"] is False
-    assert public_config["vapid_public_key"] is None
+def test_registering_a_subscription_is_refused_when_push_is_disabled(
+    push_disabled_routes, user_factory
+):
+    from fastapi import HTTPException
+    from types import SimpleNamespace as NS
+
+    user = user_factory("pushoffregister")
+
+    async def body(session):
+        with pytest.raises(HTTPException) as raised:
+            await push_disabled_routes.register_push_subscription(
+                push_disabled_routes.PushSubscriptionRegister(
+                    endpoint="https://push.example/refused",
+                    keys=push_disabled_routes.PushSubscriptionKeys(
+                        p256dh="p", auth="a"
+                    ),
+                    user_agent="pytest",
+                ),
+                current_user=NS(id=user.id),
+                session=session,
+            )
+        return raised.value.status_code
+
+    assert _run(body) == 409
 
 
-def test_registering_a_subscription_is_refused_when_push_is_disabled():
-    req(
-        "api/user/me/push-subscriptions",
-        "post",
-        b={
-            "endpoint": "https://push.example/refused",
-            "keys": {"p256dh": "p", "auth": "a"},
-        },
-        expected_http_code=409,
-    )
+def test_test_push_is_refused_when_push_is_disabled(push_disabled_routes, user_factory):
+    from fastapi import HTTPException
+    from types import SimpleNamespace as NS
+
+    user = user_factory("pushofftest")
+
+    async def body(session):
+        with pytest.raises(HTTPException) as raised:
+            await push_disabled_routes.send_test_push(
+                current_user=NS(id=user.id), session=session
+            )
+        return raised.value.status_code
+
+    assert _run(body) == 409
 
 
-def test_test_push_is_refused_when_push_is_disabled():
-    req(
-        "api/user/me/notification-settings/test-push",
-        "post",
-        expected_http_code=409,
-    )
-
-
-def test_listing_and_deleting_subscriptions_work_even_while_push_is_disabled():
+def test_listing_and_deleting_subscriptions_work_even_while_push_is_disabled(
+    push_disabled_routes, user_factory
+):
     """Only *creating* a subscription needs the master switch on: an operator
     who turns push off after users subscribed must still let them see and
     remove their own devices."""
-    subscriptions = req("api/user/me/push-subscriptions")
-    assert subscriptions == []
+    from fastapi import HTTPException
+    from types import SimpleNamespace as NS
 
-    req(
-        f"api/user/me/push-subscriptions/{uuid.uuid4()}",
-        "delete",
-        expected_http_code=404,
-    )
+    user = user_factory("pushofflist")
+
+    async def body(session):
+        listed = await push_disabled_routes.list_push_subscriptions(
+            current_user=NS(id=user.id), session=session
+        )
+        with pytest.raises(HTTPException) as raised:
+            await push_disabled_routes.delete_push_subscription(
+                subscription_id=uuid.uuid4(),
+                current_user=NS(id=user.id),
+                session=session,
+            )
+        return listed, raised.value.status_code
+
+    listed, delete_status = _run(body)
+    assert listed == []
+    assert delete_status == 404

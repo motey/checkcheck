@@ -35,6 +35,7 @@ from fastapi import FastAPI
 from checkcheckserver.config import Config
 from checkcheckserver.db._session import get_async_session_context
 from checkcheckserver.log import get_logger
+from checkcheckserver.notify import vapid
 from checkcheckserver.notify.outbox import DrainResult, drain_once, prune_once
 from checkcheckserver.notify.reminders import reminders_enabled, scan_due_once
 
@@ -211,8 +212,17 @@ async def lifespan(app: FastAPI):
     Attached to a router's ``lifespan_context`` (see
     ``api/routes/routes_notification_settings.py``); FastAPI merges router
     lifespans into the app's.
+
+    Also the home of the VAPID key resolution (chunk K1): it needs the engine,
+    which ``Config``'s boot validators do not have, and it must happen once per
+    process rather than per request, since the browser reads the public key from
+    a session-free endpoint. Done before the ``dispatch_enabled`` check below,
+    because an instance that hands delivery to something else
+    (``NOTIFY_DISPATCH_IN_PROCESS=false``) still serves ``/api/public-config``
+    and still has to tell a browser which key to subscribe with.
     """
     global _dispatcher_task
+    await vapid.resolve_at_startup(config)
     if dispatch_enabled():
         _dispatcher_task = asyncio.create_task(dispatcher_loop())
     else:

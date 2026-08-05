@@ -11,6 +11,7 @@ import {
   timezoneSelectValue,
   typeRows,
   typeWording,
+  VISIBLE_CHANNELS,
   looksLikeWebhookUrl,
   testWebhookMessage,
   visibleChannels,
@@ -148,7 +149,6 @@ describe("typeRows", () => {
 
   it("renders every channel it is given, in that order", () => {
     const rows = typeRows(types);
-    expect(rows.map((r) => r.type)).toEqual(["card_shared", "card_invited"]);
     expect(rows[0]!.cells.map((c) => c.channel)).toEqual(["in_app", "email", "webhook"]);
     expect(rows[0]!.title).toBe("A card is shared with me");
   });
@@ -182,6 +182,94 @@ describe("typeRows", () => {
   });
 });
 
+// ── the merged share row (chunk K2) ──────────────────────────────────────────
+//
+// `card_shared` and `card_invited` are the two halves of one event, and
+// `SHARING_REQUIRE_INVITE_ACCEPT` decides which half an instance emits. Two rows
+// meant that on every deployment one of them was dead space.
+
+describe("typeRows: the merged share row", () => {
+  const shareTypes = (overrides: {
+    shared?: Partial<ChannelCell>;
+    invited?: Partial<ChannelCell>;
+  } = {}) => [
+    { type: "card_shared", channels: { in_app: cell(overrides.shared), email: cell() } },
+    { type: "card_invited", channels: { in_app: cell(overrides.invited), email: cell() } },
+    { type: "public_link_opened", channels: { in_app: cell(), email: cell() } },
+  ];
+
+  it("renders the two share types as one row, keeping card_shared's identity", () => {
+    const rows = typeRows(shareTypes());
+    expect(rows.map((r) => r.type)).toEqual(["card_shared", "public_link_opened"]);
+    // Which is what keeps the `notification-mode-card_shared-*` testids working.
+    expect(rows[0]!.types).toEqual(["card_shared", "card_invited"]);
+    expect(rows[0]!.description).toContain("or invites you to one");
+  });
+
+  it("shows card_shared's cell on an instance that shares instantly", () => {
+    const rows = typeRows(
+      shareTypes({ shared: { user_choice: "daily" }, invited: { user_choice: "off" } }),
+      VISIBLE_CHANNELS,
+      false
+    );
+    expect(rows[0]!.cells[0]!.value).toBe("daily");
+  });
+
+  it("shows card_invited's cell on an instance that requires accepting an invite", () => {
+    const rows = typeRows(
+      shareTypes({ shared: { user_choice: "daily" }, invited: { user_choice: "off" } }),
+      VISIBLE_CHANNELS,
+      true
+    );
+    expect(rows[0]!.cells[0]!.value).toBe("off");
+  });
+
+  it("falls back to card_shared when the share policy is not known yet", () => {
+    const rows = typeRows(
+      shareTypes({ shared: { user_choice: "hourly" }, invited: { user_choice: "off" } }),
+      VISIBLE_CHANNELS,
+      null
+    );
+    expect(rows[0]!.cells[0]!.value).toBe("hourly");
+  });
+
+  it("locks the row when either half is locked", () => {
+    // The administrator capped the type that is currently dormant. Merging must
+    // not hide that: the control would offer a mode the server will not honour
+    // the moment the flag flips.
+    const rows = typeRows(
+      shareTypes({
+        invited: { locked: true, locked_reason: "Disabled by your administrator.", mode: "off" },
+      }),
+      VISIBLE_CHANNELS,
+      false
+    );
+    expect(rows[0]!.cells[0]!.disabled).toBe(true);
+    expect(rows[0]!.cells[0]!.hint).toBe("Disabled by your administrator.");
+  });
+
+  it("keeps the live half's own lock reason when both are locked", () => {
+    const rows = typeRows(
+      shareTypes({
+        shared: { locked: true, locked_reason: "The live one's reason.", mode: "off" },
+        invited: { locked: true, locked_reason: "The dormant one's reason.", mode: "off" },
+      }),
+      VISIBLE_CHANNELS,
+      false
+    );
+    expect(rows[0]!.cells[0]!.hint).toBe("The live one's reason.");
+  });
+
+  it("renders whichever half exists when a server sends only one of them", () => {
+    const rows = typeRows([
+      { type: "card_invited", channels: { in_app: cell() } },
+    ]);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.type).toBe("card_invited");
+    expect(rows[0]!.types).toEqual(["card_invited"]);
+  });
+});
+
 describe("prefsPatch", () => {
   it("sends the mode for an explicit choice", () => {
     expect(prefsPatch("card_shared", "email", "daily")).toEqual({
@@ -199,6 +287,31 @@ describe("prefsPatch", () => {
     const patch = prefsPatch("card_invited", "in_app", "off");
     expect(Object.keys(patch.prefs)).toEqual(["card_invited"]);
     expect(Object.keys(patch.prefs.card_invited!)).toEqual(["in_app"]);
+  });
+
+  it("writes both share types for the merged row, which is what keeps them in lockstep", () => {
+    // The API has always taken a multi-type patch, so the two halves go out in
+    // one request and can never end up disagreeing. An operator who later flips
+    // SHARING_REQUIRE_INVITE_ACCEPT finds the choice already applies.
+    expect(prefsPatch(["card_shared", "card_invited"], "email", "immediate")).toEqual({
+      prefs: {
+        card_shared: { email: "immediate" },
+        card_invited: { email: "immediate" },
+      },
+    });
+  });
+
+  it("sends null to both halves for the inherit entry", () => {
+    expect(prefsPatch(["card_shared", "card_invited"], "push", INHERIT_VALUE)).toEqual({
+      prefs: { card_shared: { push: null }, card_invited: { push: null } },
+    });
+  });
+
+  it("still writes one type when the merged row only has one", () => {
+    const row = typeRows([{ type: "card_shared", channels: { in_app: cell() } }])[0]!;
+    expect(prefsPatch(row.types, "in_app", "off")).toEqual({
+      prefs: { card_shared: { in_app: "off" } },
+    });
   });
 });
 

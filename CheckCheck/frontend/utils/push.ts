@@ -110,6 +110,57 @@ export function canOfferPushEnable(opts: {
   return true;
 }
 
+/**
+ * Why the Enable button is not on offer, or null when it is.
+ *
+ * Three different problems with three different audiences, and the reason the
+ * choice between them lives in a function rather than in a `v-else-if` chain is
+ * that the order is the interesting part (chunk K2, decision 5):
+ *
+ *   * `insecure_context` first. Web Push needs a secure context, which is the
+ *     browser's rule about the *page*, not about the server's key: no amount of
+ *     server-side configuration changes it. It comes first because a browser on
+ *     an insecure page also tends to hide the push APIs, so the honest sentence
+ *     is the one naming the cause rather than "this browser does not support
+ *     push", which blames the browser for a deployment without a certificate.
+ *     `http://localhost` and `http://127.0.0.1` are secure contexts, so a
+ *     developer never sees this.
+ *   * `ios_install` next: on iOS a granted permission is not enough, the app has
+ *     to be on the home screen. Only reachable on a page that already is a
+ *     secure context, which is what makes "add it to your home screen"
+ *     actionable advice rather than half the story.
+ *   * `unsupported` last, for a browser that genuinely lacks the APIs on a page
+ *     where everything else is in order. The only one of the three that is
+ *     really about the browser.
+ */
+export type PushUnavailableReason = "insecure_context" | "ios_install" | "unsupported";
+
+export function pushUnavailableReason(opts: {
+  isIOS: boolean;
+  isStandalone: boolean;
+  secureContext: boolean;
+  supported: boolean;
+}): PushUnavailableReason | null {
+  if (!opts.secureContext) return "insecure_context";
+  if (opts.isIOS && !opts.isStandalone) return "ios_install";
+  if (!opts.supported) return "unsupported";
+  return null;
+}
+
+/**
+ * Whether this page is a secure context, which is what Web Push requires.
+ *
+ * `window.isSecureContext` is the exact check and is universally available;
+ * absent (a non-browser environment, a unit test's bare global) counts as
+ * secure, so a missing global cannot make the dialog claim a deployment problem
+ * that is really a test harness.
+ */
+export function isSecureContextNow(): boolean {
+  if (typeof window === "undefined") return true;
+  const flag = (window as unknown as { isSecureContext?: boolean }).isSecureContext;
+  return flag === undefined ? true : flag;
+}
+
 // ── device labelling ─────────────────────────────────────────────────────────
 //
 // The stored `user_agent` is the raw browser string; the settings dialog shows

@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "CheckCheck REST API",
-    "version": "0.3.2.dev11+gd9f3364bd.d20260802"
+    "version": "0.3.2.dev25+g01f990d2a.d20260805"
   },
   "paths": {
     "/api/health": {
@@ -8564,7 +8564,7 @@
               }
             ],
             "title": "Vapid Public Key",
-            "description": "The instance's VAPID public key, base64url-encoded. Not a secret; the client needs it as the applicationServerKey when subscribing. Null when push_enabled is false."
+            "description": "The instance's VAPID public key, base64url-encoded. Not a secret; the client needs it as the applicationServerKey when subscribing. Either the configured key or the one this instance generated for itself on first boot. Null when push_enabled is false, and on the rare instance where the key could not be resolved at startup (the server log says why)."
           }
         },
         "type": "object",

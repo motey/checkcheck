@@ -220,10 +220,26 @@ def _send_sync(
             f"Could not resolve the push endpoint's host: {exc}"
         ) from exc
 
+    # Imported here rather than at module scope: this module is loaded from
+    # inside ``Config``'s own validator (see the module docstring) and
+    # ``notify/vapid.py`` reaches the database layer, which builds a ``Config``.
+    from checkcheckserver.notify import vapid as vapid_keys
+
+    keys = vapid_keys.keys_for(config)
+    if keys is None:
+        # Since chunk K1 an instance without configured keys generates its own,
+        # so this is no longer "nobody ran gen_vapid_keys.sh": it means startup
+        # resolution failed (an unreachable database, a hand-edited pair). A
+        # server-side problem, not the device's, so it fails the row and leaves
+        # every subscription alone.
+        raise PushEndpointRefused(
+            "This instance has no VAPID key pair to sign with, so no push message "
+            "can be sent. See the server log from startup."
+        )
+
     data = json.dumps(
         {"title": push.title, "body": push.body, "url": push.url, "tag": push.tag}
     )
-    private_key = config.VAPID_PRIVATE_KEY.get_secret_value() if config.VAPID_PRIVATE_KEY else None
     try:
         webpush(
             subscription_info={
@@ -231,8 +247,8 @@ def _send_sync(
                 "keys": {"p256dh": target.p256dh, "auth": target.auth},
             },
             data=data,
-            vapid_private_key=private_key,
-            vapid_claims={"sub": f"mailto:{config.VAPID_CONTACT_EMAIL}"},
+            vapid_private_key=keys.private_key,
+            vapid_claims={"sub": keys.subject},
             ttl=max(int(config.NOTIFY_PUSH_TTL_SECONDS or 0), 0),
             timeout=PUSH_TIMEOUT_SECONDS,
         )

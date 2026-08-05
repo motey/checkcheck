@@ -211,6 +211,24 @@ start_mailpit() {
 # (NOTIFY_EMAIL_SUPPRESS_WINDOW_SECONDS) and is cancelled altogether if you read
 # the notification in the app inside that window. Both are right in production and
 # make a hand-driven test look like mail is broken, so dev cuts them to seconds.
+# The push channel, independent of the mail sink: push is the one channel a
+# developer cannot check by reading a log or a Mailpit inbox, so a dev instance
+# has it on. The key pair below is a throwaway, committed on purpose and shared
+# with the E2E harness (backend/e2e/start_e2e_server.py): a VAPID key only
+# proves to a push service which server sent a message, and this one is never
+# used by a real deployment. Override any of these to point a dev instance at
+# your own pair.
+#
+# Note that the service worker only exists in a real build (pwa.devOptions is
+# off), so `nuxt dev` never registers one and the Enable button will hang there.
+# Push needs the backend serving a built frontend.
+configure_push_env() {
+    export NOTIFY_PUSH_ENABLED="${NOTIFY_PUSH_ENABLED:-true}"
+    export VAPID_PUBLIC_KEY="${VAPID_PUBLIC_KEY:-BH-DWhYfjSH5OVS2sjII4dGEP46ueAfPWQklJ_zITJqoWtfKgjHBTDxE_X5jdPms-zR3R9b43oCqYFnxwmwk_PY}"
+    export VAPID_PRIVATE_KEY="${VAPID_PRIVATE_KEY:-Mp6hqDn1uEMxJwMvqchFdkrCiID8zYUIvTwDI-rmLSA}"
+    export VAPID_CONTACT_EMAIL="${VAPID_CONTACT_EMAIL:-dev@dev.local}"
+}
+
 configure_mail_env() {
     if [[ "$MAIL_SINK" == "off" ]]; then
         export EMAIL_ENABLED="${EMAIL_ENABLED:-false}"
@@ -266,6 +284,7 @@ configure_mail_env() {
 
 resolve_mail_sink
 configure_mail_env
+configure_push_env
 
 echo "Kill zombie processes..."
 kill_processes_by_path oidc_provider_mock_server.py

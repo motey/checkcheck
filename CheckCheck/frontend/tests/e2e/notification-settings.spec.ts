@@ -159,9 +159,10 @@ test.describe("E5 notification settings", () => {
       await expect(matrix.getByText(title!, { exact: true })).toHaveCount(1);
     }
 
-    // Every type still has a control on every channel: the titles collapsed,
-    // the matrix did not.
-    for (const type of ["card_shared", "card_invited", "public_link_opened", "reminder_due"]) {
+    // Every row still has a control on every channel: the titles collapsed, the
+    // matrix did not. `card_invited` is not in this list since K2 merged it into
+    // `card_shared`; the row below asserts it has gone.
+    for (const type of ["card_shared", "public_link_opened", "reminder_due"]) {
       await expect(matrix.locator(`[data-testid=notification-type-${type}]`)).toHaveCount(1);
       for (const channel of ["in_app", "email", "webhook", "push"]) {
         await expect(
@@ -169,6 +170,40 @@ test.describe("E5 notification settings", () => {
         ).toHaveCount(1);
       }
     }
+  });
+
+  test("K2: the two share types are one row, and it writes both", async ({ page }) => {
+    // `SHARING_REQUIRE_INVITE_ACCEPT` decides which of `card_shared` and
+    // `card_invited` an instance ever emits, so a dialog with a row for each had
+    // one row that could not fire. The E2E instance shares instantly (the flag is
+    // off unless the invite pass sets it), so the live half here is `card_shared`.
+    await page.goto("/");
+    const dialog = await openSettings(page);
+
+    await expect(dialog.locator("[data-testid=notification-type-card_shared]")).toHaveCount(1);
+    await expect(dialog.locator("[data-testid=notification-type-card_invited]")).toHaveCount(0);
+    await expect(dialog.locator("[data-testid=notification-mode-card_invited-in_app]")).toHaveCount(
+      0
+    );
+    await expect(dialog.locator("[data-testid=notification-type-card_shared]")).toContainText(
+      "shared with me"
+    );
+
+    // One change, both halves. That is what makes flipping the server flag later
+    // a no-op for the user: their choice already applies to the type that
+    // becomes live.
+    const select = dialog.locator("[data-testid=notification-mode-card_shared-email]");
+    await select.click();
+    await page.getByRole("option", { name: "Hourly summary" }).click();
+    await expect(dialog.locator("[data-testid=notification-settings-saved]")).toBeVisible({
+      timeout: 5_000,
+    });
+    await expect
+      .poll(async () => {
+        const prefs = await storedPrefs(page);
+        return [prefs.card_shared!.email, prefs.card_invited!.email];
+      })
+      .toEqual(["hourly", "hourly"]);
   });
 
   test("an administrator-locked entry is disabled and says why", async ({ page }) => {
@@ -608,6 +643,40 @@ test.describe("P2 push notifications", () => {
       const dialog = await openSettings(page);
       const block = dialog.locator("[data-testid=notification-push]");
       await expect(block.locator("[data-testid=notification-push-ios-hint]")).toBeVisible();
+      await expect(block.locator("[data-testid=notification-push-enable]")).toHaveCount(0);
+    } finally {
+      await page.goto("about:blank").catch(() => {});
+      await ctx.close();
+    }
+  });
+
+  test("K2: a page that is not a secure context names https, instead of blaming the browser", async ({
+    browser,
+  }) => {
+    // The real case is the app on plain http behind a LAN address or a hostname,
+    // which the E2E harness cannot serve: `http://localhost` is a secure context
+    // by definition, which is exactly why a developer never runs into this and
+    // why the old wording survived so long. So the flag itself is stubbed, which
+    // is the one thing the browser decides here.
+    const ctx = await browser.newContext({ storageState: "tests/e2e/.auth/state.json" });
+    const page = await ctx.newPage();
+    try {
+      await page.addInitScript(() => {
+        Object.defineProperty(window, "isSecureContext", {
+          configurable: true,
+          get: () => false,
+        });
+      });
+      await page.goto("/");
+      const dialog = await openSettings(page);
+      const block = dialog.locator("[data-testid=notification-push]");
+      const hint = block.locator("[data-testid=notification-push-insecure-hint]");
+      await expect(hint).toBeVisible();
+      await expect(hint).toContainText("https");
+      // Not the sentence that used to appear here, which named the wrong culprit.
+      await expect(
+        block.locator("[data-testid=notification-push-unsupported-hint]")
+      ).toHaveCount(0);
       await expect(block.locator("[data-testid=notification-push-enable]")).toHaveCount(0);
     } finally {
       await page.goto("about:blank").catch(() => {});

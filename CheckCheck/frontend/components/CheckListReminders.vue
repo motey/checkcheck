@@ -85,6 +85,7 @@
          this codebase has already paid for once. -->
     <form
       v-if="adding"
+      ref="formRef"
       class="flex flex-col gap-2 rounded-md border border-current/15 p-2"
       data-testid="card-reminder-form"
       @submit.prevent="submit()"
@@ -160,7 +161,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from "vue";
+import { computed, nextTick, onMounted, ref, watch } from "vue";
 import { useReminderStore } from "@/stores/reminder";
 import { useConnectivity } from "@/composables/useConnectivity";
 import {
@@ -199,6 +200,7 @@ const store = useReminderStore();
 const { online } = useConnectivity();
 
 const adding = ref(false);
+const formRef = ref<HTMLFormElement | null>(null);
 const loading = ref(false);
 const loadError = ref(false);
 const saving = ref(false);
@@ -247,6 +249,11 @@ function openForm(): void {
   input.value = defaultReminderInput();
   error.value = null;
   adding.value = true;
+  // The kebab menu's entry point can fire while the user is scrolled to the
+  // top of a tall card, where the form that just opened is below the fold of
+  // the editor's scroll region; reveal it. "nearest" keeps this a no-op when
+  // the Add button opened the form already in view.
+  nextTick(() => formRef.value?.scrollIntoView({ behavior: "smooth", block: "nearest" }));
 }
 
 function closeForm(): void {

@@ -1045,13 +1045,13 @@ When false, webhook URLs resolving to loopback, link-local or private network ra
 
 *Enable push notifications*
 
-Master switch for the push channel. When false the server never sends a push message, no subscription can be created, and the push column of the notification settings is hidden in the UI. When true, VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY and VAPID_CONTACT_EMAIL are required, checked at startup. Generate a key pair with ./gen_vapid_keys.sh.
+Master switch for the push channel. When false the server never sends a push message, no subscription can be created, and the push column of the notification settings is hidden in the UI. On by default and needs no configuration: an instance with no VAPID_PUBLIC_KEY / VAPID_PRIVATE_KEY set generates its own key pair on first boot and keeps it in the database. Whether a browser will actually subscribe is decided by the browser, which requires the page to be a secure context: https, or http on localhost.
 
 | Property | Value |
 |---|---|
 | Type | bool |
 | Required | No |
-| Default | `false` |
+| Default | `true` |
 | Environment variable | `NOTIFY_PUSH_ENABLED` |
 
 ---
@@ -1060,7 +1060,7 @@ Master switch for the push channel. When false the server never sends a push mes
 
 *VAPID public key*
 
-The application server's public key, base64url-encoded. Required when NOTIFY_PUSH_ENABLED is true. Not a secret: served to the client through /api/public-config, which is what lets a browser subscribe. Generate with ./gen_vapid_keys.sh.
+The application server's public key, base64url-encoded. Optional: leave it unset and the instance generates a key pair for itself on first boot. Set it only to pin a pair of your own, in which case VAPID_PRIVATE_KEY has to be set too (generate both with ./gen_vapid_keys.sh) and nothing is generated. Not a secret: served to the client through /api/public-config, which is what lets a browser subscribe.
 
 | Property | Value |
 |---|---|
@@ -1075,7 +1075,7 @@ The application server's public key, base64url-encoded. Required when NOTIFY_PUS
 
 *VAPID private key*
 
-The application server's private key, base64url-encoded. Required when NOTIFY_PUSH_ENABLED is true. Never leaves the server; signs the VAPID JWT that proves a push request came from this instance. Supply it through the environment rather than committing it to a config file. Generate with ./gen_vapid_keys.sh.
+The application server's private key, base64url-encoded. Optional, and set together with VAPID_PUBLIC_KEY or not at all: an instance with neither generates its own pair on first boot. Never leaves the server; signs the VAPID JWT that proves a push request came from this instance. Supply it through the environment rather than committing it to a config file. Generate with ./gen_vapid_keys.sh.
 
 | Property | Value |
 |---|---|
@@ -1090,7 +1090,7 @@ The application server's private key, base64url-encoded. Required when NOTIFY_PU
 
 *VAPID contact address*
 
-Contact address for the push services this instance calls, in case one needs to reach an operator about abuse. Required when NOTIFY_PUSH_ENABLED is true. Becomes the VAPID JWT's `sub` claim as `mailto:<address>`.
+Contact address for the push services this instance calls, in case one needs to reach an operator about abuse. Becomes the VAPID JWT's `sub` claim as `mailto:<address>`. Optional: without it the claim falls back to ADMIN_USER_EMAIL, and then to SERVER_PUBLIC_URL, both of which a push service accepts.
 
 | Property | Value |
 |---|---|

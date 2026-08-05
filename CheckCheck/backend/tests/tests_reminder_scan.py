@@ -641,8 +641,13 @@ def test_the_loop_runs_for_reminders_alone():
     webhooks, and nothing else in the process notices that one came due."""
     from checkcheckserver.notify.dispatcher import channels_enabled, dispatch_enabled
 
+    # Push off in every case: since chunk K1 it is on by default, and an instance
+    # with push on has a channel, so "neither mail nor webhooks" no longer makes
+    # an instance silent by itself.
     def cfg(**overrides):
-        return _config(NOTIFY_DISPATCH_IN_PROCESS=True, **overrides)
+        return _config(
+            NOTIFY_DISPATCH_IN_PROCESS=True, NOTIFY_PUSH_ENABLED=False, **overrides
+        )
 
     silent = cfg(
         EMAIL_ENABLED=False,

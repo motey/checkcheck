@@ -112,6 +112,15 @@ def set_config_for_test_env():
     # one that is locked. Everything about the channel itself is driven in-process
     # with a substituted Config (tests_notification_webhooks.py).
 
+    # Push is deliberately left alone, which since chunk K1 means ON with no
+    # VAPID_* configured: the server generates its own key pair on first boot and
+    # keeps it in `instance_secret`. That is the default an unconfigured instance
+    # gets, and tests_vapid_keys.py asserts the whole of it against this live
+    # server. Its default *mode* is off for every type (NOTIFY_DEFAULT_MODES has
+    # no push entry), so no other suite gains a push row it did not ask for.
+    # A test that needs the channel switched off drives the route function
+    # in-process with a substituted Config, the way the webhook tests do.
+
 
 # Set at module level so it is in place during pytest's collection phase.
 set_config_for_test_env()

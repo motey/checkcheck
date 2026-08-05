@@ -61,6 +61,28 @@ async function openKebab(dialog: ReturnType<Page["locator"]>) {
   await dialog.locator('button:has([class*="ellipsis-vertical"])').first().click();
 }
 
+/**
+ * Whether `selector` lies fully inside the visible area of its nearest
+ * scrollable ancestor. Playwright's own toBeVisible() does not answer this:
+ * an element clipped by an overflow container still "is visible" to it, and
+ * its auto-scroll would hide the bug under test here anyway.
+ */
+async function fullyInsideScrollerView(page: Page, selector: string): Promise<boolean> {
+  return page.evaluate((sel) => {
+    const el = document.querySelector(sel) as HTMLElement | null;
+    if (!el) return false;
+    let scroller: HTMLElement | null = el;
+    while (scroller && scroller !== document.body) {
+      const { overflowY } = getComputedStyle(scroller);
+      if (overflowY === "auto" || overflowY === "scroll") break;
+      scroller = scroller.parentElement;
+    }
+    const box = el.getBoundingClientRect();
+    const view = (scroller ?? document.documentElement).getBoundingClientRect();
+    return box.top >= view.top - 1 && box.bottom <= view.bottom + 1;
+  }, selector);
+}
+
 async function fillReminderForm(
   dialog: ReturnType<Page["locator"]>,
   when: { date: string; time: string },
@@ -140,6 +162,36 @@ test.describe("R4 date reminders", () => {
     expect(new Date(`${stored[0].remind_at}Z`).getTime()).toBe(
       new Date(`${FAR_FUTURE.date}T${FAR_FUTURE.time}:00`).getTime()
     );
+  });
+
+  test("the kebab entry scrolls the form into view on a tall card", async ({ page }) => {
+    const tag = Date.now();
+    const clName = `RemindScroll-${tag}`;
+    const cl = await apiPost(page, "/api/checklist", { name: clName });
+    cleanup.push(cl.id);
+    // Enough items that the card outgrows the editor's scroll region and the
+    // Reminders section lands below the fold while the editor sits at the top.
+    for (let i = 1; i <= 25; i++) {
+      await apiPost(page, `/api/checklist/${cl.id}/item`, { text: `Item ${i}` });
+    }
+
+    await page.goto("/");
+    await page.waitForSelector("[data-testid=checklist-board]");
+    const dialog = await openCardByTitle(page, clName);
+
+    const section = "[data-testid=card-reminders]";
+    await expect(dialog.locator(section)).toHaveCount(1);
+    expect(await fullyInsideScrollerView(page, section)).toBe(false);
+
+    await openKebab(dialog);
+    await page.getByRole("menuitem", { name: "Set a reminder" }).click();
+
+    const form = "[data-testid=card-reminder-form]";
+    await expect(dialog.locator(form)).toBeVisible();
+    // Poll because the reveal is a smooth scroll animation, not an instant jump.
+    await expect
+      .poll(() => fullyInsideScrollerView(page, form), { timeout: 5_000 })
+      .toBe(true);
   });
 
   test("a reminder set earlier is listed when the card is reopened, and can be removed", async ({
