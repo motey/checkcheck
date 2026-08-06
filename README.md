@@ -174,7 +174,6 @@ component-level developer setup.
 
 Missing features, that i will integrate soon...
 
-* "Remind me on date"-feature
 * Subitems/Itemgroups
 
 ### Ideas
