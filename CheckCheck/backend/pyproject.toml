@@ -97,3 +97,16 @@ log_cli = true
 log_cli_level = "INFO"
 log_cli_format = "%(asctime)s  %(levelname)-8s  %(name)s — %(message)s"
 log_cli_date_format = "%H:%M:%S"
+# Two third-party warnings we cannot act on, silenced so the summary only ever
+# shows warnings that are ours to fix:
+#   * sqlmodel deprecates `session.execute()` in favour of `session.exec()`, but
+#     `exec()` only accepts a sqlmodel select. The three call sites that use
+#     `execute()` (sync_notification, sync_seq, checklist_item) run raw `text()`
+#     SQL or a Core subquery and read `Row`/mappings on purpose, which is exactly
+#     what `execute()` is for. There is no per-call opt-out.
+#   * py_vapid 1.9.2 passes the SECP256R1 *class* (not an instance) to
+#     `ec.generate_private_key()`; fixing it needs an upstream release.
+filterwarnings = [
+    "ignore:(?s).*You probably want to use `session\\.exec\\(\\)`.*:DeprecationWarning",
+    "ignore:Curve argument must be an instance of an EllipticCurve class",
+]

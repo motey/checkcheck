@@ -7075,14 +7075,12 @@
           "created_at": {
             "type": "string",
             "format": "date-time",
-            "title": "Created At",
-            "nullable": false
+            "title": "Created At"
           },
           "updated_at": {
             "type": "string",
             "format": "date-time",
-            "title": "Updated At",
-            "nullable": false
+            "title": "Updated At"
           },
           "server_seq": {
             "anyOf": [
@@ -7331,14 +7329,12 @@
           "created_at": {
             "type": "string",
             "format": "date-time",
-            "title": "Created At",
-            "nullable": false
+            "title": "Created At"
           },
           "updated_at": {
             "type": "string",
             "format": "date-time",
-            "title": "Updated At",
-            "nullable": false
+            "title": "Updated At"
           },
           "server_seq": {
             "anyOf": [
@@ -7846,14 +7842,12 @@
           "created_at": {
             "type": "string",
             "format": "date-time",
-            "title": "Created At",
-            "nullable": false
+            "title": "Created At"
           },
           "updated_at": {
             "type": "string",
             "format": "date-time",
-            "title": "Updated At",
-            "nullable": false
+            "title": "Updated At"
           },
           "server_seq": {
             "anyOf": [
@@ -7882,14 +7876,12 @@
           "created_at": {
             "type": "string",
             "format": "date-time",
-            "title": "Created At",
-            "nullable": false
+            "title": "Created At"
           },
           "updated_at": {
             "type": "string",
             "format": "date-time",
-            "title": "Updated At",
-            "nullable": false
+            "title": "Updated At"
           },
           "server_seq": {
             "anyOf": [
@@ -9830,14 +9822,12 @@
           "created_at": {
             "type": "string",
             "format": "date-time",
-            "title": "Created At",
-            "nullable": false
+            "title": "Created At"
           },
           "updated_at": {
             "type": "string",
             "format": "date-time",
-            "title": "Updated At",
-            "nullable": false
+            "title": "Updated At"
           },
           "server_seq": {
             "anyOf": [
@@ -10154,14 +10144,12 @@
           "created_at": {
             "type": "string",
             "format": "date-time",
-            "title": "Created At",
-            "nullable": false
+            "title": "Created At"
           },
           "updated_at": {
             "type": "string",
             "format": "date-time",
-            "title": "Updated At",
-            "nullable": false
+            "title": "Updated At"
           },
           "server_seq": {
             "anyOf": [

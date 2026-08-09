@@ -93,10 +93,19 @@ class CheckList(CheckListBase, TimestampedModel, SoftDeleteMixin, table=True):
         back_populates="checklist",
         sa_relationship_kwargs={"lazy": "joined"},
     )
+    # Read-only on purpose (`viewonly`): attachments are written exclusively
+    # through the `CheckListLabel` link rows (ChecklistLabelCRUD), which carry the
+    # per-user dimension this relationship cannot express — it spans the link table
+    # unscoped, so it returns every collaborator's labels. The routes overwrite the
+    # loaded collection in memory with the caller's own labels before serialising;
+    # `viewonly` makes that reassignment structurally unable to reach the DB (an
+    # accidental flush would otherwise insert/delete link rows, including other
+    # users'). It also resolves the mapper-config warning about `CheckList.labels`
+    # and `CheckListLabel.label` both writing `checklist_label.label_id`.
     labels: List[Label] = Relationship(
         cascade_delete=False,
         link_model=CheckListLabel,
-        sa_relationship_kwargs={"lazy": "joined"},
+        sa_relationship_kwargs={"lazy": "joined", "viewonly": True},
     )
 
 

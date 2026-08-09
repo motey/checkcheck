@@ -59,7 +59,11 @@ def naive_utc_now() -> datetime.datetime:
 
 
 class TimestampedModel(SQLModel):
-    created_at: datetime.datetime = Field(
+    # Declared with sqlmodel's `SQLField`, not the pydantic `Field` this module
+    # imports under the bare name: pydantic treats `nullable` as an unknown extra
+    # kwarg, so it warns (PydanticDeprecatedSince20), never reaches the column
+    # definition, and leaks `"nullable": false` into the generated OpenAPI schema.
+    created_at: datetime.datetime = SQLField(
         default_factory=naive_utc_now,
         nullable=False,
     )
@@ -76,7 +80,7 @@ class TimestampedModel(SQLModel):
     # through `json_schema_extra`, and a callable there is not JSON-serializable,
     # which breaks OpenAPI generation. `default_factory` seeds it to ~`created_at`
     # on insert so there is no null to backfill.
-    updated_at: datetime.datetime = Field(
+    updated_at: datetime.datetime = SQLField(
         default_factory=naive_utc_now,
         nullable=False,
     )
@@ -138,7 +142,7 @@ class SoftDeleteMixin(SQLModel):
     Garbage collection of old tombstones is explicitly deferred (2.1+).
     """
 
-    deleted_at: Optional[datetime.datetime] = Field(default=None, nullable=True)
+    deleted_at: Optional[datetime.datetime] = SQLField(default=None, nullable=True)
 
 
 class SyncSequence(SQLModel, table=True):
