@@ -43,16 +43,23 @@ class _SSECollector:
         self.events: List[Dict] = []
         self._resp: Optional[requests.Response] = None
         self._ready = threading.Event()
+        # Set when the server's `ready` message arrives. Its contract is that
+        # this client is already in the fan-out list, so no notification emitted
+        # from here on can be missed.
+        self._subscribed = threading.Event()
         self._stop = threading.Event()
         self._thread = threading.Thread(target=self._run, daemon=True)
 
     def __enter__(self) -> "_SSECollector":
         self._thread.start()
-        # Wait until the response headers are back (the server has begun the
-        # stream and registered this client), then give the generator a beat to
-        # finish appending itself to the in-process client list.
+        # Response headers are NOT proof of subscription: they are written before
+        # the stream generator runs its first statement. Wait for the server's
+        # explicit `ready` message instead (routes_sync_notification.
+        # SSE_READY_MESSAGE); fall back to a short sleep if it never comes so an
+        # unrelated regression fails on the assertion, not on a hang here.
         self._ready.wait(timeout=10)
-        time.sleep(1.0)
+        if not self._subscribed.wait(timeout=10):
+            time.sleep(1.0)
         return self
 
     def __exit__(self, *_exc) -> None:
@@ -80,10 +87,19 @@ class _SSECollector:
                 timeout=(5, 12),
             )
             self._ready.set()
+            event_name: Optional[str] = None
             for raw in self._resp.iter_lines(decode_unicode=True):
                 if self._stop.is_set():
                     break
+                if raw and raw.startswith("event:"):
+                    event_name = raw[len("event:") :].strip()
+                    continue
                 if raw and raw.startswith("data:"):
+                    if event_name == "ready":
+                        self._subscribed.set()
+                        event_name = None
+                        continue
+                    event_name = None
                     try:
                         self.events.append(json.loads(raw[len("data:") :].strip()))
                     except json.JSONDecodeError:

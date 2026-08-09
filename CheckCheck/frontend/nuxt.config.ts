@@ -7,6 +7,14 @@ export default defineNuxtConfig({
   compatibilityDate: "2024-11-27",
   devtools: { enabled: true },
   ssr: false,
+  experimental: {
+    // We render as a pure SPA (ssr: false), so `nuxt generate` emits HTML shells
+    // with no `_payload.json` beside them — payload extraction has nothing to
+    // extract. Leaving Nuxt's default (true) makes @vite-pwa/nuxt append a
+    // `**/_payload.json` glob to the Workbox precache manifest, which then warns
+    // on every build that the pattern matched no files.
+    payloadExtraction: false,
+  },
   modules: [
     "nuxt-open-fetch",
     "@nuxt/ui",

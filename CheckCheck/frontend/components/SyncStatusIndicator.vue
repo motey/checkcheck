@@ -2,7 +2,11 @@
   <!-- Global sync status (WI-14). Only meaningful under local-first, where the
        outbox + delta layer exist; flag-off there is nothing to show. -->
   <UPopover v-if="localFirst" v-model:open="isOpen">
-    <div data-testid="sync-status-chip">
+    <!-- `data-sync-live` mirrors the server-confirmed sync subscription. It is
+         the signal E2E specs wait on before mutating something elsewhere and
+         expecting the poke to land here; pokes are never redelivered, so
+         "the request got a response" is not good enough (bug B4). -->
+    <div data-testid="sync-status-chip" :data-sync-live="streamLive ? 'true' : 'false'">
       <UChip
         :show="pendingCount > 0"
         :text="pendingBadge"
@@ -76,6 +80,7 @@ const online = computed(() => status?.online.value ?? true);
 const pendingCount = computed(() => status?.pendingCount.value ?? 0);
 const syncing = computed(() => status?.syncing.value ?? false);
 const lastSyncedAt = computed(() => status?.lastSyncedAt.value ?? null);
+const streamLive = computed(() => status?.streamLive.value ?? false);
 
 // Re-render relative time on a coarse tick so "3 min ago" stays honest while the
 // popover is open (cheap; a single shared timer).

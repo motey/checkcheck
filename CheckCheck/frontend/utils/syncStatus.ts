@@ -18,6 +18,11 @@ const LS_KEY = "checkcheck:lastSyncedAt";
 const listeners = new Set<Listener>();
 let syncing = false;
 let lastSyncedAt: number | null = loadLastSynced();
+// True between the sync stream's `ready` message (the server has SUBSCRIBED us,
+// not merely answered) and its next error/teardown. Distinct from `online`:
+// connectivity says the server is reachable, this says pokes will actually
+// arrive here. Fed by composables/useSync.
+let streamLive = false;
 
 function loadLastSynced(): number | null {
   if (typeof localStorage === "undefined") return null;
@@ -71,9 +76,24 @@ export function endSync(ok: boolean): void {
   if (wasSyncing || ok) notify();
 }
 
+/**
+ * The sync stream became live (server-confirmed subscription) or died. Surfaced
+ * on the navbar chip as `data-sync-live`, which is what E2E specs wait on before
+ * making a change elsewhere and expecting a poke to arrive.
+ */
+export function setStreamLive(live: boolean): void {
+  if (streamLive === live) return;
+  streamLive = live;
+  notify();
+}
+
 /** Current sync activity snapshot for the UI (and tests). */
-export function getSyncStatus(): { syncing: boolean; lastSyncedAt: number | null } {
-  return { syncing, lastSyncedAt };
+export function getSyncStatus(): {
+  syncing: boolean;
+  lastSyncedAt: number | null;
+  streamLive: boolean;
+} {
+  return { syncing, lastSyncedAt, streamLive };
 }
 
 /** Subscribe to sync-status changes; returns an unsubscribe fn. */
@@ -86,5 +106,6 @@ export function onSyncStatusChange(listener: Listener): () => void {
 export function __resetSyncStatusForTests(): void {
   syncing = false;
   lastSyncedAt = null;
+  streamLive = false;
   listeners.clear();
 }

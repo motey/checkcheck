@@ -39,6 +39,19 @@ export type CheckListState = {
 // Page size for the paginated filtered view (search / shared filters).
 const FILTERED_PAGE_SIZE = 20;
 
+// The board's one ordering rule: pinned cards first, then descending index.
+// It matches the backend's `order_by(desc(pinned), desc(index))`, and every
+// list the UI renders in array order (`checkLists`, `searchResults`) must be
+// kept in it. Paging appends rows that the server ordered against a *newer*
+// snapshot than the one page 1 came from, so an append without a re-sort can
+// leave a later page's card sitting below cards it now outranks.
+function byPinnedThenIndexDesc(a: CheckListType, b: CheckListType): number {
+  return (
+    Number(b.position.pinned ?? false) - Number(a.position.pinned ?? false) ||
+    b.position.index - a.position.index
+  );
+}
+
 export const useCheckListsStore = defineStore("checkList", {
   state: () =>
     ({
@@ -280,6 +293,13 @@ export const useCheckListsStore = defineStore("checkList", {
       const existingIds = new Set(this.checkLists.map((c) => c.id));
       this.checkLists = [...this.checkLists, ...resChecklistPage.items.filter((c) => !existingIds.has(c.id))];
       this.total_backend_count = resChecklistPage.total_count;
+      // Paging is offset based, so the rows of page N are ordered against the
+      // board as it looked when page N was requested. If the order shifted in
+      // between (another device, a poke-driven change, a drag in another tab),
+      // a plain append leaves the new rows below cards they outrank and the
+      // board renders visibly wrong until something else sorts it. Sort here,
+      // exactly as resync() does.
+      this._sort();
       return resChecklistPage.items;
     },
     async resync(): Promise<void> {
@@ -442,6 +462,9 @@ export const useCheckListsStore = defineStore("checkList", {
         ...(this.searchResults ?? []),
         ...resPage.items.filter((c) => !existingIds.has(c.id)),
       ];
+      // Same offset-paging caveat as fetchNextPage(): re-sort the appended page
+      // rather than trusting that the board has not moved between requests.
+      this.searchResults.sort(byPinnedThenIndexDesc);
       this.searchTotalCount = resPage.total_count;
       this.searchOffset += resPage.items.length;
     },
@@ -655,11 +678,7 @@ export const useCheckListsStore = defineStore("checkList", {
     },
     async _sort() {
       // Pinned first, then by descending index within each group.
-      this.checkLists.sort(
-        (a, b) =>
-          Number(b.position.pinned ?? false) - Number(a.position.pinned ?? false) ||
-          b.position.index - a.position.index
-      );
+      this.checkLists.sort(byPinnedThenIndexDesc);
     },
   },
 });

@@ -5,6 +5,32 @@ that discovered them. Newest first.
 
 ---
 
+## Board paging is offset based, so a board that moves while you page SKIPS rows
+
+**Status:** open · **Severity:** low · **Discovered:** 2026-08-09
+
+`stores/checklist.ts` `fetchNextPage()` pages the board with
+`offset=<loaded count>&limit=5`, and the filtered view (`_fetchFilteredPage`)
+does the same with its own page size. Offsets are only stable if the underlying
+order does not change between requests. It does change in normal use: another
+device or tab creates, archives or reorders a card, and a card that was on page 1
+slides to page 2. Every row that crosses the page boundary in that direction is
+then **never fetched** (it sits in the gap between the two offsets) and the
+board silently misses it until a full reload or a resync.
+
+The *ordering* half of this was fixed (E2E_STABILITY bug B1: the appended page is
+now re-sorted, so nothing renders in the wrong place). The skip is not fixable by
+sorting: it needs keyset paging, i.e. asking for `index < last_seen_index` instead
+of a numeric offset, which makes each page relative to a row the client actually
+holds. That touches the checklist list endpoint's query params and both paging
+call sites.
+
+**Where:** `CheckCheck/frontend/stores/checklist.ts` (`fetchNextPage`,
+`_fetchFilteredPage`), `CheckCheck/backend/checkcheckserver/db/checklist.py`
+(`order_by(desc(pinned), desc(index))` + pagination).
+
+---
+
 ## "Share with a group" is a one-shot snapshot, not a first-class living share
 
 **Status:** planned (phased) · **Severity:** medium (feature gap) · **Discovered:** 2026-07-19

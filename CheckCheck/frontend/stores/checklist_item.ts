@@ -1,4 +1,5 @@
 import { defineStore } from "pinia";
+import type { Pinia } from "pinia";
 import { findNewPlacementForItem, sortBySubset } from "~/utils/helpers";
 import { isLocalFirstEnabled } from "@/utils/localFirst";
 import { useOutbox } from "@/composables/useOutbox";
@@ -22,6 +23,33 @@ import {
  */
 function compareByPositionThenId(a: CheckListItemType, b: CheckListItemType): number {
   return a.position.index - b.position.index || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
+}
+
+/**
+ * Recovery for a rejected preview batch (`GET /api/item` 4xx): at least one of
+ * the ids we asked about is gone or no longer ours. Reconcile the board against
+ * server truth once so those cards disappear instead of lingering half-rendered.
+ *
+ * Guarded against pile-up: a board mid-load issues several preview batches, and
+ * one revoked card can reject all of them. `localSnapshot` is imported lazily
+ * because it imports this store back (a static import would close the cycle).
+ */
+let previewReconcileInFlight = false;
+async function reconcileAfterPreviewRejection(): Promise<void> {
+  if (previewReconcileInFlight) return;
+  previewReconcileInFlight = true;
+  try {
+    if (isLocalFirstEnabled()) {
+      const { applyDelta } = await import("@/utils/localSnapshot");
+      await applyDelta(useNuxtApp().$pinia as Pinia);
+    } else {
+      await useCheckListsStore().resync();
+    }
+  } catch (error) {
+    console.warn("Board reconcile after a rejected preview batch failed", error);
+  } finally {
+    previewReconcileInFlight = false;
+  }
 }
 
 export type CheckListItemState = {
@@ -199,8 +227,25 @@ export const useCheckListsItemStore = defineStore("checkListitem", {
         resChecklistPage = await $checkapi("/api/item", {
           method: "get",
           query: { checklist_ids: checklist_ids, limit_per_checklist: appConfig.previewItemCount * 2 },
+          // This batch asks for previews of cards the board *believes* it can
+          // see. In a shared app that belief goes stale as a normal event: a
+          // collaborator deletes a card, an owner revokes a share. The user must
+          // not get a raw "Error 4xx / GET /api/item failed" toast for it; we
+          // own the recovery below.
+          skipErrorToast: true,
         });
       } catch (error) {
+        const status = (error as { status?: number; response?: { status?: number } })?.status
+          ?? (error as { response?: { status?: number } })?.response?.status;
+        if (status !== undefined && status >= 400 && status < 500) {
+          // We asked about at least one card we no longer have access to (or that
+          // no longer exists). Reconcile against server truth once, which drops
+          // those cards from the board; the delta pull re-requests previews for
+          // whatever survives. Best-effort: this is already the error path.
+          console.warn("Preview batch rejected: reconciling board via delta pull", error);
+          void reconcileAfterPreviewRejection();
+          return;
+        }
         console.error("Could not fetch checklist item previews 'GET /item'", error);
         throw error;
       }

@@ -1,5 +1,11 @@
 # CheckCheck
 
+[![tests](https://github.com/motey/checkcheck/actions/workflows/tests.yml/badge.svg?branch=main)](https://github.com/motey/checkcheck/actions/workflows/tests.yml?query=branch%3Amain)
+[![tests passing](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/motey/checkcheck/badges/tests.json)](https://github.com/motey/checkcheck/actions/workflows/tests.yml?query=branch%3Amain)
+[![release](https://img.shields.io/github/v/release/motey/checkcheck?include_prereleases&sort=semver)](https://github.com/motey/checkcheck/releases)
+[![Docker image](https://img.shields.io/docker/pulls/motey/checkcheck?logo=docker&label=docker%20pulls)](https://hub.docker.com/r/motey/checkcheck)
+[![license](https://img.shields.io/github/license/motey/checkcheck)](LICENSE)
+
 A collaborative, self-hostable, offline-capable checklist app, inspired by Google Keep.
 
 > Not affiliated with, endorsed by, or sponsored by Google. Google Keep is a trademark of Google LLC.
@@ -168,6 +174,11 @@ See [docs/deployment.md](docs/deployment.md) for building the image yourself and
 [CheckCheck/backend/README.md](CheckCheck/backend/README.md) /
 [CheckCheck/frontend/README.md](CheckCheck/frontend/README.md) for the
 component-level developer setup.
+
+Every push runs the backend suite (pytest against PostgreSQL) and the frontend
+unit suite (vitest) in CI; that combined number is what the test badge above
+counts. The Playwright end-to-end suite needs a full stack and runs locally via
+[run_e2e_tests.sh](run_e2e_tests.sh).
 
 
 ## Roadmap

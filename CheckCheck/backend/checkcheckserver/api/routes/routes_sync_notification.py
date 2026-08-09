@@ -173,6 +173,21 @@ async def sync_via_server_send_events(
     )
 
 
+# The first message of every stream, sent immediately after the client has been
+# appended to the fan-out list.
+#
+# Response headers are written before Starlette starts iterating the generator,
+# and both the browser's `onopen` and Playwright's `waitForResponse` fire on
+# those headers. A client that treats "headers arrived" as "I am subscribed" has
+# a window in which it is connected but NOT yet in the fan-out list, and pokes
+# are never redelivered, so anything published in that window is invisible to
+# it until the next unrelated poke or a reconnect (see docs/plans/E2E_STABILITY.md,
+# bug B4). Registration provably precedes this message, so the client waits for
+# it instead. It is a NAMED event, which `onmessage` handlers (the anonymous
+# public-link viewer) never receive, so it cannot be mistaken for a notification.
+SSE_READY_MESSAGE = "event: ready\ndata: {}\n\n"
+
+
 # ── Postgres path ─────────────────────────────────────────────────────────────
 
 def _sse_from_payload(data: dict) -> str:
@@ -267,6 +282,8 @@ async def _postgres_stream(request: Request, principal):
     queue: asyncio.Queue[str] = asyncio.Queue()
     _pg_clients.append((queue, principal, request))
     try:
+        # Subscribed above; tell the client so (see SSE_READY_MESSAGE).
+        yield SSE_READY_MESSAGE
         while not await request.is_disconnected():
             try:
                 payload = await asyncio.wait_for(queue.get(), timeout=30)
@@ -296,6 +313,8 @@ async def _sqlite_stream(request: Request, principal):
     queue: asyncio.Queue[str] = asyncio.Queue()
     _sqlite_clients.append((queue, principal, request))
     try:
+        # Subscribed above; tell the client so (see SSE_READY_MESSAGE).
+        yield SSE_READY_MESSAGE
         while not await request.is_disconnected():
             try:
                 # Bounded wait so a disconnected client is noticed promptly via

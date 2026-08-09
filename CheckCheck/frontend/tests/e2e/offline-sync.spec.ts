@@ -35,6 +35,7 @@ import {
   type APIRequestContext,
 } from "@playwright/test";
 import { resolve } from "path";
+import { waitForSyncLive } from "./helpers/sync";
 
 const AUTH_STATE_FILE = resolve(__dirname, ".auth/state.json");
 
@@ -167,6 +168,10 @@ test.describe("offline sync — conflict, no-revert, revocation", () => {
     // Load the board (flag on), open the card, confirm the item renders.
     await page.goto("/?localFirst=1");
     await page.waitForSelector("[data-testid=checklist-board]");
+    // The concurrent edit below is only seen through its poke, and a poke fired
+    // before this client is in the server's fan-out set is lost for good, so wait
+    // for the server-confirmed subscription first (bug B4).
+    await waitForSyncLive(page);
     const dialog = await openCard(page, clName);
     // Focus-swap: click the rendered row to open its editor.
     await expect(dialog.locator("[data-testid=item-text-rendered]").first())
@@ -226,6 +231,8 @@ test.describe("offline sync — conflict, no-revert, revocation", () => {
 
     await page.goto("/?localFirst=1");
     await page.waitForSelector("[data-testid=checklist-board]");
+    // The "elsewhere" item creation below reaches this tab only via its poke.
+    await waitForSyncLive(page);
     const dialog = await openCard(page, clName);
     // Focus-swap: click the rendered row to open its editor.
     await expect(dialog.locator("[data-testid=item-text-rendered]").first())

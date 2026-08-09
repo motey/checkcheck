@@ -37,6 +37,7 @@
  */
 import { test, expect, type Page, type BrowserContext } from "@playwright/test";
 import { resolve } from "path";
+import { waitForSyncLive } from "./helpers/sync";
 
 const AUTH_STATE_FILE = resolve(__dirname, ".auth/state.json");
 
@@ -55,7 +56,12 @@ async function apiDelete(page: Page, path: string) {
   await page.request.delete(path).catch(() => {});
 }
 
-/** Open a second authenticated context, navigate to "/", and wait for board. */
+/**
+ * Open a second authenticated context, navigate to "/", and wait for the board
+ * AND a server-confirmed sync subscription. Tab 2 is the observer here, so a
+ * mutation made in tab 1 before tab 2 is actually in the fan-out set would be
+ * poked to nobody and never arrive (bug B4).
+ */
 async function openSecondTab(
   ctx1: BrowserContext
 ): Promise<{ context: BrowserContext; page: Page }> {
@@ -64,6 +70,7 @@ async function openSecondTab(
   const page = await context.newPage();
   await page.goto("/");
   await page.waitForSelector("[data-testid=checklist-board]");
+  await waitForSyncLive(page);
   return { context, page };
 }
 

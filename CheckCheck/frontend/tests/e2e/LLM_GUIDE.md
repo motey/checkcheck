@@ -29,16 +29,41 @@ All mutations are propagated to other open tabs via **SSE** (`GET /api/sync`).
 | Run all tests | `cd CheckCheck/frontend && bunx playwright test` |
 | Run one file | `cd CheckCheck/frontend && bunx playwright test tests/e2e/card-movement.spec.ts` |
 | Run & inspect one test | `./run_e2e_tests.sh --pick` (interactive picker → debug mode) |
+| Characterise a flaky spec | `bun run test:e2e:flakehunt tests/e2e/<file>.spec.ts` (5 runs, no retries) |
 | HTML report + traces | `cd CheckCheck/frontend && bunx playwright show-report` |
 
 The test suite builds a static frontend bundle (`nuxt generate`) and lets the
 backend serve it — no dev server, no Vite, no HMR.  This is exactly the
-production stack.  Traces are recorded for every test run (`trace: "on"`) and
-are viewable in the HTML report.
+production stack.  Traces are recorded for failures and retries
+(`trace: "retain-on-failure"`) and are viewable in the HTML report; pass
+`--trace on` when you need a trace for a passing test.
 
 All tests in the `chromium` project start pre-authenticated as `admin3` — no
-login step needed.  Tests run **sequentially** (`fullyParallel: false`) and
-share the same backend database.  Always clean up data you create in `afterEach`.
+login step needed.
+
+### The one rule that matters: you do not own the board
+
+Every spec drives **the same `admin3` account against the same database**, and
+the suite runs with `workers: 1` + `fullyParallel: false`, so exactly one test
+is in flight at a time.  That serialisation is what makes assertions on absolute
+board state (card counts, "the first card is X", sidebar badges) legal at all.
+
+Two consequences:
+
+- **Always clean up data you create**, in `afterEach`, even when the test fails
+  halfway.  Leftovers shift every later spec's board.
+- **Do not add `test.describe.configure({ mode: "parallel" })`** or raise
+  `workers`.  Until `docs/plans/E2E_STABILITY.md` S5 lands (one account per
+  worker), any concurrency reintroduces cross-spec corruption: the failures look
+  like sync or drag bugs and are neither.
+
+**`test-results/` is wiped at the start of every run.**  If a run fails and you
+want to study the trace, copy the directory out *before* re-running anything.
+
+**A `flaky` line in the report is a defect, not noise.**  With one worker there
+is no interference left to blame; a test that only passes on retry is telling
+you about a real race in the app.  Characterise it with
+`bun run test:e2e:flakehunt <file>` and fix the cause.
 
 ---
 

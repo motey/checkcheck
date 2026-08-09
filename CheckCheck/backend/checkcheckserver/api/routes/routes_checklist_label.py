@@ -80,6 +80,40 @@ CheckListItemQueryParams: Type[QueryParamsInterface] = create_query_params_class
 from pydantic import BaseModel, Field
 
 
+async def _notify_label_change(
+    sync_crud: SyncNotifiationCRUD,
+    checklist_label_crud: ChecklistLabelCRUD,
+    label_id: uuid.UUID,
+    user_id: uuid.UUID,
+) -> None:
+    """Tell this user's other devices that a label-level change altered cards.
+
+    Renaming, recolouring or deleting a label changes the chips on every card the
+    user attached it to, but those cards' own rows are untouched, so nothing at
+    the card level announced it. Without this, another open tab kept showing the
+    old chip until a reload: the delta feed *does* carry the label change (and its
+    tombstone), but the feed is only ever pulled in response to a poke, and no
+    poke was emitted (E2E_STABILITY: the label-chip spec only passed because
+    unrelated parallel test traffic happened to poke the same account).
+
+    Emitted per affected card, so the legacy (flag-off) client's
+    ``checklist_label`` handler refreshes exactly those cards; each event carries
+    the ``changes_available`` poke a local-first client actually acts on.
+
+    Pinned to this user: labels are a per-user layer, so a collaborator on a
+    shared card must not be told about (or shown) our label change.
+    """
+    checklist_ids = await checklist_label_crud.list_checklist_ids_for_label(
+        label_id=label_id, user_id=user_id
+    )
+    for checklist_id in checklist_ids:
+        await sync_crud.create(
+            SyncNotification(cl_id=checklist_id, upd_prop="checklist_label"),
+            target_user_ids=[user_id],
+            target_tokens=[],
+        )
+
+
 @fast_api_checklist_label_router.get(
     "/label",
     response_model=List[LabelReadAPI],
@@ -146,6 +180,8 @@ async def update_label(
     label_id: uuid.UUID,
     label_update: LabelUpdate,
     label_crud: LabelCRUD = Depends(LabelCRUD.get_crud),
+    checklist_label_crud: ChecklistLabelCRUD = Depends(ChecklistLabelCRUD.get_crud),
+    sync_crud: SyncNotifiationCRUD = Depends(SyncNotifiationCRUD.get_crud),
     current_user: User = Depends(get_current_user),
 ) -> LabelReadAPI:
     existing_label: Label = await label_crud.get(
@@ -164,7 +200,14 @@ async def update_label(
             status_code=status.HTTP_410_GONE,
             detail=f"Label '{label_id}' has been deleted.",
         )
-    return await label_crud.update(id_=label_id, update_obj=label_update)
+    updated = await label_crud.update(id_=label_id, update_obj=label_update)
+    await _notify_label_change(
+        sync_crud=sync_crud,
+        checklist_label_crud=checklist_label_crud,
+        label_id=label_id,
+        user_id=current_user.id,
+    )
+    return updated
 
 
 @fast_api_checklist_label_router.delete(
@@ -174,6 +217,8 @@ async def update_label(
 async def delete_label(
     label_id: uuid.UUID,
     label_crud: LabelCRUD = Depends(LabelCRUD.get_crud),
+    checklist_label_crud: ChecklistLabelCRUD = Depends(ChecklistLabelCRUD.get_crud),
+    sync_crud: SyncNotifiationCRUD = Depends(SyncNotifiationCRUD.get_crud),
     current_user: User = Depends(get_current_user),
 ) -> LabelReadAPI:
     existing_label: Label = await label_crud.get(
@@ -188,6 +233,12 @@ async def delete_label(
     # no-op success so an outbox replay is safe. Chips referencing this label are
     # masked at read time (the CheckListLabel link rows are left in place).
     await label_crud.soft_delete(id_=label_id)
+    await _notify_label_change(
+        sync_crud=sync_crud,
+        checklist_label_crud=checklist_label_crud,
+        label_id=label_id,
+        user_id=current_user.id,
+    )
     return existing_label
 
 

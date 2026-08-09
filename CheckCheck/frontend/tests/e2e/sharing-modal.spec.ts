@@ -1,4 +1,5 @@
 import { test, expect, type Browser, type BrowserContext, type Page } from "@playwright/test";
+import { waitForSyncLive } from "./helpers/sync";
 
 // Share-management dialog (Frontend Phase F2).
 //
@@ -245,6 +246,9 @@ test.describe("F2 share-management dialog", () => {
     await expect(collabCard, "shared card should be on the collaborator's board").toBeVisible({
       timeout: 8_000,
     });
+    // The revocation reaches this tab only as a poke, and a poke fired before the
+    // server has this client in its fan-out set is lost for good (bug B4).
+    await waitForSyncLive(userPage);
 
     // Owner opens the dialog and revokes the collaborator.
     await page.goto("/");
