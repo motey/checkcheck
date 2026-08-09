@@ -58,7 +58,7 @@
       <UTooltip text="Archive" :disabled="!collapsed" side="right">
         <NuxtLink
           data-testid="sidebar-archive-filter"
-          :to="{ path: '/', query: { archived: 'true' } }"
+          :to="archiveLinkTo()"
           class="relative flex items-center gap-3 px-2 py-1.5 rounded-lg text-sm transition-colors hover:bg-elevated focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-default"
           :class="isArchive ? 'bg-elevated font-medium' : 'text-muted'"
         >
@@ -87,7 +87,8 @@
           side="right"
         >
           <NuxtLink
-            :to="{ path: '/', query: { ...route.query, label: label.id } }"
+            :data-testid="`sidebar-label-filter-${label.id}`"
+            :to="labelLinkTo(label.id)"
             class="relative flex items-center gap-3 px-2 py-1.5 rounded-lg text-sm transition-colors hover:bg-elevated focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-default"
             :class="route.query.label === label.id ? 'font-medium' : 'text-muted'"
             :style="route.query.label === label.id ? labelRowStyle(label) : undefined"
@@ -287,6 +288,30 @@ function sharedLinkTo(value: string) {
     delete query.shared;
   } else {
     query.shared = value;
+  }
+  return { path: "/", query };
+}
+
+// Archive toggles the same way: a second click on the active entry drops the
+// filter (keeping anything else in the query), while activating it clears the
+// other filters, since the archive is its own view rather than a facet of home.
+function archiveLinkTo() {
+  if (isArchive.value) {
+    const query = { ...route.query };
+    delete query.archived;
+    return { path: "/", query };
+  }
+  return { path: "/", query: { archived: "true" } };
+}
+
+// Same toggle for a label row: clicking the active label clears it and leaves
+// the other filters (share/archive) untouched.
+function labelLinkTo(labelId: string) {
+  const query = { ...route.query };
+  if (query.label === labelId) {
+    delete query.label;
+  } else {
+    query.label = labelId;
   }
   return { path: "/", query };
 }

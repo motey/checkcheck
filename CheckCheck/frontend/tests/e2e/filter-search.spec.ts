@@ -98,6 +98,12 @@ test.describe("label filter", () => {
     // Only the labeled checklist should be shown.
     await expect(page.getByText(withLabelName)).toBeVisible({ timeout: 3_000 });
     await expect(page.getByText(noLabelName)).not.toBeVisible();
+
+    // Clicking the active label again clears the filter (issue #10) — no need
+    // to detour via Home.
+    await sidebarLabel.click();
+    await expect(page).not.toHaveURL(new RegExp(`label=${label.id}`), { timeout: 3_000 });
+    await expect(page.getByText(noLabelName, { exact: true })).toBeVisible({ timeout: 3_000 });
   });
 });
 
