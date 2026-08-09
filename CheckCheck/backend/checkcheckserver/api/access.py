@@ -351,7 +351,10 @@ async def resolve_public_checklist_access(
             user_id=link.created_by,
             type=NotificationType.public_link_opened,
             cl_id=checklist.id,
-            payload={"checklist_name": checklist.name},
+            # The link's own name too: the creator is the one person that label
+            # was written for, and the one person who otherwise cannot tell
+            # which of their links this was.
+            payload={"checklist_name": checklist.name, "link_name": link.name},
         )
 
     collaborators = await checklist_collaborator_crud.list(

@@ -185,6 +185,55 @@ test.describe("E6 mailing a public link", () => {
     await page.keyboard.press("Escape");
   });
 
+  test("which link is being sent is named, in the picker and in the confirm step", async ({
+    page,
+  }) => {
+    // The options used to read "view · created 09/08/2026", which says nothing
+    // about which capability is about to be mailed out. Picking the wrong row
+    // hands over access the owner did not mean to give.
+    const { title } = await createCard(page);
+    await page.goto("/");
+    const dialog = await openShareModal(page, title);
+
+    // One link: no choice to make, so the block states which one it is.
+    await dialog.locator("[data-testid=public-link-name]").fill("Groceries");
+    await dialog.locator("[data-testid=public-link-create]").click();
+
+    const block = dialog.locator("[data-testid=public-link-email]");
+    await expect(block).toBeVisible({ timeout: 5_000 });
+    await expect(block.locator("[data-testid=public-link-email-chosen]")).toContainText(
+      "Sending: Groceries · view"
+    );
+    await expect(block.locator("[data-testid=public-link-email-select]")).toHaveCount(0);
+
+    // A second link turns the statement into a choice, by name.
+    await dialog.locator("[data-testid=public-link-name]").fill("Contractors");
+    await dialog.locator("[data-testid=public-link-level]").click();
+    await page.getByRole("option", { name: "Edit", exact: true }).click();
+    await dialog.locator("[data-testid=public-link-create]").click();
+
+    const select = block.locator("[data-testid=public-link-email-select]");
+    await expect(select).toBeVisible({ timeout: 5_000 });
+    await select.click();
+    await expect(page.getByRole("option", { name: "Contractors · edit" })).toBeVisible();
+    await page.getByRole("option", { name: "Groceries · view" }).click();
+
+    // The confirm step repeats it, so the name is on screen at the moment the
+    // send is authorised.
+    await block.locator("[data-testid=public-link-email-address]").fill("stranger@example.org");
+    await block.locator("[data-testid=public-link-email-send]").click();
+    const confirm = block.locator("[data-testid=public-link-email-confirm]");
+    await expect(confirm).toBeVisible();
+    await expect(confirm.locator("[data-testid=public-link-email-confirm-link]")).toContainText(
+      "Sending: Groceries · view"
+    );
+    // The sentence about what the recipient may do is untouched by the name.
+    await expect(confirm).toContainText("read this list, without signing in");
+
+    await expect(page.getByText(/Error 4\d\d/)).toHaveCount(0);
+    await page.keyboard.press("Escape");
+  });
+
   test("a typo is caught before anything is queued", async ({ page }) => {
     const { title } = await createCard(page);
     await page.goto("/");

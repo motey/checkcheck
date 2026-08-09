@@ -1,8 +1,20 @@
 # Plan: named public links
 
-**Status:** planned (written 2026-08-09). Implements
-[issue #9](https://github.com/motey/checkcheck/issues/9) on branch
-`feat/issue-9-named-links`, which is currently empty.
+**Status:** ✅ Done (2026-08-09), all five chunks, on branch
+`feat/issue-9-named-links`. Implements
+[issue #9](https://github.com/motey/checkcheck/issues/9).
+
+Implemented as specified, with two deviations worth knowing:
+
+- N1's test bullet ("create three, delete `Link-2`, create again: the new one is
+  `Link-3`") contradicts decision 2 and would collide. The implementation and the
+  test both say `Link-4`.
+- N4 needed one line the plan did not list: `notification_context` copies a
+  whitelist of keys out of a notification's payload, so `link_name` had to be
+  added there before any wording could read it.
+
+The public-link screenshot in `docs/screenshots.md` was left as it is: the row
+gained a name line but still reads as the same surface (plan section 7).
 
 **Scope**, in the issue's words:
 

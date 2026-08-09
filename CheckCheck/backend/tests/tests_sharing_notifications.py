@@ -61,12 +61,13 @@ def _share(checklist_id: str, user_id: str, permission: str = "edit") -> Dict:
     )
 
 
-def _create_public_link(checklist_id: str, permission: str = "view") -> Dict:
-    return req(
-        f"api/checklist/{checklist_id}/public-links",
-        "post",
-        b={"permission": permission},
-    )
+def _create_public_link(
+    checklist_id: str, permission: str = "view", name: str | None = None
+) -> Dict:
+    body: Dict = {"permission": permission}
+    if name is not None:
+        body["name"] = name
+    return req(f"api/checklist/{checklist_id}/public-links", "post", b=body)
 
 
 def _notifications(token: str, unread_only: bool = False) -> List[Dict]:
@@ -245,7 +246,7 @@ def test_first_public_link_open_notifies_owner_once():
     """The first anonymous open of a public link creates exactly one
     public_link_opened notification for the owner; subsequent opens add none."""
     checklist_id = _create_checklist("NotiPublicOpen")
-    link = _create_public_link(checklist_id, "view")
+    link = _create_public_link(checklist_id, "view", name="Neighbours")
     token = link["token"]
 
     def _owner_open_notis() -> List[Dict]:
@@ -263,8 +264,11 @@ def test_first_public_link_open_notifies_owner_once():
 
     notis = _owner_open_notis()
     assert len(notis) == 1, f"expected exactly one open notification, got {len(notis)}"
+    # The link's own name travels with the notification, so the owner is told
+    # which of their links was opened and not just that one was.
     dict_must_contain(
-        notis[0]["payload"], {"checklist_name": "NotiPublicOpen"}
+        notis[0]["payload"],
+        {"checklist_name": "NotiPublicOpen", "link_name": "Neighbours"},
     )
 
 

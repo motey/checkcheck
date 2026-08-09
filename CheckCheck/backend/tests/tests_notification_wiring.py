@@ -268,6 +268,63 @@ def test_an_invitation_and_an_opened_public_link_get_their_own_wording(
     assert "Someone" not in opened[0].text_body
 
 
+def test_an_opened_public_link_says_which_link_it_was(mail_capture, user_factory):
+    """The owner's own label for the link, in the subject and in the body.
+
+    The point of the whole naming feature for this notification: somebody with
+    four links on one card could previously only be told that one of them was
+    opened.
+    """
+    from checkcheckserver.model.notification import NotificationType
+
+    owner = user_factory("namedlink")
+
+    async def body(session):
+        await _emit(
+            session,
+            user_id=owner.id,
+            type=NotificationType.public_link_opened,
+            payload={"checklist_name": "Kitchen", "link_name": "Contractors"},
+        )
+        await _drain(session)
+
+    _run(body)
+
+    opened = _mail_to(mail_capture, owner.email)
+    assert len(opened) == 1
+    assert opened[0].subject == 'Your public link "Contractors" to "Kitchen" was opened'
+    assert "Contractors" in opened[0].text_body
+
+
+def test_minimal_content_mode_withholds_the_link_name_too(mail_capture, user_factory):
+    """A link's name is the owner's note about who holds it, so ``minimal``
+    keeps it in the instance exactly as it keeps the card title."""
+    from checkcheckserver.model.notification import NotificationType
+
+    owner = user_factory("minimallink")
+
+    async def body(session):
+        await _emit(
+            session,
+            user_id=owner.id,
+            type=NotificationType.public_link_opened,
+            payload={"checklist_name": "Kitchen", "link_name": "Contractors"},
+            config=_config(NOTIFY_EMAIL_CONTENT_MODE="minimal"),
+        )
+        await _drain(session)
+
+    _run(body)
+
+    opened = _mail_to(mail_capture, owner.email)
+    assert len(opened) == 1
+    whole_message = " ".join(
+        [opened[0].subject, opened[0].text_body, opened[0].html_body or ""]
+    )
+    assert "Contractors" not in whole_message
+    assert "Kitchen" not in whole_message
+    assert opened[0].subject == "One of your public links was opened"
+
+
 def test_sharing_a_card_over_http_really_queues_the_mail(mail_capture, user_factory):
     """The one test that goes through the actual call site.
 

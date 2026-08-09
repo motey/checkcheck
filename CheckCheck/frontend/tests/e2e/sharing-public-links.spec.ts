@@ -139,4 +139,104 @@ test.describe("F3 public-link management", () => {
 
     await page.keyboard.press("Escape");
   });
+
+  // ── link names (issue #9) ────────────────────────────────────────────────
+  //
+  // Several links on one card used to be literally indistinguishable: same
+  // badge, same "Never expires", token redacted. The name is what tells them
+  // apart, and the automatic one is what stops an unnamed link from being a
+  // blank row.
+
+  test("a link takes the name it was given, and names itself when not", async ({ page }) => {
+    const { title } = await createCard(page);
+
+    await page.goto("/");
+    await openShareModal(page, title);
+
+    const dialog = page.locator('[role="dialog"]').filter({ hasText: "Share this list" });
+    await expect(dialog).toBeVisible({ timeout: 5_000 });
+
+    await dialog.locator("[data-testid=public-link-name]").fill("Groceries");
+    await dialog.locator("[data-testid=public-link-create]").click();
+
+    const names = dialog.locator("[data-testid=public-link-row-name]");
+    await expect(names).toHaveText(["Groceries"], { timeout: 5_000 });
+    // The one moment the URL is on screen says which link it belongs to.
+    await expect(dialog.locator("[data-testid=public-link-fresh-name]")).toContainText(
+      'Copy the link for "Groceries" now'
+    );
+    // The field is cleared, so the next link does not inherit the last name.
+    await expect(dialog.locator("[data-testid=public-link-name]")).toHaveValue("");
+
+    // Two more without a name: the server numbers them from the highest it
+    // finds, and a named link is not part of that numbering.
+    await dialog.locator("[data-testid=public-link-create]").click();
+    await expect(names).toHaveCount(2, { timeout: 5_000 });
+    await dialog.locator("[data-testid=public-link-create]").click();
+    await expect(names).toHaveCount(3, { timeout: 5_000 });
+    // Newest first in the list.
+    await expect(names).toHaveText(["Link-2", "Link-1", "Groceries"]);
+
+    await expect(page.getByText(/Error 4\d\d/)).toHaveCount(0);
+    await page.keyboard.press("Escape");
+  });
+
+  test("a link can be renamed in place, and blanking it gets an automatic name back", async ({
+    page,
+  }) => {
+    const { title } = await createCard(page);
+
+    await page.goto("/");
+    await openShareModal(page, title);
+
+    let dialog = page.locator('[role="dialog"]').filter({ hasText: "Share this list" });
+    await expect(dialog).toBeVisible({ timeout: 5_000 });
+
+    await dialog.locator("[data-testid=public-link-create]").click();
+    const name = dialog.locator("[data-testid=public-link-row-name]");
+    await expect(name).toHaveText("Link-1", { timeout: 5_000 });
+
+    // Escape abandons an edit rather than committing it.
+    await name.click();
+    let field = dialog.locator("[data-testid=public-link-row-name-input]");
+    await expect(field).toBeFocused();
+    await field.fill("Typed by mistake");
+    await field.press("Escape");
+    await expect(name).toHaveText("Link-1");
+
+    // Click the name to swap in the input, type over the selected text, commit
+    // with Enter.
+    await name.click();
+    field = dialog.locator("[data-testid=public-link-row-name-input]");
+    await expect(field).toBeFocused();
+    await page.keyboard.type("Contractors");
+    await page.keyboard.press("Enter");
+    await expect(name).toHaveText("Contractors", { timeout: 5_000 });
+
+    // The rename is on the server, not just in this dialog's state.
+    await page.keyboard.press("Escape");
+    await page.goto("/");
+    await openShareModal(page, title);
+    dialog = page.locator('[role="dialog"]').filter({ hasText: "Share this list" });
+    await expect(dialog.locator("[data-testid=public-link-row-name]")).toHaveText("Contractors", {
+      timeout: 5_000,
+    });
+
+    // Blanking it is "I do not want to call it anything", which the server
+    // answers with a fresh automatic name rather than a nameless row.
+    const renamed = dialog.locator("[data-testid=public-link-row-name]");
+    await renamed.click();
+    const blank = dialog.locator("[data-testid=public-link-row-name-input]");
+    await blank.fill("");
+    await blank.press("Enter");
+    await expect(renamed).toHaveText("Link-1", { timeout: 5_000 });
+
+    await expect(page.getByText(/Error 4\d\d/)).toHaveCount(0);
+
+    await dialog.locator("[data-testid=public-link-delete]").click();
+    await expect(dialog.locator("[data-testid=public-link-row]")).toHaveCount(0, {
+      timeout: 5_000,
+    });
+    await page.keyboard.press("Escape");
+  });
 });

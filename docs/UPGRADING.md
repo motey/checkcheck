@@ -5,6 +5,28 @@ changes see [`../CHANGELOG.md`](../CHANGELOG.md).
 
 ---
 
+## Public links have names (migration `0018`)
+
+A public link now carries a short name, so a card with several links stops being
+a list of identical rows. This ships as Alembic revision `0018`, which adds one
+nullable `name` column to `checklist_public_share` and is applied automatically
+on server start. Nothing else is touched and there is no operator action.
+
+- **Your existing links are named for you.** The migration numbers each card's
+  links by age and writes `Link-1`, `Link-2`, and so on, so no link shows up
+  without a name after the upgrade. Rename any of them by clicking the name in
+  the sharing dialog.
+- **A new link names itself when you leave the field empty**, one above the
+  highest `Link-<n>` already on that card. Clearing a name gives you a fresh
+  automatic one rather than a nameless link.
+- **The name stays with the owner.** It is never shown to anonymous visitors,
+  and it is not in the message sent to someone you mail a link to: it is your own
+  note about who holds the link. It does appear in your "a public link was
+  opened" notification, and like a card title it is withheld there when
+  `NOTIFY_EMAIL_CONTENT_MODE` is `minimal`.
+
+---
+
 ## Push notifications work without configuration (migration `0017`)
 
 Push used to need an operator: `NOTIFY_PUSH_ENABLED` defaulted to false, and
