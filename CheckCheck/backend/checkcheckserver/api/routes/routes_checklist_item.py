@@ -155,19 +155,24 @@ async def list_items(
     ),
     current_user: User = Depends(get_current_user),
 ) -> Dict[uuid.UUID, CheckListsItemPreview]:
+    # This is the board's bootstrap overview: the client asks for previews of the
+    # cards it currently holds, in batches. That set goes stale as a NORMAL event
+    # in a shared app (a collaborator deletes a card, an owner revokes a share),
+    # and 403ing the whole batch over one such id would blank the previews of
+    # every other card in it. So filter to what the caller may see and silently
+    # omit the rest: the response never mentions the omitted ids, so this leaks
+    # nothing, and the client learns the card is gone from the delta feed.
+    # The single-checklist routes below keep their hard 403 (that is the surface
+    # an IDOR check cares about).
     if checklist_ids:
-        for checklist_id in checklist_ids:
-            if checklist_id not in checklist_ids_with_user_access:
-                raise HTTPException(
-                    status_code=status.HTTP_403_FORBIDDEN,
-                    detail=f"Access to checklist with ID {checklist_id} not allowed.",
-                )
+        accessible = set(checklist_ids_with_user_access)
+        checklist_ids = [cl_id for cl_id in checklist_ids if cl_id in accessible]
+        if not checklist_ids:
+            return {}
     else:
         checklist_ids = checklist_ids_with_user_access
     preview_per_checklist = await checklist_item_crud.list_multiple_checklist_items(
-        checklist_ids=(
-            checklist_ids if checklist_ids else checklist_ids_with_user_access
-        ),
+        checklist_ids=checklist_ids,
         checked=checked,
         limit_per_checklist=limit_per_checklist,
     )

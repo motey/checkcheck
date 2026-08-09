@@ -4,6 +4,7 @@ import {
   endSync,
   getSyncStatus,
   onSyncStatusChange,
+  setStreamLive,
   __resetSyncStatusForTests,
 } from "@/utils/syncStatus";
 
@@ -41,7 +42,24 @@ describe("syncStatus", () => {
   it("endSync(false) clears syncing but does NOT advance lastSyncedAt", () => {
     beginSync();
     endSync(false);
-    expect(getSyncStatus()).toEqual({ syncing: false, lastSyncedAt: null });
+    expect(getSyncStatus()).toEqual({ syncing: false, lastSyncedAt: null, streamLive: false });
+  });
+
+  it("setStreamLive tracks the server-confirmed subscription and notifies on change", () => {
+    const cb = vi.fn();
+    onSyncStatusChange(cb);
+    expect(getSyncStatus().streamLive).toBe(false);
+
+    setStreamLive(true);
+    expect(getSyncStatus().streamLive).toBe(true);
+    expect(cb).toHaveBeenCalledTimes(1);
+
+    setStreamLive(true); // unchanged, so no second notify
+    expect(cb).toHaveBeenCalledTimes(1);
+
+    setStreamLive(false);
+    expect(getSyncStatus().streamLive).toBe(false);
+    expect(cb).toHaveBeenCalledTimes(2);
   });
 
   it("endSync(false) with no in-flight sync is a quiet no-op", () => {

@@ -29,6 +29,13 @@ async function loginAsTestUser(browser: Browser): Promise<{ ctx: BrowserContext;
   await page.locator("[data-testid=login-password]").fill(TEST_USER.password);
   await page.locator('form button[type="submit"]').click();
   await page.waitForURL("/");
+  // testuser01 is shared with by several other specs (invites, sharing, offline
+  // revocation), and every share leaves them an unread notification that nothing
+  // clears. This spec asserts an ABSOLUTE badge count, so start from a known
+  // zero rather than inheriting whatever ran earlier in the suite.
+  await page.request.post("/api/user/me/notifications/read-all");
+  await page.reload();
+  await page.waitForSelector("[data-testid=notification-bell]");
   return { ctx, page };
 }
 
@@ -93,17 +100,22 @@ test.describe("F5 notifications feed", () => {
     // No unread badge to start with for this card.
     await expect(chip).not.toContainText("1");
 
-    const { id } = await createCard(page);
+    const { id, title } = await createCard(page);
     await shareWithTestUser(page, id);
 
     // The `notification` SSE event bumps the badge live.
     await expect(chip, "unread badge should appear live").toContainText("1", { timeout: 8_000 });
 
-    // Open the dropdown and see the row.
+    // Open the dropdown and see the row. The feed keeps read notifications too,
+    // and testuser01 is shared with by several other specs, so scope to the row
+    // this share produced (by the card's unique title) rather than counting the
+    // whole feed. Newest first, so it is also the top row.
     await userPage.locator("[data-testid=notification-bell]").click();
     const panel = userPage.locator("[data-testid=notification-panel]");
     await expect(panel).toBeVisible({ timeout: 5_000 });
-    await expect(panel.locator("[data-testid=notification-row]")).toHaveCount(1, { timeout: 5_000 });
+    const rows = panel.locator("[data-testid=notification-row]");
+    await expect(rows.filter({ hasText: title })).toHaveCount(1, { timeout: 5_000 });
+    await expect(rows.first()).toContainText(title);
 
     // Mark all read → badge clears.
     await panel.locator("[data-testid=notification-mark-all-read]").click();

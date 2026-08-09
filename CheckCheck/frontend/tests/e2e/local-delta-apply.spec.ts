@@ -19,6 +19,7 @@
  */
 import { test, expect, type Page, type BrowserContext, type APIRequestContext } from "@playwright/test";
 import { resolve } from "path";
+import { waitForSyncLive } from "./helpers/sync";
 
 const AUTH_STATE_FILE = resolve(__dirname, ".auth/state.json");
 
@@ -37,33 +38,14 @@ async function apiDelete(req: APIRequestContext, path: string) {
   await req.delete(path).catch(() => {});
 }
 
-/**
- * Resolve once this page's SSE stream (`GET /api/sync`) is established, so a
- * subsequent "elsewhere" mutation's `changes_available` poke is guaranteed to be
- * delivered to this client.
- *
- * The board renders from the IndexedDB snapshot *before* the EventSource
- * connects, so waiting on the card alone races the poke: the server fans a poke
- * out only to clients already registered in its subscriber set (the SQLite drain
- * marks each notification row consumed as it sends it), and a poke fired before
- * this client registers is lost forever — there is no re-delivery without an SSE
- * reconnect. Arm this *before* `page.goto` (the response listener must be
- * attached before `connect()` issues the request) and await it before the
- * mutation / going offline.
- */
-function syncConnected(page: Page): Promise<unknown> {
-  return page.waitForResponse((r) => r.url().includes("/api/sync"), { timeout: 20_000 });
-}
-
 /** Open a second flag-on authenticated tab and wait for the board + live SSE. */
 async function openSecondTab(ctx1: BrowserContext): Promise<{ context: BrowserContext; page: Page }> {
   const browser = ctx1.browser()!;
   const context = await browser.newContext({ storageState: AUTH_STATE_FILE });
   const page = await context.newPage();
-  const ready = syncConnected(page);
   await page.goto("/?localFirst=1");
   await page.waitForSelector("[data-testid=checklist-board]");
-  await ready;
+  await waitForSyncLive(page);
   return { context, page };
 }
 
@@ -150,14 +132,13 @@ test.describe("local-first delta application", () => {
     const cl = await apiPost(page.request, "/api/checklist", { name: clName });
     cleanup.push(cl.id);
 
-    const ready = syncConnected(page);
     await page.goto("/?localFirst=1");
     await page.waitForSelector("[data-testid=checklist-board]");
     await expect(cardPreview(page, clName)).toBeVisible({ timeout: 8_000 });
     // The reconnect delta pull only fires on a *re-open* (hasOpened=true), so the
     // stream must be established before we drop it — otherwise setOffline→online
     // is a first connect that pulls nothing and the rename is never seen.
-    await ready;
+    await waitForSyncLive(page);
 
     // Go offline — this drops the open SSE stream, so the poke for the coming
     // change is missed (the real offline-gap condition).
@@ -211,7 +192,6 @@ test.describe("local-first delta application", () => {
     labelCleanup.push(label.id);
     await apiPut(page.request, `/api/checklist/${cl.id}/label/${label.id}`);
 
-    const ready = syncConnected(page);
     await page.goto("/?localFirst=1");
     await page.waitForSelector("[data-testid=checklist-board]");
     const card = cardPreview(page, clName);
@@ -219,9 +199,9 @@ test.describe("local-first delta application", () => {
     // The chip is present on the card.
     await expect(card.getByText(labelName, { exact: true })).toBeVisible({ timeout: 8_000 });
     // The chip renders from the local snapshot before the SSE connects; wait for
-    // the stream so the delete's poke is delivered rather than fanned out to no
-    // one (see syncConnected).
-    await ready;
+    // the server-confirmed subscription so the delete's poke is delivered rather
+    // than fanned out to a set this client is not in yet (see waitForSyncLive).
+    await waitForSyncLive(page);
 
     const seen: string[] = [];
     page.on("request", (r) => {

@@ -1,6 +1,9 @@
 # Plan: E2E suite stability
 
-**Status:** proposed. Nothing in here is implemented yet.
+**Status:** S0, S1, S2, S3, S4 and S6 implemented 2026-08-09. S5 (per-worker
+accounts) is the only chunk left; the plan gates it on several green serial runs.
+Two things the investigation had not seen turned up during implementation and are
+fixed here too: see [§5](#5-what-changed-versus-this-plan).
 
 The run of `./run_e2e_tests_postgres.sh` that triggered this plan finished with
 1 failed, 4 flaky, 2 skipped, 132 passed. This document says what each of those
@@ -277,3 +280,47 @@ three consecutive runs, and `--repeat-each=5 --retries=0` on
 - Loosening assertions to make specs pass (widening timeouts, dropping the
   `Error 4xx` checks, asserting "at least one" instead of exact counts). Every
   one of those assertions caught something real in this run.
+
+---
+
+## 5. What changed versus this plan
+
+Written after implementing S0 to S4 and S6.
+
+**B5 (new). A label change is never poked, so nobody learns about it.**
+`delete_label` / `update_label` (`routes_checklist_label.py`) emitted no sync
+notification at all. Renaming or deleting a label changes the chips on every card
+it is attached to, but those cards' own rows are untouched, so nothing at the card
+level announced it either. The delta feed *does* carry the label change and its
+tombstone, but a local-first client only pulls that feed in response to a poke,
+and no poke existed. Another open tab kept the stale chip until a reload.
+
+This, not B4, is why test 5 (`local-delta-apply` label chip) failed in the serial
+control: with four workers, unrelated test traffic poked the same admin account
+often enough to trigger a pull that happened to include the tombstone. The fix
+emits one `checklist_label` event (and therefore one poke) per affected card,
+pinned to the label's owner, since labels are a per-user layer. Covered by
+`tests_label_sync.py`. B4 was real too and is still fixed by S3; it just was not
+what that spec was tripping over.
+
+**Two `notifications` specs were also asserting state they do not own.**
+`testuser01` is shared with by `invites`, `sharing-*` and `offline-sync`, and
+every share leaves them a notification that nothing clears. The specs asserted an
+absolute unread badge count (`toContainText("1")`) and an absolute feed length
+(`toHaveCount(1)`). Under four workers they happened to run before those specs;
+serially they run after and read 2 and 3. Fixed inside the spec, without
+loosening anything: `testuser01`'s notifications are marked read at login (so the
+badge count is again exactly this share's), and the feed assertion is scoped to
+the row this share produced, matched by the card's unique title, and additionally
+asserts that row is the newest. This is exactly the class of latent bug S0 was
+expected to surface.
+
+**S6's SSE readiness dividend for backend tests.** `_SSECollector`
+(`tests_sharing_sync.py`) used to wait for response headers and then sleep a
+second, hoping registration had happened. It now waits for the server's `ready`
+message, which is the guarantee it was approximating.
+
+**S1's optional follow-up is filed, not done.** Offset paging over a list that
+moves does not only misorder rows (fixed), it also *skips* them. That needs
+keyset paging and is logged in `docs/ISSUES.md` ("Board paging is offset based,
+so a board that moves while you page SKIPS rows").

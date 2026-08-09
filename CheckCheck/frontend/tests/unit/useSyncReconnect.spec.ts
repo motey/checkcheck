@@ -25,19 +25,40 @@ class MockEventSource {
   onopen: (() => void) | null = null;
   onerror: (() => void) | null = null;
   onmessage: ((e: any) => void) | null = null;
+  listeners = new Map<string, Set<(e: any) => void>>();
 
   constructor(url: string) {
     this.url = url;
     MockEventSource.instances.push(this);
   }
+  addEventListener(type: string, fn: (e: any) => void) {
+    if (!this.listeners.has(type)) this.listeners.set(type, new Set());
+    this.listeners.get(type)!.add(fn);
+  }
+  removeEventListener(type: string, fn: (e: any) => void) {
+    this.listeners.get(type)?.delete(fn);
+  }
   close() {
     this.readyState = MockEventSource.CLOSED;
   }
   // ── test helpers ──
-  /** Simulate the stream opening (server reachable). */
+  /**
+   * Simulate a full successful connect: response headers (`onopen`) followed by
+   * the server's `ready` message, which is what actually proves the server has
+   * SUBSCRIBED this client (see routes_sync_notification.SSE_READY_MESSAGE).
+   */
   emitOpen() {
+    this.emitHeaders();
+    this.emitReady();
+  }
+  /** Response headers only: connected, but not yet in the server's fan-out set. */
+  emitHeaders() {
     this.readyState = MockEventSource.OPEN;
     this.onopen?.();
+  }
+  /** The server's readiness handshake. */
+  emitReady() {
+    for (const fn of this.listeners.get("ready") ?? []) fn({ data: "{}" });
   }
   /** Simulate a permanent HTTP-error close (502/503): browser gives up. */
   emitErrorClosed() {
@@ -79,7 +100,8 @@ vi.mock("@/stores/notification", () => ({ useNotificationStore: () => stub() }))
 vi.mock("@/stores/invite", () => ({ useInviteStore: () => stub() }));
 vi.mock("@/utils/localFirst", () => ({ isLocalFirstEnabled: () => true }));
 
-const applyDelta = vi.fn(async () => {});
+// Resolves `true` = "the pull reached the server" (applyDelta's contract).
+const applyDelta = vi.fn(async () => true);
 vi.mock("@/utils/localSnapshot", () => ({ applyDelta }));
 
 /**
@@ -91,13 +113,20 @@ vi.mock("@/utils/localSnapshot", () => ({ applyDelta }));
 async function loadFresh() {
   vi.resetModules();
   const connectivity = await import("@/utils/connectivity");
+  const syncStatus = await import("@/utils/syncStatus");
   const { useSync } = await import("@/composables/useSync");
-  return { ...useSync(), isOnline: connectivity.isOnline };
+  return {
+    ...useSync(),
+    isOnline: connectivity.isOnline,
+    setConnectivity: connectivity.setConnectivity,
+    streamLive: () => syncStatus.getSyncStatus().streamLive,
+  };
 }
 
 beforeEach(() => {
   MockEventSource.reset();
   applyDelta.mockClear();
+  applyDelta.mockImplementation(async () => true);
   vi.useFakeTimers();
   vi.stubGlobal("EventSource", MockEventSource);
   vi.stubGlobal("useNuxtApp", () => ({ $pinia: {} }));
@@ -176,5 +205,140 @@ describe("useSync SSE self-managed reconnect", () => {
     const count = MockEventSource.instances.length;
     vi.advanceTimersByTime(60_000);
     expect(MockEventSource.instances.length).toBe(count);
+  });
+});
+
+// ── Readiness handshake (bug B4) ─────────────────────────────────────────────
+//
+// Response headers arrive before the server has added this client to its fan-out
+// list, and pokes are never redelivered, so anything published in that window is
+// lost. Nothing that depends on "pokes will reach me" may key off `onopen`; it
+// waits for the server's `ready` message.
+describe("useSync readiness handshake", () => {
+  it("does not claim connectivity or a live stream on headers alone", async () => {
+    const { connect, isOnline, setConnectivity, streamLive } = await loadFresh();
+
+    connect();
+    setConnectivity(false); // start from a known-down signal
+    MockEventSource.latest.emitHeaders();
+
+    expect(streamLive()).toBe(false);
+    expect(isOnline()).toBe(false);
+  });
+
+  it("goes live only once the server confirms the subscription", async () => {
+    const { connect, isOnline, streamLive } = await loadFresh();
+
+    connect();
+    MockEventSource.latest.emitHeaders();
+    MockEventSource.latest.emitReady();
+
+    expect(streamLive()).toBe(true);
+    expect(isOnline()).toBe(true);
+  });
+
+  it("reconciles on a RECONNECT's ready, not on its headers", async () => {
+    const { connect } = await loadFresh();
+
+    connect();
+    MockEventSource.latest.emitOpen(); // first-ever connect, nothing to reconcile
+    expect(applyDelta).not.toHaveBeenCalled();
+
+    MockEventSource.latest.emitErrorClosed();
+    vi.advanceTimersByTime(1000);
+
+    // Headers on the new stream: still not subscribed, so pulling now could race
+    // a poke into a set we are not in yet.
+    MockEventSource.latest.emitHeaders();
+    expect(applyDelta).not.toHaveBeenCalled();
+
+    MockEventSource.latest.emitReady();
+    expect(applyDelta).toHaveBeenCalled();
+  });
+
+  it("drops the live flag when the stream errors", async () => {
+    const { connect, streamLive } = await loadFresh();
+
+    connect();
+    MockEventSource.latest.emitOpen();
+    expect(streamLive()).toBe(true);
+
+    MockEventSource.latest.emitErrorClosed();
+    expect(streamLive()).toBe(false);
+  });
+});
+
+// ── Offline-gap recovery (bug B3) ────────────────────────────────────────────
+//
+// A stream can die *quietly*: a sleeping laptop, a dropped Wi-Fi link, an expired
+// NAT mapping, and `context.setOffline` in the E2E suite, all kill the connection
+// without firing `onerror`. No error means no reconnect, and since pokes only
+// arrive over SSE the tab then sits stale forever. Recovery must therefore also
+// hang off the connectivity signal, not only off stream errors.
+describe("useSync recovers from an offline gap without an onerror", () => {
+  it("rebuilds the stream when connectivity returns and the stream is not live", async () => {
+    const { connect, setConnectivity } = await loadFresh();
+
+    connect();
+    MockEventSource.latest.emitOpen();
+    const before = MockEventSource.instances.length;
+
+    // The link goes away and comes back WITHOUT the stream ever erroring.
+    setConnectivity(false);
+    setConnectivity(true);
+
+    expect(MockEventSource.instances.length).toBe(before + 1);
+
+    // And the rebuilt stream reconciles the gap once the server confirms it.
+    MockEventSource.latest.emitOpen();
+    expect(applyDelta).toHaveBeenCalled();
+  });
+
+  it("does not rebuild on its own ready→setConnectivity(true) (no reconnect loop)", async () => {
+    const { connect } = await loadFresh();
+
+    connect();
+    MockEventSource.latest.emitOpen(); // ready → setConnectivity(true) re-enters the watcher
+    const count = MockEventSource.instances.length;
+
+    vi.advanceTimersByTime(60_000);
+    expect(MockEventSource.instances.length).toBe(count);
+  });
+
+  it("does not resurrect a stream we deliberately closed", async () => {
+    const { connect, disconnect, setConnectivity } = await loadFresh();
+
+    connect();
+    MockEventSource.latest.emitOpen();
+    disconnect();
+
+    const count = MockEventSource.instances.length;
+    setConnectivity(false);
+    setConnectivity(true);
+    vi.advanceTimersByTime(60_000);
+    expect(MockEventSource.instances.length).toBe(count);
+  });
+
+  it("retries a recovery delta pull that never reached the server", async () => {
+    const { connect } = await loadFresh();
+
+    connect();
+    MockEventSource.latest.emitOpen(); // first connect
+    MockEventSource.latest.emitErrorClosed();
+    vi.advanceTimersByTime(1000);
+
+    // The reconnect's pull fails to reach the server (the board would otherwise
+    // stay stale with nothing scheduled to fix it).
+    applyDelta.mockImplementationOnce(async () => false);
+    MockEventSource.latest.emitOpen();
+    await vi.waitFor(() => expect(applyDelta).toHaveBeenCalledTimes(1));
+
+    // A retry is scheduled on the capped backoff and this one lands.
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(applyDelta).toHaveBeenCalledTimes(2);
+
+    // Converged, so no further retries.
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(applyDelta).toHaveBeenCalledTimes(2);
   });
 });

@@ -1,14 +1,23 @@
 name: tests
 
-# Gates every push / PR on the backend test suite before any image is shipped.
-# Runs against PostgreSQL (the primary target) — the pytest conftest starts a
-# throwaway `postgres:16-alpine` Docker container itself, which the GitHub
-# ubuntu runners can do out of the box, so no `services:` block is needed.
+# Gates every push / PR on the backend and frontend unit suites before any image
+# is shipped. The backend runs against PostgreSQL (the primary target): the
+# pytest conftest starts a throwaway `postgres:16-alpine` Docker container
+# itself, which the GitHub ubuntu runners can do out of the box, so no
+# `services:` block is needed. The Playwright E2E suite needs a full stack and
+# stays a local run (see run_e2e_tests.sh).
 #
 # Dependencies are installed from pdm.lock (the project's real lockfile) so CI
 # uses the exact versions the maintainer runs — in particular the OIDC test
 # stack (oidc-provider-mock / joserfc / authlib), which breaks on newer,
 # unpinned resolutions ("Invalid key_op 'sign' for public key").
+#
+# Both test jobs also emit how many tests they ran; the `badges` job sums those
+# and publishes a shields.io endpoint JSON for the README test-count badge. That
+# job runs only on main and only when both suites passed, so a red run leaves
+# the last green count standing while the workflow status badge turns red. No
+# secrets and no manual upkeep: it force-pushes a single-commit orphan `badges`
+# branch with the repo's own GITHUB_TOKEN, creating that branch on first run.
 on:
   push:
     branches: ["**"]
@@ -55,4 +64,91 @@ jobs:
 
       - name: Run backend test suite (PostgreSQL)
         working-directory: CheckCheck/backend
+        env:
+          PYTEST_JUNIT_XML: ${{ github.workspace }}/pytest-junit.xml
         run: pdm run bash ../../run_backend_tests_with_postgres.sh
+
+      # Counted from the JUnit report of the main pass, so parametrized cases
+      # count individually and the invite-flow second pass (a re-run of three
+      # modules under a different server flag) is not double-counted.
+      - name: Count backend tests
+        run: |
+          python - <<'PY' > backend-count.txt
+          import xml.etree.ElementTree as ET
+          root = ET.parse("pytest-junit.xml").getroot()
+          suites = [root] if root.tag == "testsuite" else root.iter("testsuite")
+          print(sum(int(s.get("tests", 0)) - int(s.get("skipped", 0)) for s in suites))
+          PY
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: test-count-backend
+          path: backend-count.txt
+          retention-days: 1
+
+  vitest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      # `bun install` runs the postinstall (`nuxt prepare`): the unit suite is
+      # Nuxt-free but still resolves through the generated .nuxt aliases.
+      - name: Install frontend deps
+        working-directory: CheckCheck/frontend
+        run: bun install --frozen-lockfile
+
+      - name: Run frontend unit suite (vitest)
+        working-directory: CheckCheck/frontend
+        run: bun run test:unit --reporter=default --reporter=json --outputFile=vitest-report.json
+
+      - name: Count frontend tests
+        working-directory: CheckCheck/frontend
+        run: |
+          python3 -c "import json;print(json.load(open('vitest-report.json'))['numPassedTests'])" > frontend-count.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: test-count-frontend
+          path: CheckCheck/frontend/frontend-count.txt
+          retention-days: 1
+
+  badges:
+    needs: [pytest-postgres, vitest]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: test-count-*
+          path: counts
+
+      - name: Build and publish badge endpoint
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          backend=$(cat counts/test-count-backend/backend-count.txt)
+          frontend=$(cat counts/test-count-frontend/frontend-count.txt)
+          total=$((backend + frontend))
+          echo "backend=$backend frontend=$frontend total=$total"
+
+          mkdir badges-out && cd badges-out
+          printf '{"schemaVersion":1,"label":"tests passing","message":"%s","color":"brightgreen"}\n' \
+            "$total" > tests.json
+
+          # Single-commit orphan branch, force-pushed: it never grows history and
+          # creates itself on the first run, so there is nothing to set up by hand.
+          git init -q
+          git checkout -q -b badges
+          git add tests.json
+          git -c user.name="github-actions[bot]" \
+              -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+              commit -qm "badges: $total tests passing (${GITHUB_SHA:0:7})"
+          git push -q --force \
+            "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" badges

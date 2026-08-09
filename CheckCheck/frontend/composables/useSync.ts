@@ -6,8 +6,9 @@ import { useShareStore } from "@/stores/share";
 import { useNotificationStore } from "@/stores/notification";
 import { useInviteStore } from "@/stores/invite";
 import { isLocalFirstEnabled } from "@/utils/localFirst";
-import { setConnectivity, probe } from "@/utils/connectivity";
+import { setConnectivity, probe, onConnectivityChange } from "@/utils/connectivity";
 import { applyDelta } from "@/utils/localSnapshot";
+import { setStreamLive } from "@/utils/syncStatus";
 
 export const useSync = createSharedComposable(() => {
   const pinia = useNuxtApp().$pinia as Pinia;
@@ -59,7 +60,8 @@ export const useSync = createSharedComposable(() => {
   // explicit reconnect the client stays stuck "Offline" after a server-only
   // outage until a reload (see docs/ISSUES.md). So on any `onerror` we schedule a
   // rebuild ourselves; a successful `onopen` (ours or the browser's own retry)
-  // cancels the pending timer and restores the `setConnectivity(true)` path.
+  // cancels the pending timer, and the stream's `ready` message restores the
+  // `setConnectivity(true)` path.
   const RECONNECT_MIN_MS = 1_000;
   const RECONNECT_MAX_MS = 30_000;
   let reconnectDelay = RECONNECT_MIN_MS;
@@ -72,6 +74,23 @@ export const useSync = createSharedComposable(() => {
     }
   }
 
+  /**
+   * Tear the current stream down and build a fresh one.
+   *
+   * `connect()` no-ops if a stream already exists, so `disconnect()` first
+   * guarantees a new EventSource. `hasOpened` is preserved across the rebuild:
+   * we *had* a live connection before the gap, so the next `ready` must run the
+   * reconcile delta-pull (catch up on everything that changed while we were
+   * dark), not treat this as a fresh initial load.
+   */
+  function rebuildStream(reason: string) {
+    console.info(`[sync] ${reason}: rebuilding SSE stream`);
+    const wasOpened = hasOpened;
+    disconnect();
+    connect();
+    hasOpened = wasOpened;
+  }
+
   function scheduleReconnect() {
     if (reconnectTimer !== null) return; // already pending
     const delay = reconnectDelay;
@@ -79,16 +98,85 @@ export const useSync = createSharedComposable(() => {
     console.warn(`[sync] SSE error — reconnecting in ${delay}ms`);
     reconnectTimer = setTimeout(() => {
       reconnectTimer = null;
-      // Tear down the dead stream and rebuild it. `connect()` no-ops if a stream
-      // already exists, so `disconnect()` first guarantees a fresh EventSource.
-      // Preserve `hasOpened` across the rebuild: we *had* a live connection before
-      // the outage, so the next `onopen` must run the reconcile delta-pull (catch
-      // up on everything that changed while the server was down), not treat this
-      // as a fresh initial load.
-      const wasOpened = hasOpened;
-      disconnect();
-      connect();
-      hasOpened = wasOpened;
+      rebuildStream("reconnect timer fired");
+    }, delay);
+  }
+
+  // ── Recovery that does not depend on `onerror` (bug B3) ─────────────────────
+  //
+  // Everything above hangs off the stream reporting its own failure. A stream can
+  // also just go *quiet*: a sleeping laptop, a dropped Wi-Fi link, a silently
+  // expired NAT mapping, and `context.setOffline` in the E2E suite, all kill the
+  // connection without ever firing `onerror`. No error means no `scheduleReconnect`,
+  // no reconnect means no `ready`, and since pokes only arrive over SSE the tab
+  // then sits permanently stale with nothing scheduled to fix it.
+  //
+  // So we also watch the connectivity signal directly and force a rebuild when it
+  // comes back up while the stream is not live.
+  //
+  // `streamLive` is the guard that keeps this from chasing its own tail: the
+  // `ready` handler itself calls `setConnectivity(true)`, which re-enters this
+  // listener. It marks the stream live BEFORE that call, so this sees a live
+  // stream and does nothing.
+  let streamLive = false;
+  let stopConnectivityWatch: (() => void) | null = null;
+  // True while a stream is wanted (between connect() and an explicit disconnect()).
+  // Keeps a connectivity flip from resurrecting a stream we deliberately closed
+  // (logout, unmount).
+  let wantStream = false;
+
+  function markStreamLive(live: boolean) {
+    streamLive = live;
+    setStreamLive(live);
+  }
+
+  // Subscribed once for the composable's lifetime rather than per connect: the
+  // listener rebuilds the stream, and adding/removing listeners from inside a
+  // listener would re-enter the notification loop.
+  function watchConnectivity() {
+    if (stopConnectivityWatch) return;
+    stopConnectivityWatch = onConnectivityChange((online) => {
+      if (!online) {
+        // Whatever the stream believes, it cannot be delivering pokes now.
+        markStreamLive(false);
+        return;
+      }
+      if (!wantStream || streamLive) return;
+      clearReconnect();
+      reconnectDelay = RECONNECT_MIN_MS;
+      rebuildStream("connectivity restored");
+    });
+  }
+
+  // ── Delta-pull retry ────────────────────────────────────────────────────────
+  //
+  // A recovery pull that never reaches the server leaves the board stale with
+  // nothing scheduled (`applyDelta` is best-effort and leaves the cursor
+  // untouched). It reports whether it got through, so retry on the same capped
+  // backoff the reconnect uses until one lands.
+  let deltaRetryDelay = RECONNECT_MIN_MS;
+  let deltaRetryTimer: ReturnType<typeof setTimeout> | null = null;
+
+  function clearDeltaRetry() {
+    if (deltaRetryTimer !== null) {
+      clearTimeout(deltaRetryTimer);
+      deltaRetryTimer = null;
+    }
+  }
+
+  async function pullDeltaWithRetry(): Promise<void> {
+    clearDeltaRetry();
+    const reached = await applyDelta(pinia);
+    if (reached) {
+      deltaRetryDelay = RECONNECT_MIN_MS;
+      return;
+    }
+    const delay = deltaRetryDelay;
+    deltaRetryDelay = Math.min(deltaRetryDelay * 2, RECONNECT_MAX_MS);
+    console.warn(`[sync] delta pull did not reach the server, retrying in ${delay}ms`);
+    deltaRetryTimer = setTimeout(() => {
+      deltaRetryTimer = null;
+      void pullDeltaWithRetry();
     }, delay);
   }
 
@@ -105,7 +193,7 @@ export const useSync = createSharedComposable(() => {
       // The frozen tab may still believe it's online; confirm reachability first
       // (this also flips the connectivity signal back so the outbox resumes
       // draining and online-only surfaces re-enable), then pull the delta.
-      if (await probe()) void applyDelta(pinia);
+      if (await probe()) void pullDeltaWithRetry();
       return;
     }
     checkListStore.resync();
@@ -113,6 +201,8 @@ export const useSync = createSharedComposable(() => {
   }
 
   function connect() {
+    wantStream = true;
+    watchConnectivity();
     if (es) return;
     hasOpened = false;
     if (typeof document !== "undefined") {
@@ -120,13 +210,26 @@ export const useSync = createSharedComposable(() => {
     }
     es = new EventSource("/api/sync");
     es.onopen = () => {
-      // A live stream means our manual-reconnect backoff can reset to its floor.
+      // Response headers arrived. That proves the request was answered, NOT that
+      // the server has subscribed us to the fan-out (it appends us to its client
+      // list only once it starts iterating the stream body). Pokes are never
+      // redelivered, so acting on `onopen` leaves a window in which a change
+      // elsewhere is lost for good (bug B4). Everything that depends on "pokes
+      // will reach me" therefore waits for the server's `ready` message below;
+      // here we only reset the reconnect backoff, which is purely about the
+      // request having succeeded.
       clearReconnect();
       reconnectDelay = RECONNECT_MIN_MS;
+    };
+    // The server's readiness handshake: emitted as the first message of the
+    // stream, immediately after it has added us to its subscriber set.
+    es.addEventListener("ready", () => {
       // A live sync socket proves real server reachability — feed the outbox's
       // connectivity signal (WI-7) so a reconnect resumes draining queued writes.
       // Harmless flag-off (no outbox listens); gated to avoid confusing the
-      // legacy path.
+      // legacy path. Mark the stream live FIRST: `setConnectivity` re-enters the
+      // connectivity watcher, which must see a live stream and stand down.
+      markStreamLive(true);
       if (isLocalFirstEnabled()) setConnectivity(true);
       if (!hasOpened) {
         hasOpened = true;
@@ -137,13 +240,13 @@ export const useSync = createSharedComposable(() => {
       // triggered — no full board refetch. Flag-off keeps the legacy resync.
       if (isLocalFirstEnabled()) {
         console.info("[sync] SSE reconnected — pulling delta");
-        void applyDelta(pinia);
+        void pullDeltaWithRetry();
         return;
       }
       console.info("[sync] SSE reconnected — resyncing store");
       checkListStore.resync();
       checkListStore.fetchCounts();
-    };
+    });
     es.onmessage = (event: MessageEvent) => {
       try {
         handle(JSON.parse(event.data) as SyncNotificationType);
@@ -158,6 +261,7 @@ export const useSync = createSharedComposable(() => {
       // outbox stops draining and online-only surfaces (WI-12) disable; `onopen`
       // flips it back true on reconnect. Gated flag-on like onopen so the legacy
       // path's behaviour is untouched.
+      markStreamLive(false);
       if (isLocalFirstEnabled()) setConnectivity(false);
       // Always self-manage the reconnect rather than trusting the browser's own
       // retry. `onerror` fires in two situations and we can't reliably tell them
@@ -176,7 +280,10 @@ export const useSync = createSharedComposable(() => {
   }
 
   function disconnect() {
+    wantStream = false;
     clearReconnect();
+    clearDeltaRetry();
+    markStreamLive(false);
     es?.close();
     es = null;
     hasOpened = false;

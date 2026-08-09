@@ -393,6 +393,10 @@ CheckCheck/backend/tests/testdb.sqlite
 *.env
 *.sqlite
 
+# Test reports (CI test-count badge, and local runs of the same commands)
+pytest-junit.xml
+CheckCheck/frontend/vitest-report.json
+
 # Playwright E2E
 CheckCheck/frontend/playwright-report/
 CheckCheck/frontend/test-results/

@@ -215,7 +215,7 @@ export async function clearLocalState(): Promise<void> {
 // don't race the cursor.
 
 /** Serialises overlapping pulls (bursty pokes) — idempotent, but avoids churn. */
-let syncChain: Promise<void> = Promise.resolve();
+let syncChain: Promise<unknown> = Promise.resolve();
 
 /** A delta with nothing in it — the signal to stop walking the cursor (§3). */
 function isEmptyDelta(res: ChangesResponseType): boolean {
@@ -483,8 +483,11 @@ async function pullAndApply(pinia: Pinia, opts?: { sinceSeq?: number }): Promise
  *
  * @param opts.sinceSeq the poke's `server_seq`; skips the pull when the client
  *   is already caught up (§9b).
+ * @returns whether the pull actually reached the server. Callers that are
+ *   *recovering* (an SSE reconnect, a connectivity flip) act on a false to retry;
+ *   a stale board with nothing scheduled to fix it is the failure mode of bug B3.
  */
-export function applyDelta(pinia: Pinia, opts?: { sinceSeq?: number }): Promise<void> {
+export function applyDelta(pinia: Pinia, opts?: { sinceSeq?: number }): Promise<boolean> {
   const next = syncChain
     .then(async () => {
       // Drive the global sync-status indicator (WI-14): spinner on for the
@@ -496,9 +499,11 @@ export function applyDelta(pinia: Pinia, opts?: { sinceSeq?: number }): Promise<
       } finally {
         endSync(ok);
       }
+      return ok;
     })
     .catch((err) => {
       console.warn("[localFirst] applyDelta failed", err);
+      return false;
     });
   syncChain = next;
   return next;

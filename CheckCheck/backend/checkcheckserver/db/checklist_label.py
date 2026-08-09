@@ -125,6 +125,26 @@ class ChecklistLabelCRUD(
             grouped.setdefault(checklist_id, []).append(label)
         return grouped
 
+    async def list_checklist_ids_for_label(
+        self,
+        label_id: uuid.UUID,
+        user_id: uuid.UUID,
+    ) -> List[uuid.UUID]:
+        """Checklists this user has attached a given label to.
+
+        Used to tell the user's other devices which cards a label-level change
+        (rename, recolour, delete) altered. The link rows survive a label
+        tombstone, so this answers the same question before and after one.
+        """
+        query = select(CheckListLabel.checklist_id).where(
+            and_(
+                CheckListLabel.label_id == label_id,
+                CheckListLabel.user_id == user_id,
+            )
+        )
+        results = await self.session.exec(query)
+        return list(results.unique().all())
+
     async def delete(
         self,
         label_id: uuid.UUID,

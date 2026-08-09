@@ -26,10 +26,12 @@ export const useSyncStatus = createSharedComposable(() => {
   const status = getSyncStatus();
   const syncing = ref(status.syncing);
   const lastSyncedAt = ref<number | null>(status.lastSyncedAt);
+  const streamLive = ref(status.streamLive);
   const stop = onSyncStatusChange(() => {
     const s = getSyncStatus();
     syncing.value = s.syncing;
     lastSyncedAt.value = s.lastSyncedAt;
+    streamLive.value = s.streamLive;
   });
   onScopeDispose(stop);
 
@@ -54,6 +56,8 @@ export const useSyncStatus = createSharedComposable(() => {
     syncing,
     /** Epoch ms of the last server-reaching pull, or null if never. */
     lastSyncedAt,
+    /** True once the server has confirmed our sync subscription (pokes arrive). */
+    streamLive,
     syncNow,
   };
 });

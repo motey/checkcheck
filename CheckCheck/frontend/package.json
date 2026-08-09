@@ -14,6 +14,7 @@
     "test:e2e:ui": "playwright test --ui",
     "test:e2e:headed": "playwright test --headed",
     "test:e2e:report": "playwright show-report",
+    "test:e2e:flakehunt": "playwright test --repeat-each=5 --retries=0",
     "test:e2e:version": "playwright --version",
     "test:e2e:install": "playwright install chromium"
   },
@@ -53,6 +54,8 @@
     "vitest": "^2"
   },
   "overrides": {
-    "pathe": "2.0.3"
+    "pathe": "2.0.3",
+    "caniuse-lite": "^1.0.30001809",
+    "baseline-browser-mapping": "^2.11.13"
   }
 }

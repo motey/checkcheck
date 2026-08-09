@@ -8,14 +8,24 @@ const E2E_BACKEND_PORT = 8182;
 export default defineConfig({
   testDir: "./tests/e2e",
   timeout: 30_000,
-  // Tests share backend state; run sequentially to keep assertions predictable.
+  // Every spec drives the SAME account against the SAME database, so any two
+  // specs running at once corrupt each other's board (card counts, board order,
+  // archive state). `fullyParallel: false` alone does NOT prevent that: it only
+  // serialises tests *within* a file, while files still run on separate workers.
+  // One worker is the only setting that actually makes assertions on absolute
+  // board state valid. See docs/plans/E2E_STABILITY.md (S5) for the per-worker
+  // account work that will buy the parallelism back.
   fullyParallel: false,
+  workers: 1,
   retries: 1,
   reporter: [["list"], ["html", { open: "never", outputFolder: "playwright-report" }]],
 
   use: {
     baseURL: `http://localhost:${E2E_BACKEND_PORT}`,
-    trace: "on",
+    // Recording a trace for every test costs a noticeable slice of the run.
+    // Keep them only where they are read: failures and retried tests. Pass
+    // `--trace on` on the command line when debugging a single spec.
+    trace: "retain-on-failure",
     screenshot: "only-on-failure",
     // Emulate prefers-reduced-motion so the Phase 6 reduced-motion CSS disables
     // the card hover-lift and FormKit drag reflow animations during tests. This

@@ -13,11 +13,19 @@
 #   ./run_backend_tests_with_postgres.sh --dev           # stop at first failure, verbose
 #   ./run_backend_tests_with_postgres.sh tests/tests_auth.py   # a single file
 #   ./run_backend_tests_with_postgres.sh -k checklist    # filter by name
+#
+# Environment:
+#   PYTEST_JUNIT_XML   Write a JUnit XML report for the main pass to this path.
+#                      CI uses it to count tests for the README badge; leave it
+#                      unset locally.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 PYTEST_ARGS=("--db=postgres")
+if [ -n "${PYTEST_JUNIT_XML:-}" ]; then
+    PYTEST_ARGS+=("--junitxml=$PYTEST_JUNIT_XML")
+fi
 HAS_SELECTION=0
 for arg in "$@"; do
     if [ "$arg" = "--dev" ]; then
