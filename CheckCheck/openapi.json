@@ -8585,6 +8585,18 @@
       },
       "PublicLinkCreateRequest": {
         "properties": {
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name",
+            "description": "Optional short label for this link, so several links on one card can be told apart. Trimmed, at most 60 characters. Leave it empty (or omit it) for an automatic name like 'Link-3'."
+          },
           "permission": {
             "$ref": "#/components/schemas/SharePermission",
             "description": "What an anonymous visitor holding this link may do.",
@@ -8631,6 +8643,11 @@
             "format": "uuid",
             "title": "Checklist Id"
           },
+          "name": {
+            "type": "string",
+            "title": "Name",
+            "description": "The owner's short label for this link. Always set: create resolves an empty name to an automatic one. Owner-only in practice, since this model is returned by the owner-gated endpoints alone."
+          },
           "permission": {
             "$ref": "#/components/schemas/SharePermission"
           },
@@ -8670,6 +8687,7 @@
         "required": [
           "id",
           "checklist_id",
+          "name",
           "permission",
           "enabled",
           "password_protected",
@@ -8783,6 +8801,11 @@
             "format": "uuid",
             "title": "Checklist Id"
           },
+          "name": {
+            "type": "string",
+            "title": "Name",
+            "description": "The owner's short label for this link. Always set: create resolves an empty name to an automatic one. Owner-only in practice, since this model is returned by the owner-gated endpoints alone."
+          },
           "permission": {
             "$ref": "#/components/schemas/SharePermission"
           },
@@ -8817,6 +8840,7 @@
         "required": [
           "id",
           "checklist_id",
+          "name",
           "permission",
           "enabled",
           "password_protected",
@@ -8827,6 +8851,18 @@
       },
       "PublicLinkUpdateRequest": {
         "properties": {
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name",
+            "description": "Rename the link. Send an empty string or an explicit null to drop your own name and get the automatic one back; omit the key to leave the name unchanged."
+          },
           "permission": {
             "anyOf": [
               {

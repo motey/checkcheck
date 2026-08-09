@@ -60,6 +60,8 @@ from checkcheckserver.db.checklist_position import (
 from checkcheckserver.model.checklist_public_share import (
     CheckListPublicShare,
     CheckListPublicShareCreate,
+    DEFAULT_NAME_PREFIX,
+    next_default_name,
 )
 from checkcheckserver.db.checklist_public_share import CheckListPublicShareCRUD
 from checkcheckserver.api.share_password import hash_share_password
@@ -785,7 +787,42 @@ def _to_naive_utc(
     return value
 
 
+MAX_PUBLIC_LINK_NAME_LENGTH = 60
+
+
+def _normalize_link_name(value: Optional[str]) -> Optional[str]:
+    """Trim an incoming link name; ``None`` means "give it the automatic name".
+
+    Empty and whitespace-only collapse to ``None`` on purpose: a link always ends
+    up with a name (see the plan's decisions 3 and 4), so blanking one is a
+    request for a fresh default rather than for an unnamed row. The cap lives here
+    and not on the column, so going over it is a 400 with a sentence in it instead
+    of a driver error. The name is never echoed back in that sentence.
+    """
+    text = (value or "").strip()
+    if not text:
+        return None
+    if len(text) > MAX_PUBLIC_LINK_NAME_LENGTH:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                f"That name is too long. Keep it to {MAX_PUBLIC_LINK_NAME_LENGTH} "
+                "characters or fewer."
+            ),
+        )
+    return text
+
+
 class PublicLinkCreateRequest(BaseModel):
+    name: Optional[str] = Field(
+        default=None,
+        description=(
+            "Optional short label for this link, so several links on one card can "
+            f"be told apart. Trimmed, at most {MAX_PUBLIC_LINK_NAME_LENGTH} "
+            "characters. Leave it empty (or omit it) for an automatic name like "
+            "'Link-3'."
+        ),
+    )
     permission: SharePermission = Field(
         default=SharePermission.view,
         description="What an anonymous visitor holding this link may do.",
@@ -809,6 +846,14 @@ class PublicLinkCreateRequest(BaseModel):
 
 
 class PublicLinkUpdateRequest(BaseModel):
+    name: Optional[str] = Field(
+        default=None,
+        description=(
+            "Rename the link. Send an empty string or an explicit null to drop "
+            "your own name and get the automatic one back; omit the key to leave "
+            "the name unchanged."
+        ),
+    )
     permission: Optional[SharePermission] = None
     enabled: Optional[bool] = None
     expires_at: Optional[datetime.datetime] = Field(
@@ -833,6 +878,13 @@ class PublicLinkRead(BaseModel):
 
     id: uuid.UUID
     checklist_id: uuid.UUID
+    name: str = Field(
+        description=(
+            "The owner's short label for this link. Always set: create resolves an "
+            "empty name to an automatic one. Owner-only in practice, since this "
+            "model is returned by the owner-gated endpoints alone."
+        ),
+    )
     permission: SharePermission
     enabled: bool
     expires_at: Optional[datetime.datetime] = None
@@ -854,6 +906,9 @@ def _to_public_link_read(link: CheckListPublicShare) -> PublicLinkRead:
     return PublicLinkRead(
         id=link.id,
         checklist_id=link.checklist_id,
+        # ``or`` is a last-ditch fallback for a row written outside the API; create
+        # and migration 0018 both guarantee a real name.
+        name=link.name or DEFAULT_NAME_PREFIX,
         permission=link.permission,
         enabled=link.enabled,
         expires_at=link.expires_at,
@@ -893,9 +948,18 @@ async def create_public_link(
         CheckListPublicShareCRUD.get_crud
     ),
 ) -> PublicLinkCreateResult:
+    name = _normalize_link_name(body.name)
+    if name is None:
+        # Numbered off the names already on this card, not off their count: see
+        # ``next_default_name``.
+        existing = await public_share_crud.list_for_checklist(
+            checklist_id=checklist_access.checklist.id
+        )
+        name = next_default_name(existing_link.name for existing_link in existing)
     link = await public_share_crud.create(
         CheckListPublicShareCreate(
             checklist_id=checklist_access.checklist.id,
+            name=name,
             permission=body.permission,
             expires_at=body.expires_at,
             password_hash=(
@@ -956,6 +1020,21 @@ async def update_public_link(
     # fields the client actually sent are applied. ``password`` is not a column on
     # the model, so the base update ignores it — it is handled separately below so
     # the plaintext is hashed (and never written through verbatim).
+    #
+    # ``name`` *is* a column, so unlike ``password`` it would be written straight
+    # through, and an explicit null would leave a nameless link. Resolve it here
+    # instead: blanking a name means "give me the automatic one back". The link
+    # being renamed is left out of the numbering, so blanking the highest
+    # ``Link-<n>`` on a card returns that same name rather than the next one.
+    if "name" in body.model_fields_set:
+        body.name = _normalize_link_name(body.name)
+        if body.name is None:
+            siblings = await public_share_crud.list_for_checklist(
+                checklist_id=checklist_access.checklist.id
+            )
+            body.name = next_default_name(
+                sibling.name for sibling in siblings if sibling.id != link.id
+            )
     updated = await public_share_crud.update(update_obj=body, id_=link.id)
     if "password" in body.model_fields_set:
         # Explicit string -> (re)protect; explicit null -> clear protection.

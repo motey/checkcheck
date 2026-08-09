@@ -24,6 +24,8 @@ from typing import Callable, Dict, List, Optional
 import pytest
 import requests
 
+from checkcheckserver.model.checklist_public_share import next_default_name
+
 from utils import (
     req,
     get_server_base_url,
@@ -72,12 +74,15 @@ def _create_public_link(
     password: Optional[str] = None,
     access_token: str = None,
     expected_http_code: int = None,
+    name: Optional[str] = None,
 ) -> Dict:
     body: Dict = {"permission": permission}
     if expires_at is not None:
         body["expires_at"] = expires_at
     if password is not None:
         body["password"] = password
+    if name is not None:
+        body["name"] = name
     return req(
         f"api/checklist/{checklist_id}/public-links",
         "post",
@@ -375,6 +380,179 @@ def test_public_link_patch_and_delete_cross_checklist_404():
     )
     # link B is untouched
     req(f"api/public/checklist/{link_b['token']}", suppress_auth=True, expected_http_code=200)
+
+
+# ── link names ────────────────────────────────────────────────────────────────
+#
+# Every link carries a non-empty ``name`` so several links on one card can be
+# told apart. It is stored (never computed at render time), generated when the
+# owner supplies none, and regenerated when the owner blanks it. See
+# ``docs/plans/NAMED_PUBLIC_LINKS.md``.
+
+
+def test_link_default_names_are_numbered():
+    checklist_id = _create_checklist("PublicNameDefaults")
+
+    assert _create_public_link(checklist_id, "view")["name"] == "Link-1"
+    assert _create_public_link(checklist_id, "view")["name"] == "Link-2"
+
+    links = req(f"api/checklist/{checklist_id}/public-links")
+    assert sorted(entry["name"] for entry in links) == ["Link-1", "Link-2"]
+
+
+def test_link_name_is_trimmed_on_create():
+    checklist_id = _create_checklist("PublicNameTrim")
+    created = _create_public_link(checklist_id, "view", name="  Groceries  ")
+    assert created["name"] == "Groceries"
+
+    links = req(f"api/checklist/{checklist_id}/public-links")
+    entry = find_first_dict_in_list(links, {"id": created["id"]})
+    assert entry["name"] == "Groceries"
+
+
+def test_link_name_over_the_cap_is_400_and_creates_nothing():
+    checklist_id = _create_checklist("PublicNameTooLong")
+    _create_public_link(checklist_id, "view", name="x" * 61, expected_http_code=400)
+    assert req(f"api/checklist/{checklist_id}/public-links") == []
+
+    # the cap itself is still allowed
+    assert _create_public_link(checklist_id, "view", name="x" * 60)["name"] == "x" * 60
+
+
+def test_default_name_does_not_repeat_after_a_delete():
+    """The generated name counts *up from the highest existing one*, not from the
+    number of links: create three, delete the second, and a fourth create must not
+    hand out a second ``Link-3``."""
+    checklist_id = _create_checklist("PublicNameAfterDelete")
+    first = _create_public_link(checklist_id, "view")
+    second = _create_public_link(checklist_id, "view")
+    third = _create_public_link(checklist_id, "view")
+    assert [first["name"], second["name"], third["name"]] == [
+        "Link-1",
+        "Link-2",
+        "Link-3",
+    ]
+
+    req(
+        f"api/checklist/{checklist_id}/public-links/{second['id']}",
+        "delete",
+        expected_http_code=204,
+    )
+    assert _create_public_link(checklist_id, "view")["name"] == "Link-4"
+
+    names = [entry["name"] for entry in req(f"api/checklist/{checklist_id}/public-links")]
+    assert len(names) == len(set(names)), f"duplicate link names on one card: {names}"
+
+
+def test_link_rename_via_patch():
+    checklist_id = _create_checklist("PublicNameRename")
+    link = _create_public_link(checklist_id, "view")
+
+    updated = req(
+        f"api/checklist/{checklist_id}/public-links/{link['id']}",
+        "patch",
+        b={"name": "  Family  "},
+        expected_http_code=200,
+    )
+    assert updated["name"] == "Family"
+
+    links = req(f"api/checklist/{checklist_id}/public-links")
+    entry = find_first_dict_in_list(links, {"id": link["id"]})
+    assert entry["name"] == "Family"
+
+
+def test_blanking_a_name_regenerates_a_default():
+    """Empty string and explicit null both mean "I do not want to call it
+    anything", and the honest answer is the automatic name, not a nameless row.
+    The link being renamed is excluded from the numbering, so the only link on a
+    card gets ``Link-1`` back rather than ``Link-2``."""
+    checklist_id = _create_checklist("PublicNameBlank")
+    link = _create_public_link(checklist_id, "view", name="Groceries")
+
+    for blank in ("", None):
+        updated = req(
+            f"api/checklist/{checklist_id}/public-links/{link['id']}",
+            "patch",
+            b={"name": blank},
+            expected_http_code=200,
+        )
+        assert updated["name"] == "Link-1"
+        req(
+            f"api/checklist/{checklist_id}/public-links/{link['id']}",
+            "patch",
+            b={"name": "Groceries"},
+            expected_http_code=200,
+        )
+
+    # with a higher-numbered sibling around, blanking picks up from that one
+    _create_public_link(checklist_id, "view", name="Link-4")
+    updated = req(
+        f"api/checklist/{checklist_id}/public-links/{link['id']}",
+        "patch",
+        b={"name": ""},
+        expected_http_code=200,
+    )
+    assert updated["name"] == "Link-5"
+
+
+def test_patch_without_a_name_key_leaves_the_name_alone():
+    """The regression ``exclude_unset`` exists to prevent: toggling an unrelated
+    field must not blank (or regenerate) the name."""
+    checklist_id = _create_checklist("PublicNameUnset")
+    link = _create_public_link(checklist_id, "view", name="Contractors")
+
+    updated = req(
+        f"api/checklist/{checklist_id}/public-links/{link['id']}",
+        "patch",
+        b={"enabled": False},
+        expected_http_code=200,
+    )
+    assert updated["name"] == "Contractors"
+
+
+def test_link_rename_is_owner_only():
+    editor_token = _make_user_token("pub-rename-editor")
+    editor_id = _user_id(editor_token)
+    checklist_id = _create_checklist("PublicNameOwnerOnly")
+    _share(checklist_id, editor_id, "edit")
+    link = _create_public_link(checklist_id, "view", name="Mine")
+
+    req(
+        f"api/checklist/{checklist_id}/public-links/{link['id']}",
+        "patch",
+        b={"name": "Theirs"},
+        access_token=editor_token,
+        expected_http_code=403,
+    )
+    links = req(f"api/checklist/{checklist_id}/public-links")
+    assert find_first_dict_in_list(links, {"id": link["id"]})["name"] == "Mine"
+
+
+def test_link_name_never_reaches_the_anonymous_surface():
+    """The name is the owner's private note about who holds a link. It is only
+    ever returned by the owner-gated management endpoints; the anonymous surface
+    returns the checklist, never the link row."""
+    checklist_id = _create_checklist("PublicNameSecrecy")
+    _create_item(checklist_id, "milk")
+    token = _create_public_link(checklist_id, "view", name="Contractors")["token"]
+
+    card = req(f"api/public/checklist/{token}", suppress_auth=True)
+    assert card["name"] == "PublicNameSecrecy", "the card's own name is not the link's"
+    assert "Contractors" not in json.dumps(card)
+
+    items = req(f"api/public/checklist/{token}/item", suppress_auth=True)
+    assert "Contractors" not in json.dumps(items)
+
+
+def test_next_default_name_unit():
+    """The numbering rule on its own, without HTTP in the way."""
+    assert next_default_name([]) == "Link-1"
+    assert next_default_name(["Link-1", "Link-3"]) == "Link-4"
+    assert next_default_name(["Family"]) == "Link-1"
+    assert next_default_name(["link-2"]) == "Link-1", "case-sensitive on purpose"
+    assert next_default_name(["Link-007"]) == "Link-8"
+    assert next_default_name([None, "Link-2"]) == "Link-3"
+    assert next_default_name(["Link-2 spare", "Link-2"]) == "Link-3"
 
 
 # ── link management: delete ───────────────────────────────────────────────────
