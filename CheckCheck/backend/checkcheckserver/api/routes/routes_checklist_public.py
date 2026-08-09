@@ -66,6 +66,9 @@ from checkcheckserver.model.checklist_item import (
 from checkcheckserver.model.checklist_item_position import (
     CheckListItemPositionCreate,
     CheckListItemPositionApiCreate,
+    CheckListItemPositionApiUpdate,
+    CheckListItemPositionUpdate,
+    CheckListItemPositionPublicWithoutChecklistID,
 )
 from checkcheckserver.model.checklist_item_state import (
     CheckListItemStateCreate,
@@ -95,8 +98,57 @@ def _utcnow() -> datetime.datetime:
     return datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None)
 
 
+async def _public_card_response(
+    checklist: CheckList,
+    scope_to_user_id: uuid.UUID,
+    my_level: ChecklistAccessLevel,
+    checklist_label_crud: ChecklistLabelCRUD,
+    checklist_position_crud: CheckListPositionCRUD,
+) -> CheckListApiWithSubObj:
+    """Finish a checklist ORM object into the card DTO this surface returns.
+
+    ``CheckList.position`` and ``CheckList.labels`` are both per-user, and the
+    eager loads collapse every collaborator's rows into one arbitrary slot, so
+    every route returning a card has to re-scope them. ``scope_to_user_id`` is the
+    **owner** on the anonymous routes (an anonymous visitor has no per-user rows)
+    and the joining user on ``join_public_checklist``.
+
+    scope_position_to_caller uses set_committed_value rather than plain
+    assignment: the position relationship has delete-orphan cascade, so
+    re-pointing it would orphan the arbitrarily joined-loaded row, and the labels
+    query's autoflush (or any later commit) would then DELETE another
+    collaborator's position row.
+    """
+    owner_position = await checklist_position_crud.get(
+        checklist_id=checklist.id, user_id=scope_to_user_id
+    )
+    scope_position_to_caller(checklist, owner_position)
+    checklist.labels = await checklist_label_crud.list_labels_for_user(
+        checklist_id=checklist.id, user_id=scope_to_user_id
+    )
+    # For an anonymous caller this is the link's level and never "owner".
+    attach_my_permission(checklist, my_level)
+    return checklist
+
+
 class UnlockRequest(BaseModel):
     password: str = Field(description="The link's passphrase.")
+
+
+class PublicCheckListUpdate(BaseModel):
+    """The fields an anonymous visitor may change on a publicly shared card.
+
+    Deliberately narrower than ``CheckListUpdate``: a link is a capability handed
+    to whoever holds the URL, so it may edit the content it exists to share
+    (``name``, ``text``) and the one display flag that is stored on the card
+    rather than per-user (``checked_items_collapsed``), and nothing else.
+    ``color_id``, ``checked_items_seperated`` and ``suggest_existing_items`` are
+    the owner's settings for the card and stay owner-only.
+    """
+
+    name: Optional[str] = None
+    text: Optional[str] = None
+    checked_items_collapsed: Optional[bool] = None
 
 
 class UnlockResult(BaseModel):
@@ -134,20 +186,72 @@ async def get_public_checklist(
     )
     # An anonymous visitor has no per-user rows, so render with the owner's:
     # their card position/collapse settings and their private label set.
-    # scope_position_to_caller uses set_committed_value (not plain assignment): the
-    # position relationship has delete-orphan cascade, so re-pointing it at the
-    # owner's row would orphan the arbitrarily joined-loaded row and delete another
-    # collaborator's position on the labels query's autoflush below.
-    owner_position = await checklist_position_crud.get(
-        checklist_id=checklist_id, user_id=owner_id
+    return await _public_card_response(
+        checklist,
+        scope_to_user_id=owner_id,
+        my_level=checklist_access.permission_level(),
+        checklist_label_crud=checklist_label_crud,
+        checklist_position_crud=checklist_position_crud,
     )
-    scope_position_to_caller(checklist, owner_position)
-    checklist.labels = await checklist_label_crud.list_labels_for_user(
-        checklist_id=checklist_id, user_id=owner_id
+
+
+@fast_api_checklist_public_router.patch(
+    "/public/checklist/{token}",
+    response_model=CheckListApiWithSubObj,
+    description=(
+        "Update a publicly shared checklist (anonymous). 'name' and 'text' "
+        "require an edit link; 'checked_items_collapsed' requires a check link."
+    ),
+)
+async def update_public_checklist(
+    body: PublicCheckListUpdate,
+    checklist_access: UserChecklistAccess = Security(
+        require_public_checklist_permission(ChecklistAccessLevel.check)
+    ),
+    checklist_crud: CheckListCRUD = Depends(CheckListCRUD.get_crud),
+    checklist_label_crud: ChecklistLabelCRUD = Depends(ChecklistLabelCRUD.get_crud),
+    checklist_position_crud: CheckListPositionCRUD = Depends(
+        CheckListPositionCRUD.get_crud
+    ),
+    sync_crud: SyncNotifiationCRUD = Depends(SyncNotifiationCRUD.get_crud),
+) -> CheckListApiWithSubObj:
+    """Anonymous card edit, resolved per field rather than per route.
+
+    The route guard is ``check`` because that is the lowest level allowed to write
+    anything here: ``checked_items_collapsed`` is a display flag stored on the card
+    (not per-user), and a check link already writes to the card every time somebody
+    ticks a box. ``name`` and ``text`` are content, so they need ``edit``, checked
+    below (*before* the update runs, so a check link can never partially apply).
+    """
+    fields = body.model_fields_set
+    if ("name" in fields or "text" in fields) and not checklist_access.has_at_least(
+        ChecklistAccessLevel.edit
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="This public link does not grant 'edit' permission.",
+        )
+    checklist_id = checklist_access.checklist.id
+    result = await checklist_crud.update(
+        id_=checklist_id,
+        update_obj=body,
+        raise_exception_if_not_exists=HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="This public link is not available.",
+        ),
     )
-    # Anonymous visitor: my_permission reflects the link's level (never "owner").
-    attach_my_permission(checklist, checklist_access.permission_level())
-    return checklist
+    # Re-scope *after* the update: it commits and refreshes, so the eager-loaded
+    # position is once again some arbitrary collaborator's row.
+    response = await _public_card_response(
+        result,
+        scope_to_user_id=checklist_access.checklist.owner_id,
+        my_level=checklist_access.permission_level(),
+        checklist_label_crud=checklist_label_crud,
+        checklist_position_crud=checklist_position_crud,
+    )
+    # Owner, collaborators and other anonymous viewers all refresh the card.
+    await sync_crud.create(SyncNotification(cl_id=checklist_id, upd_prop="checklist"))
+    return response
 
 
 @fast_api_checklist_public_router.post(
@@ -272,17 +376,6 @@ async def join_public_checklist(
             SyncNotification(cl_id=checklist_id, upd_prop="share_added")
         )
 
-    # Return the card scoped to the joining user (their own position + labels).
-    # set_committed_value (via scope_position_to_caller), not plain assignment: the
-    # delete-orphan position relationship would otherwise orphan the joined-loaded
-    # row and delete another user's position on the labels query's autoflush below.
-    user_position = await checklist_position_crud.get(
-        checklist_id=checklist_id, user_id=current_user.id
-    )
-    scope_position_to_caller(checklist, user_position)
-    checklist.labels = await checklist_label_crud.list_labels_for_user(
-        checklist_id=checklist_id, user_id=current_user.id
-    )
     # The joining user now holds the card as a real principal: "owner" if it is
     # their own card, their existing level if they were already a collaborator
     # (join never downgrades), otherwise the link's level they just joined at.
@@ -292,8 +385,15 @@ async def join_public_checklist(
         my_level = existing.permission
     else:
         my_level = link.permission
-    attach_my_permission(checklist, my_level)
-    return checklist
+    # Unlike the anonymous routes, the card is scoped to the *joining user* here:
+    # they have their own position and labels now.
+    return await _public_card_response(
+        checklist,
+        scope_to_user_id=current_user.id,
+        my_level=my_level,
+        checklist_label_crud=checklist_label_crud,
+        checklist_position_crud=checklist_position_crud,
+    )
 
 
 @fast_api_checklist_public_router.get(
@@ -491,3 +591,46 @@ async def delete_public_checklist_item(
         )
     )
     return True
+
+
+@fast_api_checklist_public_router.patch(
+    "/public/checklist/{token}/item/{checklist_item_id}/position",
+    response_model=CheckListItemPositionPublicWithoutChecklistID,
+    dependencies=[Depends(verify_item_belongs_to_public_checklist)],
+    description="Reorder an item on a publicly shared checklist (anonymous, edit).",
+)
+async def update_public_checklist_item_position(
+    position: CheckListItemPositionApiUpdate,
+    checklist_item_id: uuid.UUID,
+    checklist_access: UserChecklistAccess = Security(
+        require_public_checklist_permission(ChecklistAccessLevel.edit)
+    ),
+    checklist_item_pos_crud: CheckListItemPositionCRUD = Depends(
+        CheckListItemPositionCRUD.get_crud
+    ),
+    sync_crud: SyncNotifiationCRUD = Depends(SyncNotifiationCRUD.get_crud),
+) -> CheckListItemPositionPublicWithoutChecklistID:
+    """Anonymous twin of ``update_checklist_item_position``.
+
+    The client sends a fractional index it computed itself (the same midpoint math
+    the authed local-first path uses), so this surface needs no anonymous twins of
+    the ``move/above`` / ``move/under`` routes: one plain PATCH covers reordering.
+    """
+    result = await checklist_item_pos_crud.update(
+        checklist_item_position_update=CheckListItemPositionUpdate(
+            checklist_item_id=checklist_item_id,
+            **position.model_dump(exclude_unset=True),
+        ),
+        raise_exception_if_none=HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Item with uuid '{checklist_item_id}' can not be found.",
+        ),
+    )
+    await sync_crud.create(
+        SyncNotification(
+            cl_id=checklist_access.checklist.id,
+            cli_id=checklist_item_id,
+            upd_prop="item_position",
+        )
+    )
+    return result

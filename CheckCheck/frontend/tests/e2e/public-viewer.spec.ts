@@ -1,4 +1,11 @@
-import { test, expect, type Browser, type BrowserContext, type Page } from "@playwright/test";
+import {
+  test,
+  expect,
+  type Browser,
+  type BrowserContext,
+  type Locator,
+  type Page,
+} from "@playwright/test";
 
 // Public/anonymous viewer page (Frontend Phase F4) — `pages/p/[token].vue`.
 //
@@ -84,6 +91,272 @@ test.describe("F4 public viewer", () => {
     await anon.goto(`/p/${token}`);
     return anon;
   }
+
+  // ── card / item parity with the authed open card (issue #11) ───────────────
+
+  /**
+   * Admin creates a card whose items are given as [text, checked] pairs, plus a
+   * public link at `level`. `collapsed` seeds the card's `checked_items_collapsed`
+   * (a new card defaults to collapsed).
+   */
+  async function createCardWithItems(
+    page: Page,
+    level: "view" | "check" | "edit",
+    items: [string, boolean][],
+    opts: { collapsed?: boolean } = {}
+  ): Promise<{ id: string; title: string; token: string }> {
+    const tag = Date.now() + Math.floor(Math.random() * 1000);
+    const title = `Public-parity-${level}-${tag}`;
+
+    const cl = await (
+      await page.request.post("/api/checklist", {
+        data: { name: title },
+        headers: { "Content-Type": "application/json" },
+      })
+    ).json();
+    cleanupChecklists.push(cl.id);
+
+    if (opts.collapsed !== undefined) {
+      await page.request.patch(`/api/checklist/${cl.id}`, {
+        data: { checked_items_collapsed: opts.collapsed },
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+
+    for (const [text, checked] of items) {
+      const item = await (
+        await page.request.post(`/api/checklist/${cl.id}/item`, {
+          data: { text },
+          headers: { "Content-Type": "application/json" },
+        })
+      ).json();
+      if (checked) {
+        await page.request.patch(`/api/checklist/${cl.id}/item/${item.id}/state`, {
+          data: { checked: true },
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+    }
+
+    const link = await (
+      await page.request.post(`/api/checklist/${cl.id}/public-links`, {
+        data: { permission: level },
+        headers: { "Content-Type": "application/json" },
+      })
+    ).json();
+
+    return { id: cl.id, title, token: link.token };
+  }
+
+  async function readCard(page: Page, id: string): Promise<any> {
+    return await (await page.request.get(`/api/checklist/${id}`)).json();
+  }
+
+  /** Ordered item texts of a card, straight from the API (source of truth). */
+  async function apiItemOrder(page: Page, id: string): Promise<string[]> {
+    const res = await (
+      await page.request.get(`/api/checklist/${id}/item`, { params: { limit: 999 } })
+    ).json();
+    return [...res.items]
+      .sort((a: any, b: any) => a.position.index - b.position.index)
+      .map((i: any) => i.text);
+  }
+
+  /**
+   * Drag via low-level pointer events to reliably pass @formkit/drag-and-drop's
+   * activation threshold (copied from item-movement.spec.ts, which drags the same
+   * shared list). targetYFraction 0.8 = "release 80% down" = drop after.
+   */
+  async function drag(page: Page, source: Locator, target: Locator, targetYFraction = 0.8) {
+    const srcBox = await source.boundingBox();
+    const tgtBox = await target.boundingBox();
+    if (!srcBox || !tgtBox) throw new Error("Could not read bounding boxes for drag");
+    const srcX = srcBox.x + srcBox.width / 2;
+    const srcY = srcBox.y + srcBox.height / 2;
+    const tgtX = tgtBox.x + tgtBox.width / 2;
+    const tgtY = tgtBox.y + tgtBox.height * targetYFraction;
+    await page.mouse.move(srcX, srcY);
+    await page.mouse.down();
+    await page.mouse.move(srcX + 2, srcY + 6, { steps: 5 });
+    await page.mouse.move(tgtX, tgtY, { steps: 30 });
+    await page.mouse.up();
+  }
+
+  test("a view link renders checked items in their own section, not inline", async ({
+    page,
+    browser,
+  }) => {
+    const { token } = await createCardWithItems(
+      page,
+      "view",
+      [
+        ["Unticked-item", false],
+        ["Ticked-item", true],
+      ],
+      { collapsed: false }
+    );
+
+    const anon = await openAnon(browser, token);
+    await expect(anon.locator("[data-testid=public-card]")).toBeVisible({ timeout: 5_000 });
+
+    // The separator header counts the checked items: the layout the issue reported
+    // missing from the public link entirely.
+    await expect(anon.locator("[data-testid=editor-checked-section]")).toContainText(
+      "1 checked items"
+    );
+
+    // The ticked item is under the separator, NOT inline with the unticked one.
+    const unchecked = anon.locator("[data-testid=public-unchecked-items]");
+    const checked = anon.locator("[data-testid=public-checked-items]");
+    await expect(unchecked).toContainText("Unticked-item");
+    await expect(unchecked).not.toContainText("Ticked-item");
+    await expect(checked).toContainText("Ticked-item");
+  });
+
+  test("a view link can collapse the checked section for itself only, and it survives a reload", async ({
+    page,
+    browser,
+  }) => {
+    const { id, token } = await createCardWithItems(
+      page,
+      "view",
+      [
+        ["Unticked-item", false],
+        ["Ticked-item", true],
+      ],
+      { collapsed: false }
+    );
+
+    const anon = await openAnon(browser, token);
+    const header = anon.locator("[data-testid=editor-checked-section]");
+    const checked = anon.locator("[data-testid=public-checked-items]");
+    await expect(checked).toBeVisible({ timeout: 5_000 });
+
+    await header.click();
+    await expect(checked).toBeHidden();
+
+    // sessionStorage keeps it collapsed across a reload of this tab.
+    await anon.reload();
+    await expect(anon.locator("[data-testid=public-card]")).toBeVisible({ timeout: 5_000 });
+    await expect(anon.locator("[data-testid=public-checked-items]")).toBeHidden();
+
+    // ...but a view link grants no write path, so the owner's card is untouched.
+    // Asserted through the API: the UI would look identical either way.
+    expect((await readCard(page, id)).checked_items_collapsed).toBe(false);
+  });
+
+  test("a check link's collapse toggle persists on the card", async ({ page, browser }) => {
+    const { id, token } = await createCardWithItems(
+      page,
+      "check",
+      [
+        ["Unticked-item", false],
+        ["Ticked-item", true],
+      ],
+      { collapsed: false }
+    );
+
+    const anon = await openAnon(browser, token);
+    const checked = anon.locator("[data-testid=public-checked-items]");
+    await expect(checked).toBeVisible({ timeout: 5_000 });
+
+    await anon.locator("[data-testid=editor-checked-section]").click();
+    await expect(checked).toBeHidden();
+
+    // `checked_items_collapsed` is a column on the card, not per-user, so a
+    // check-or-better link writes it for everyone (see the plan's decision 2).
+    await expect
+      .poll(async () => (await readCard(page, id)).checked_items_collapsed, {
+        timeout: 5_000,
+      })
+      .toBe(true);
+  });
+
+  test("an edit link reorders items by drag and the new order survives a reload", async ({
+    page,
+    browser,
+  }) => {
+    const { id, token } = await createCardWithItems(page, "edit", [
+      ["Alpha-item", false],
+      ["Beta-item", false],
+    ]);
+
+    const anon = await openAnon(browser, token);
+    const rows = anon.locator("[data-testid=public-unchecked-items] [data-testid=item-row]");
+    await expect(rows).toHaveCount(2, { timeout: 5_000 });
+    expect(await apiItemOrder(page, id)).toEqual(["Alpha-item", "Beta-item"]);
+
+    // Drag Alpha below Beta by its handle (the shared list's `.list-item-drag-handle`).
+    await drag(
+      anon,
+      rows.nth(0).locator(".list-item-drag-handle"),
+      rows.nth(1),
+      0.9
+    );
+
+    await expect
+      .poll(() => apiItemOrder(page, id), { timeout: 8_000 })
+      .toEqual(["Beta-item", "Alpha-item"]);
+
+    // The client-computed fractional index is what the server stored, so a reload
+    // of the viewer comes back in the same order.
+    await anon.reload();
+    const reloaded = anon.locator(
+      "[data-testid=public-unchecked-items] [data-testid=item-text-rendered]"
+    );
+    await expect(reloaded.nth(0)).toContainText("Beta-item", { timeout: 5_000 });
+    await expect(reloaded.nth(1)).toContainText("Alpha-item");
+  });
+
+  test("an edit link can rename the card and rewrite its notes", async ({ page, browser }) => {
+    const { id, token } = await createCardWithItems(page, "edit", [["Some-item", false]]);
+
+    const anon = await openAnon(browser, token);
+    const nameField = anon.locator("[data-testid=public-card-name]");
+    await expect(nameField).toBeVisible({ timeout: 5_000 });
+
+    await nameField.fill("Renamed by a visitor");
+    // Focus-swap notes: click the rendered region to get the raw textarea.
+    await anon.locator("[data-testid=card-notes-rendered]").click();
+    await anon.locator("[data-testid=card-notes-textarea]").fill("Notes by a visitor");
+
+    await expect
+      .poll(async () => (await readCard(page, id)).name, { timeout: 8_000 })
+      .toBe("Renamed by a visitor");
+    await expect
+      .poll(async () => (await readCard(page, id)).text, { timeout: 8_000 })
+      .toBe("Notes by a visitor");
+  });
+
+  test("a view link cannot edit the card: no title field and no PATCH goes out", async ({
+    page,
+    browser,
+  }) => {
+    const { id, title, token } = await createCardWithItems(page, "view", [
+      ["Some-item", false],
+    ]);
+
+    const anon = await openAnon(browser, token);
+
+    // Record every card PATCH the page attempts.
+    const cardPatches: string[] = [];
+    anon.on("request", (req) => {
+      if (req.method() === "PATCH" && req.url().includes(`/api/public/checklist/${token}`))
+        cardPatches.push(req.url());
+    });
+
+    // The title is a plain heading, not a field, and the notes are not editable.
+    await expect(anon.locator("[data-testid=public-card-name]")).toHaveText(title);
+    await expect(anon.locator("[data-testid=public-card-name] textarea")).toHaveCount(0);
+    await expect(anon.locator("[data-testid=card-notes-textarea]")).toHaveCount(0);
+    await expect(anon.locator("[data-testid=markdown-help-trigger]")).toHaveCount(0);
+
+    // Collapsing is local-only, so even that must not PATCH.
+    await anon.locator("[data-testid=editor-checked-section]").click();
+    await anon.waitForTimeout(1_000);
+    expect(cardPatches, "a view link must never PATCH the card").toEqual([]);
+    expect((await readCard(page, id)).name).toBe(title);
+  });
 
   test("view-level link renders read-only for an anonymous visitor", async ({ page, browser }) => {
     const { token, title, itemText } = await createSharedLink(page, "view");

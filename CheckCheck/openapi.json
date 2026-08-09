@@ -3476,6 +3476,89 @@
             }
           }
         }
+      },
+      "patch": {
+        "tags": [
+          "Checklist Public Share"
+        ],
+        "summary": "Update Public Checklist",
+        "description": "Update a publicly shared checklist (anonymous). 'name' and 'text' require an edit link; 'checked_items_collapsed' requires a check link.",
+        "operationId": "update_public_checklist_api_public_checklist__token__patch",
+        "parameters": [
+          {
+            "name": "token",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Token"
+            }
+          },
+          {
+            "name": "share_grant",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Share Grant"
+            }
+          },
+          {
+            "name": "x-share-grant",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Share-Grant"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PublicCheckListUpdate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CheckListApiWithSubObj"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
       }
     },
     "/api/public/checklist/{token}/unlock": {
@@ -4064,6 +4147,101 @@
                 "schema": {
                   "type": "boolean",
                   "title": "Response Delete Public Checklist Item Api Public Checklist  Token  Item  Checklist Item Id  Delete"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/public/checklist/{token}/item/{checklist_item_id}/position": {
+      "patch": {
+        "tags": [
+          "Checklist Public Share"
+        ],
+        "summary": "Update Public Checklist Item Position",
+        "description": "Reorder an item on a publicly shared checklist (anonymous, edit).",
+        "operationId": "update_public_checklist_item_position_api_public_checklist__token__item__checklist_item_id__position_patch",
+        "parameters": [
+          {
+            "name": "checklist_item_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Checklist Item Id"
+            }
+          },
+          {
+            "name": "token",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Token"
+            }
+          },
+          {
+            "name": "share_grant",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Share Grant"
+            }
+          },
+          {
+            "name": "x-share-grant",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Share-Grant"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CheckListItemPositionApiUpdate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CheckListItemPositionPublicWithoutChecklistID"
                 }
               }
             }
@@ -8489,6 +8667,46 @@
           "items"
         ],
         "title": "PaginatedResponse[User]"
+      },
+      "PublicCheckListUpdate": {
+        "properties": {
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "text": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Text"
+          },
+          "checked_items_collapsed": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Checked Items Collapsed"
+          }
+        },
+        "type": "object",
+        "title": "PublicCheckListUpdate",
+        "description": "The fields an anonymous visitor may change on a publicly shared card.\n\nDeliberately narrower than ``CheckListUpdate``: a link is a capability handed\nto whoever holds the URL, so it may edit the content it exists to share\n(``name``, ``text``) and the one display flag that is stored on the card\nrather than per-user (``checked_items_collapsed``), and nothing else.\n``color_id``, ``checked_items_seperated`` and ``suggest_existing_items`` are\nthe owner's settings for the card and stay owner-only."
       },
       "PublicConfig": {
         "properties": {

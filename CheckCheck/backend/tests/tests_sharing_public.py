@@ -773,6 +773,285 @@ def test_public_cross_checklist_item_idor():
     )
 
 
+# ── anonymous writes: card fields and item order ──────────────────────────────
+
+
+def _patch_public_card(
+    token: str, body: Dict, expected_http_code: int = None, grant: str = None
+) -> Dict:
+    return req(
+        f"api/public/checklist/{token}",
+        "patch",
+        b=body,
+        q={"share_grant": grant} if grant else None,
+        suppress_auth=True,
+        expected_http_code=expected_http_code,
+    )
+
+
+def _patch_public_item_position(
+    token: str, item_id: str, body: Dict, expected_http_code: int = None
+) -> Dict:
+    return req(
+        f"api/public/checklist/{token}/item/{item_id}/position",
+        "patch",
+        b=body,
+        suppress_auth=True,
+        expected_http_code=expected_http_code,
+    )
+
+
+def test_public_patch_card_view_link_writes_nothing():
+    """A view link grants no write path at all: neither content nor the collapse
+    flag. Assert the card afterwards too, so a route that validated *after*
+    updating could not pass on the status code alone."""
+    checklist_id = _create_checklist("PublicPatchView")
+    req(
+        f"api/checklist/{checklist_id}",
+        "patch",
+        b={"checked_items_collapsed": False},
+    )
+    view_token = _create_public_link(checklist_id, "view")["token"]
+
+    _patch_public_card(view_token, {"name": "renamed"}, expected_http_code=403)
+    _patch_public_card(
+        view_token, {"checked_items_collapsed": True}, expected_http_code=403
+    )
+
+    card = req(f"api/checklist/{checklist_id}")
+    dict_must_contain(
+        card, {"name": "PublicPatchView", "checked_items_collapsed": False}
+    )
+
+
+def test_public_patch_card_check_link_collapse_only():
+    """``checked_items_collapsed`` is a display flag stored on the card, so a check
+    link may write it. ``name`` and ``text`` are content and stay at edit."""
+    checklist_id = _create_checklist("PublicPatchCheck")
+    req(
+        f"api/checklist/{checklist_id}",
+        "patch",
+        b={"text": "original notes", "checked_items_collapsed": False},
+    )
+    check_token = _create_public_link(checklist_id, "check")["token"]
+
+    updated = _patch_public_card(
+        check_token, {"checked_items_collapsed": True}, expected_http_code=200
+    )
+    assert updated["checked_items_collapsed"] is True
+    assert updated["my_permission"] == "check"
+    assert req(f"api/checklist/{checklist_id}")["checked_items_collapsed"] is True
+
+    _patch_public_card(check_token, {"name": "renamed"}, expected_http_code=403)
+    _patch_public_card(check_token, {"text": "rewritten"}, expected_http_code=403)
+    # The rejected writes must not have partially applied.
+    dict_must_contain(
+        req(f"api/checklist/{checklist_id}"),
+        {"name": "PublicPatchCheck", "text": "original notes"},
+    )
+
+
+def test_public_patch_card_edit_link_name_text_and_collapse():
+    checklist_id = _create_checklist("PublicPatchEdit")
+    edit_token = _create_public_link(checklist_id, "edit")["token"]
+
+    updated = _patch_public_card(
+        edit_token,
+        {"name": "renamed", "text": "new notes", "checked_items_collapsed": False},
+        expected_http_code=200,
+    )
+    dict_must_contain(
+        updated,
+        {"name": "renamed", "text": "new notes", "checked_items_collapsed": False},
+    )
+    dict_must_contain(
+        req(f"api/checklist/{checklist_id}"),
+        {"name": "renamed", "text": "new notes", "checked_items_collapsed": False},
+    )
+
+
+def test_public_patch_card_only_touches_the_keys_it_was_sent():
+    """The exclude_unset regression: a PATCH carrying only ``text`` must leave
+    ``name`` alone rather than blanking it with the model default."""
+    checklist_id = _create_checklist("PublicPatchPartial")
+    edit_token = _create_public_link(checklist_id, "edit")["token"]
+
+    _patch_public_card(edit_token, {"text": "just the notes"}, expected_http_code=200)
+
+    dict_must_contain(
+        req(f"api/checklist/{checklist_id}"),
+        {"name": "PublicPatchPartial", "text": "just the notes"},
+    )
+
+
+def test_public_patch_card_ignores_owner_only_fields():
+    """``color_id``, ``checked_items_seperated`` and ``suggest_existing_items`` are
+    the owner's settings for the card. They are not fields on
+    ``PublicCheckListUpdate``, so they are dropped rather than applied. This pins
+    the narrower model against somebody later swapping in ``CheckListUpdate``."""
+    checklist_id = _create_checklist("PublicPatchOwnerOnly")
+    edit_token = _create_public_link(checklist_id, "edit")["token"]
+
+    _patch_public_card(
+        edit_token,
+        {
+            "name": "renamed",
+            "color_id": "red",
+            "checked_items_seperated": False,
+            "suggest_existing_items": False,
+        },
+        expected_http_code=200,
+    )
+
+    card = req(f"api/checklist/{checklist_id}")
+    dict_must_contain(
+        card,
+        {
+            "name": "renamed",
+            "checked_items_seperated": True,
+            "suggest_existing_items": True,
+        },
+    )
+    assert card["color"]["id"] == "yellow", "an anonymous link recolored the card"
+
+
+def test_public_patch_card_unresolvable_links_are_404():
+    """Every failure to resolve a link is a 404 on this surface (never 401/403), so
+    the response cannot be used to tell the failure modes apart."""
+    checklist_id = _create_checklist("PublicPatchGuards")
+    body = {"checked_items_collapsed": True}
+
+    _patch_public_card("this-token-does-not-exist", body, expected_http_code=404)
+
+    disabled = _create_public_link(checklist_id, "edit")
+    req(
+        f"api/checklist/{checklist_id}/public-links/{disabled['id']}",
+        "patch",
+        b={"enabled": False},
+    )
+    _patch_public_card(disabled["token"], body, expected_http_code=404)
+
+    expired = _create_public_link(
+        checklist_id, "edit", expires_at="2000-01-01T00:00:00"
+    )
+    _patch_public_card(expired["token"], body, expected_http_code=404)
+
+    protected = _create_public_link(checklist_id, "edit", password="hunter2-secret")
+    _patch_public_card(protected["token"], body, expected_http_code=404)
+    grant = _unlock(protected["token"], "hunter2-secret")["grant"]
+    _patch_public_card(protected["token"], body, expected_http_code=200, grant=grant)
+
+
+def test_public_item_position_reorder():
+    """An edit link reorders an item with a client-computed fractional index, and
+    the item list comes back in the new order."""
+    checklist_id = _create_checklist("PublicReorder")
+    first = _create_item(checklist_id, "first")
+    second = _create_item(checklist_id, "second")
+    third = _create_item(checklist_id, "third")
+    edit_token = _create_public_link(checklist_id, "edit")["token"]
+
+    def _order(token: str) -> List[str]:
+        items = req(f"api/public/checklist/{token}/item", suppress_auth=True)["items"]
+        return [i["text"] for i in sorted(items, key=lambda i: i["position"]["index"])]
+
+    assert _order(edit_token) == ["first", "second", "third"]
+
+    indexes = {
+        i["id"]: i["position"]["index"]
+        for i in req(f"api/public/checklist/{edit_token}/item", suppress_auth=True)[
+            "items"
+        ]
+    }
+    # Move "third" between "first" and "second", the midpoint the client computes.
+    midpoint = (indexes[first] + indexes[second]) / 2
+    result = _patch_public_item_position(
+        edit_token, third, {"index": midpoint}, expected_http_code=200
+    )
+    assert result["index"] == midpoint
+    assert "checklist_id" not in result
+
+    assert _order(edit_token) == ["first", "third", "second"]
+
+
+def test_public_item_position_requires_edit_and_guards_foreign_items():
+    checklist_id = _create_checklist("PublicReorderPerms")
+    item_id = _create_item(checklist_id, "milk")
+    other_checklist = _create_checklist("PublicReorderPerms-Other")
+    foreign_item = _create_item(other_checklist, "not yours")
+
+    view_token = _create_public_link(checklist_id, "view")["token"]
+    check_token = _create_public_link(checklist_id, "check")["token"]
+    edit_token = _create_public_link(checklist_id, "edit")["token"]
+
+    _patch_public_item_position(
+        view_token, item_id, {"index": 1.5}, expected_http_code=403
+    )
+    _patch_public_item_position(
+        check_token, item_id, {"index": 1.5}, expected_http_code=403
+    )
+    # An item from another card is 404 via verify_item_belongs_to_public_checklist.
+    _patch_public_item_position(
+        edit_token, foreign_item, {"index": 1.5}, expected_http_code=404
+    )
+
+
+def test_anonymous_card_patch_leaves_every_position_row_intact():
+    """The ``scope_position_to_caller`` trap: ``CheckList.position`` is a scalar
+    joined relationship over a per-user table with delete-orphan cascade, and this
+    route commits. A plain reassignment would orphan the arbitrarily loaded row and
+    DELETE somebody else's position. Invisible to every other assertion here, so it
+    gets its own test."""
+    collab_token = _make_user_token("pub-patch-position-collab")
+    collab_id = _user_id(collab_token)
+    checklist_id = _create_checklist("PublicPatchPositions")
+    _share(checklist_id, collab_id, "edit")
+
+    # Make the two position rows distinguishable, so a lost row is unmistakable.
+    req(f"api/checklist/{checklist_id}/position", "patch", b={"pinned": True})
+    req(
+        f"api/checklist/{checklist_id}/position",
+        "patch",
+        b={"pinned": False},
+        access_token=collab_token,
+    )
+
+    edit_token = _create_public_link(checklist_id, "edit")["token"]
+    _patch_public_card(edit_token, {"name": "renamed"}, expected_http_code=200)
+
+    owner_card = req(f"api/checklist/{checklist_id}")
+    assert owner_card["position"] is not None, "the owner's position row was deleted"
+    assert owner_card["position"]["pinned"] is True
+
+    collab_card = req(f"api/checklist/{checklist_id}", access_token=collab_token)
+    assert (
+        collab_card["position"] is not None
+    ), "the collaborator's position row was deleted"
+    assert collab_card["position"]["pinned"] is False
+
+
+def test_anonymous_writes_emit_their_sync_notifications():
+    """A card PATCH emits ``checklist``; a position PATCH emits ``item_position``.
+    Both reach the owner, who is not the one who made the change."""
+    owner_token = get_access_token()
+    checklist_id = _create_checklist("PublicWriteSync")
+    item_id = _create_item(checklist_id, "milk")
+    edit_token = _create_public_link(checklist_id, "edit")["token"]
+
+    with _SSECollector(bearer=owner_token) as owner_sse:
+        _patch_public_card(edit_token, {"name": "renamed"}, expected_http_code=200)
+        assert owner_sse.received(
+            cl_id=checklist_id, upd_prop="checklist"
+        ), "owner was not notified of the anonymous card edit"
+
+        _patch_public_item_position(
+            edit_token, item_id, {"index": 9.5}, expected_http_code=200
+        )
+        assert owner_sse.received(
+            cl_id=checklist_id, upd_prop="item_position"
+        ), "owner was not notified of the anonymous reorder"
+
+
 # ── token-keyed SSE ───────────────────────────────────────────────────────────
 
 

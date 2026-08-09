@@ -1,63 +1,52 @@
 <template>
-  <ul ref="ItemsView" class="px-0 py-0 sm:px-0 sm:py-0 md:px-0 md:py-0 lg:px-0 lg:py-0">
-    <li v-for="item in draggableItems" :key="item.id"
-      class="px-0 py-0 sm:px-0 sm:py-0 md:px-0 md:py-0 lg:px-0 lg:py-0">
+  <CardPartsItemList
+    ref="itemList"
+    :items="checklistItems"
+    :show-add-row="filterCheckedItems != true"
+    @reorder="onReorder"
+  >
+    <template #item="{ item, registerRef }">
       <CheckListItem class="px-0 py-0 sm:px-0 sm:py-0 md:px-0 md:py-0 lg:px-0 lg:py-0 text-[13px] sm:text-sm"
-        :ref="(el) => registerItemRef(item.id, el)"
+        :ref="registerRef"
         :parentCheckList="parentCheckList" :checkListItem="item" :parentEditMode="true"
         @add-item-after="addItemAfter" @delete-item="deleteItem" @accept-suggestion="acceptSuggestion"></CheckListItem>
-    </li>
-    <li v-if="filterCheckedItems!=true" class="no-drag px-0 py-0 sm:px-0 sm:py-0 md:px-0 md:py-0 lg:px-0 lg:py-0">
-      <CheckListItemCollectionAddNewButton  :parentCheckList="parentCheckList" @add-item="addItemAtEnd">
+    </template>
+    <template #add>
+      <CheckListItemCollectionAddNewButton :parentCheckList="parentCheckList" @add-item="addItemAtEnd">
       </CheckListItemCollectionAddNewButton>
-    </li>
-    
-  </ul>
+    </template>
+  </CardPartsItemList>
 </template>
 
 <script setup lang="ts">
-const runtimeConfig = useRuntimeConfig();
-import { useDragAndDrop, dragAndDrop } from "@formkit/drag-and-drop/vue";
-import { animations } from "@formkit/drag-and-drop";
-import { state } from "@formkit/drag-and-drop";
+// The authed open card's item list: a store adapter over the shared, store-free
+// CardPartsItemList (issue #11). The list markup, the FormKit drag wiring and the
+// focus plumbing are shared with the `/p/<token>` viewer; the store reads, the
+// create/delete/uncheck-suggestion choreography and the reorder write stay here.
 import { ref } from 'vue';
 import { useCheckListsItemStore } from "@/stores/checklist_item";
-import { useCheckListsStore } from "@/stores/checklist";
 import type { PropType } from "vue";
 
 const checkListsItemStore = useCheckListsItemStore();
-const checkListStore = useCheckListsStore();
 
 const props = defineProps({
   parentCheckList: { type: Object as PropType<CheckListType>, required: true },
   filterCheckedItems: { type: Boolean, required: false },
   showMaxItems: { type: Number, required: false, watch: true },
 });
-const checklistItems = ref<CheckListItemType[]>([]);
 
-let dragInProgress = false;
-
-watchEffect(() => {
-  const sourceItems = checkListsItemStore.getCheckListItems(
+// computed(), so the list always reflects the store. CardPartsItemList makes its
+// own drag copy of this and holds it steady while a drag is in progress.
+const checklistItems = computed(() =>
+  checkListsItemStore.getCheckListItems(
     props.parentCheckList.id,
     props.filterCheckedItems,
     props.showMaxItems
-  );
-  // Never reset the drag list while a drag is in progress: mid-drag store
-  // updates (from SSE or from a previous drag's async completing) would call
-  // splice() and reset FormKit DnD's internal state, causing event.values in
-  // onDragend to report the original order instead of the drop destination.
-  if (dragInProgress) return;
-  const newList = sourceItems.map(item => ({ ...item }));
-  checklistItems.value.splice(0, checklistItems.value.length, ...newList);
-});
+  )
+);
 
-// Track child item components so we can move focus to a freshly created item.
-const itemComponentRefs = new Map<string, { focusTextarea: () => void }>();
-function registerItemRef(id: string, el: any) {
-  if (el) itemComponentRefs.set(id, el);
-  else itemComponentRefs.delete(id);
-}
+// The shared list tracks the row components; ask it to move focus by item id.
+const itemList = ref<{ focusItem: (id: string) => void } | null>(null);
 
 // Enter on an item textarea: insert a new item right after it and focus it.
 async function addItemAfter(afterItemId: string) {
@@ -73,14 +62,14 @@ async function addItemAfter(afterItemId: string) {
     position: { index: newIndex },
   } as CheckListItemCreateType);
   await nextTick();
-  itemComponentRefs.get(created.id)?.focusTextarea?.();
+  itemList.value?.focusItem(created.id);
 }
 
 // "Add new item" button: append an item to the end and focus its textarea.
 async function addItemAtEnd() {
   const created = await checkListsItemStore.create(props.parentCheckList.id);
   await nextTick();
-  itemComponentRefs.get(created.id)?.focusTextarea?.();
+  itemList.value?.focusItem(created.id);
 }
 
 // Keep-style dedup: the user typed a new item that matches an existing checked
@@ -95,7 +84,7 @@ async function acceptSuggestion(payload: { currentItemId: string; matchedItemId:
   } as CheckListItemStateUpdateType);
   await deleteItem(currentItemId, false);
   await nextTick();
-  itemComponentRefs.get(matchedItemId)?.focusTextarea?.();
+  itemList.value?.focusItem(matchedItemId);
 }
 
 // Delete an item. When triggered by backspace-on-empty, move focus to the end
@@ -106,45 +95,13 @@ async function deleteItem(itemId: string, focusPrev: boolean) {
   await checkListsItemStore.delete(props.parentCheckList.id, itemId);
   if (focusPrev && prev) {
     await nextTick();
-    itemComponentRefs.get(prev.id)?.focusTextarea?.();
+    itemList.value?.focusItem(prev.id);
   }
 }
 
-const [ItemsView, draggableItems] = useDragAndDrop(checklistItems, {
-  dragHandle: ".list-item-drag-handle",
-  // Touch reorder inside the (transformed) editor modal: mirror the board-card
-  // fix (memory `mobile-dnd-longpress`). Without longPress the synth drag arms
-  // on the first pointermove, which the nested overflow-y-auto scroll container
-  // tends to claim as a scroll instead — so no sort ever fires. Requiring a
-  // press-and-hold to arm lets a normal touch still scroll the item list.
-  // Desktop native mouse drag is unaffected.
-  longPress: true,
-  longPressDuration: 250,
-  longPressClass: "list-item-longpress",
-  onDragstart: () => { dragInProgress = true; },
-  onDragend: (event) => {
-    dragInProgress = false;
-    const draggedItem = event.draggedNode.data.value as CheckListItemType;
-    const allItems = event.values as CheckListItemType[];
-    (async () => {
-      checkListsItemStore.reorderChecklistItems(props.parentCheckList.id, allItems, draggedItem);
-    })();
-  },
-  draggable: (el) => !(el && el.classList.contains('no-drag')),
-  plugins: [animations()],
-});
-
-</script>
-
-<style scoped>
-/* Touch "picked up" cue: the longPress timer adds .list-item-longpress to the
-   dragged <li> once the press-and-hold threshold is met, before the synthetic
-   drag begins — immediate feedback that the row is now grabbable. Kept subtle
-   (no scale, to avoid horizontal overflow / a second transformed ancestor for
-   the drag clone) and removed automatically the moment the drag starts. */
-:deep(.list-item-longpress) {
-  background-color: rgb(0 0 0 / 0.06);
-  border-radius: 0.375rem;
-  transition: background-color 0.12s ease;
+function onReorder(newOrder: CheckListItemType[], movedItem: CheckListItemType) {
+  (async () => {
+    checkListsItemStore.reorderChecklistItems(props.parentCheckList.id, newOrder, movedItem);
+  })();
 }
-</style>
+</script>
