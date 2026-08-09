@@ -94,4 +94,45 @@ test.describe("uncheck-existing suggestion", () => {
     await expect(items).toHaveCount(1, { timeout: 5_000 });
     await expect(dialog.locator("[data-testid=item-text-editor]")).toHaveValue("Milk");
   });
+
+  test("the unchecked item takes over the slot the user was typing in (issue #8)", async ({
+    page,
+  }) => {
+    const clName = `DedupPos-${Date.now()}`;
+    const cl = await apiPost(page, "/api/checklist", { name: clName });
+    cleanup.push(cl.id);
+    // "Milk" is the OLDEST item (lowest position index) and checked; "Bread" sits
+    // below it. Typing "Milk" again at the end must revive it at the end, not
+    // send it back above "Bread".
+    const milk = await apiPost(page, `/api/checklist/${cl.id}/item`, { text: "Milk" });
+    await apiPatch(page, `/api/checklist/${cl.id}/item/${milk.id}/state`, { checked: true });
+    await apiPost(page, `/api/checklist/${cl.id}/item`, { text: "Bread" });
+
+    await page.goto("/");
+    await page.waitForSelector("[data-testid=checklist-board]");
+
+    const card = page
+      .locator("[data-testid=checklist-board] .checklist-preview")
+      .filter({ hasText: clName });
+    await expect(card).toBeVisible();
+    await card.locator("[data-testid=card-title]").click();
+
+    const dialog = page.locator('[role="dialog"]');
+    await expect(dialog).toBeVisible({ timeout: 5_000 });
+
+    await dialog.locator("[data-testid=add-item]").click();
+    const newItem = dialog.locator("[data-testid=item-text-editor]");
+    await expect(newItem).toHaveValue("");
+    await newItem.fill("mi");
+
+    const suggestions = dialog.locator("[data-testid=uncheck-suggestion]");
+    await expect(suggestions.first()).toBeVisible({ timeout: 5_000 });
+    await suggestions.first().click();
+
+    await expect(dialog.locator("[data-testid=item-row]")).toHaveCount(2, { timeout: 5_000 });
+    // Focus lands in the revived item's textarea; blur it so every row is back to
+    // its rendered text and the order can be read off the DOM.
+    await dialog.locator("[data-testid=item-text-editor]").blur();
+    await expect(dialog.locator("[data-testid=item-text-rendered]")).toHaveText(["Bread", "Milk"]);
+  });
 });
