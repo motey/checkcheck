@@ -102,6 +102,14 @@ test.describe("archive & permanent delete", () => {
     await expect(page).toHaveURL(/archived=true/, { timeout: 3_000 });
     await expect(page.getByText(name, { exact: true })).toBeVisible({ timeout: 5_000 });
 
+    // A second click on the active Archive entry leaves the view again
+    // (issue #10), then re-enter it for the rest of the flow.
+    await page.locator("[data-testid=sidebar-archive-filter]").click();
+    await expect(page).not.toHaveURL(/archived=true/, { timeout: 3_000 });
+    await page.locator("[data-testid=sidebar-archive-filter]").click();
+    await expect(page).toHaveURL(/archived=true/, { timeout: 3_000 });
+    await expect(page.getByText(name, { exact: true })).toBeVisible({ timeout: 5_000 });
+
     // Restore from the archived card's editor toolbar.
     const restoreDialog = await openCard(page, name);
     await restoreDialog.locator("[data-testid=card-restore]").click();
