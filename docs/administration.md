@@ -59,12 +59,22 @@ with `AUTO_LOGIN: true` on a single provider to send users straight to it.
 
 ## Sharing
 
-Sharing lets a user add collaborators to an individual card or publish a
-read-only public link. It is on by default; the switches to narrow or disable it
-are in [configuration.md](configuration.md#sharing-switches).
+Sharing lets a user add collaborators to an individual card or publish a public
+link. It is on by default; the switches to narrow or disable it are in
+[configuration.md](configuration.md#sharing-switches).
 
 A few behaviours worth knowing when you support users:
 
+- **A public link carries a permission level**, chosen when the link is created:
+  `view` reads the card, `check` also ticks and unticks items, `edit` also adds,
+  renames, deletes and reorders items and edits the card's title and notes.
+  Whoever holds the URL has that level, with no account and no sign-in, which is
+  what makes `SHARING_PUBLIC_LINKS_ENABLED` worth a deliberate decision.
+- **A `check` link can also fold the checked section away for everyone.** Whether
+  checked items are collapsed is stored on the card rather than per visitor, so
+  when a `check`-or-better visitor collapses it, the owner and every other
+  collaborator see it collapsed too. A `view` link cannot: its visitor may still
+  expand and collapse, but only within their own browser session.
 - **Labels are per-user, even on a shared card.** The labels you put on a shared
   card are yours alone; collaborators do not see them. Pin and archive are also
   per-user, not properties of the card.

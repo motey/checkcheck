@@ -112,6 +112,19 @@ and the app is installable as a PWA.
   in the link list, in the picker for mailing a link, and in the "your public link
   was opened" notification, and it never reaches an anonymous visitor or the
   person a link is mailed to. (Migration `0018`.)
+- **A public link now shows the whole card**
+  ([#11](https://github.com/motey/checkcheck/issues/11)). `/p/<token>` used to be a
+  much smaller second implementation of the card, so features added to the card
+  never reached it. It now renders from the same components the open card does, and
+  gains everything that had drifted: the **"separate checked items" layout** with
+  its collapsible checked section (the reported symptom: a visitor could neither
+  see checked items grouped nor untick them), **Markdown-rendered item text**,
+  the card's **colour theme**, and, on an `edit` link, **drag-reordering items**
+  and editing the card's **title and notes**. Whether the checked section is
+  collapsed is stored on the card, not per visitor, so a `check`-or-better link
+  persists the toggle for everyone while a `view` link keeps it to its own browser
+  session. The public surface stays online only: it has no outbox and is not in
+  the delta feed. No migration.
 - **Per-user webhooks** (`NOTIFY_WEBHOOK_ENABLED`, off by default). A third
   notification channel that POSTs a small JSON body to a URL each user saves in
   the notification settings, with a "Send test webhook" action. Because this lets

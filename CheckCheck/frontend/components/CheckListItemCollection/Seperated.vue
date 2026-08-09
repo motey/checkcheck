@@ -1,63 +1,51 @@
 <template>
-  <CheckListItemCollection
-    v-if="editModeActive"
-    :parentCheckList="checkList"
-    :showMaxItems="showMaxItems"
-    :filterCheckedItems="false"
-  />
-  <CheckListItemCollectionPreview
-    v-else
-    :parentCheckList="checkList"
-    :showMaxItems="showMaxItems"
-    :filterCheckedItems="false"
-  />
-  <USeparator v-if="editModeActive" color="neutral" type="dashed" />
-  <div
-    v-if="editModeActive"
-    data-testid="editor-checked-section"
-    class="flex items-center"
-    @click="switchCollapseCheckedItems()"
+  <CardPartsItemsSection
+    separated
+    :collapsed="!!checkList.checked_items_collapsed"
+    :edit-mode="editModeActive"
+    :checked-count="checkedItemCount"
+    :unchecked-count="unCheckedItemCount"
+    :show-max-items="showMaxItems"
+    @toggle-collapsed="switchCollapseCheckedItems()"
   >
-    <UIcon v-if="!checkList?.checked_items_collapsed" name="i-lucide-chevrons-down" class="w-5 h-8" />
-    <UIcon v-if="checkList?.checked_items_collapsed" name="i-lucide-chevrons-right" class="w-5 h-8" />
-    <span class="ml-2 text-base">{{ String(checkedItemCount) }} checked items</span>
-  </div>
-  <USeparator color="neutral" type="dashed"
-    v-if="!editModeActive && checkList?.checked_items_seperated && checkedItemCount! > 0"
-    :label="`+ ${String(checkedItemCount)} checked items`"
-    class="opacity-90"  :ui="{
-      label: 'text-primary-500 dark:text-primary-400',
-      container: { base: 'flex' },
-    }"
-  />
-  <Collapse :when="!checkList.checked_items_collapsed || false">
-    <CheckListItemCollection
-      v-if="editModeActive"
-      :parentCheckList="checkList"
-      
-      :filterCheckedItems="true"
-    />
-    
-    <!-- On a phone preview keep the card short: don't expand the checked
-         section (the "+N checked items" hint above still surfaces it; the full
-         list is one tap away in the editor). -->
-    <CheckListItemCollectionPreview
-      v-else-if="!isMobile"
-      :parentCheckList="checkList"
-      :showMaxItems="showCheckedItemCount"
-      :filterCheckedItems="true"
-    />
-  </Collapse>
+    <template #unchecked>
+      <CheckListItemCollection
+        v-if="editModeActive"
+        :parentCheckList="checkList"
+        :showMaxItems="showMaxItems"
+        :filterCheckedItems="false"
+      />
+      <CheckListItemCollectionPreview
+        v-else
+        :parentCheckList="checkList"
+        :showMaxItems="showMaxItems"
+        :filterCheckedItems="false"
+      />
+    </template>
+    <template #checked="{ showMaxItems: checkedMaxItems }">
+      <CheckListItemCollection
+        v-if="editModeActive"
+        :parentCheckList="checkList"
+        :filterCheckedItems="true"
+      />
+      <CheckListItemCollectionPreview
+        v-else
+        :parentCheckList="checkList"
+        :showMaxItems="checkedMaxItems"
+        :filterCheckedItems="true"
+      />
+    </template>
+  </CardPartsItemsSection>
 </template>
 
 <script setup lang="ts">
+// The authed card's "separate checked items" layout: a store adapter over the
+// shared, store-free CardPartsItemsSection (issue #11). The separator, the
+// collapse header and the transition are shared with the `/p/<token>` viewer;
+// the counts and the "persist the collapse flag on the card" write stay here.
 import { computed } from "vue";
-import { useMediaQuery } from "@vueuse/core";
 import { useCheckListsStore } from "@/stores/checklist";
 import { useCheckListsItemStore } from "@/stores/checklist_item";
-import { Collapse } from "vue-collapsed";
-
-const isMobile = useMediaQuery("(max-width: 639px)");
 
 const checkListStore = useCheckListsStore();
 const checkListItemStore = useCheckListsItemStore();
@@ -74,17 +62,6 @@ const checkList = computed(() => checkListStore.get(props.parentCheckList.id) ??
 // then stick at their mount-time value, e.g. 0 on a freshly-created card).
 const checkedItemCount = computed(() => checkListItemStore.getItemCount(checkList.value.id, true));
 const unCheckedItemCount = computed(() => checkListItemStore.getItemCount(checkList.value.id, false));
-
-const showCheckedItemCount: ComputedRef<number | undefined> = computed(() => {
-  if (props.showMaxItems) {
-    if (props.showMaxItems - unCheckedItemCount.value > 0 && !checkList.value.checked_items_collapsed) {
-      return props.showMaxItems - unCheckedItemCount.value;
-    } else {
-      return 0;
-    }
-  }
-  return undefined;
-});
 
 const switchCollapseCheckedItems = () => {
   checkList.value.checked_items_collapsed = !checkList.value.checked_items_collapsed;
