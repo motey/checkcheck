@@ -112,7 +112,7 @@
 <script setup lang="ts">
 const runtimeConfig = useRuntimeConfig();
 const appConfig = useAppConfig();
-import { useDebounceFn, useMediaQuery } from "@vueuse/core";
+import { useMediaQuery } from "@vueuse/core";
 import { useCheckListsStore } from "@/stores/checklist";
 import { useCheckListsItemStore } from "@/stores/checklist_item";
 import { highlightText } from "@/utils/highlight";
@@ -120,6 +120,7 @@ import { renderMarkdown } from "@/utils/markdown";
 import { isLocalFirstEnabled } from "@/utils/localFirst";
 import { markEditing, clearEditing } from "@/utils/editGuard";
 import { useCreateCheckList } from "~/composables/useCreateCheckList";
+import { useDebouncedCardFields } from "~/composables/useDebouncedCardFields";
 import { provideReminderPanel } from "@/composables/useReminderPanel";
 const colorMode = useColorMode();
 
@@ -250,19 +251,16 @@ const localText = ref(checkList.value?.text ?? '');
 watch(() => checkList.value?.name, (n) => { if (!nameFocused.value) localName.value = n ?? ''; });
 watch(() => checkList.value?.text, (t) => { if (!textFocused.value) localText.value = t ?? ''; });
 
-const debouncedUpdateCheckListText = useDebounceFn(
-  (updatedAttrName: string, updatedAttrVal: string) => {
-    if (!checkList.value || !canEdit.value) return;
-    (async () => {
-      await checkListsStore.update(checkList.value!.id, { [updatedAttrName]: updatedAttrVal });
-    })();
-  },
-  500,
-  { maxWait: 3000 }
-);
+// One debounce timer PER field (see useDebouncedCardFields): a single shared
+// timer let a notes keystroke within 500ms of a title keystroke replace the
+// pending title write, dropping it silently.
+const queueFieldWrite = useDebouncedCardFields((field, value) => {
+  if (!checkList.value || !canEdit.value) return;
+  void checkListsStore.update(checkList.value.id, { [field]: value });
+});
 
-watch(localName, (n) => debouncedUpdateCheckListText("name", n));
-watch(localText, (t) => debouncedUpdateCheckListText("text", t));
+watch(localName, (n) => queueFieldWrite("name", n));
+watch(localText, (t) => queueFieldWrite("text", t));
 
 </script>
 
