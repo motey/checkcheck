@@ -77,11 +77,22 @@ async function addItemAtEnd() {
 // the unchecked section) instead of keeping a duplicate, drop the just-typed
 // item (its still-queued create coalesces away in the outbox), and move focus to
 // the now-unchecked match.
+//
+// The match also takes over the just-typed item's slot (issue #8): the user
+// placed the new item deliberately, so the revived one has to land there instead
+// of reappearing at its old position. Moving it above the typed item and then
+// deleting that item leaves it exactly where the user was typing.
 async function acceptSuggestion(payload: { currentItemId: string; matchedItemId: string }) {
   const { currentItemId, matchedItemId } = payload;
+  const list = checkListsItemStore.getCheckListItems(props.parentCheckList.id);
+  const current = list.find((i) => i.id === currentItemId);
+  const matched = list.find((i) => i.id === matchedItemId);
   await checkListsItemStore.updateState(props.parentCheckList.id, matchedItemId, {
     checked: false,
   } as CheckListItemStateUpdateType);
+  if (current && matched && current.id !== matched.id) {
+    await checkListsItemStore.moveCheckListItemAboveOtherItem(props.parentCheckList.id, matched, current);
+  }
   await deleteItem(currentItemId, false);
   await nextTick();
   itemList.value?.focusItem(matchedItemId);
