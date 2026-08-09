@@ -34,6 +34,49 @@ test.describe("card editor modal", () => {
     await expect(editorDialog(page)).toBeVisible();
   });
 
+  // Regression: the title and the notes used to share ONE debounce timer, so
+  // touching the notes within 500ms of the title replaced the queued title write
+  // and it never reached the server. Each field now has its own timer
+  // (`useDebouncedCardFields`, pinned deterministically in
+  // tests/unit/debouncedCardFields.spec.ts); this is the same thing through the
+  // real editor.
+  test("editing the notes right after the title persists both fields", async ({ page }) => {
+    const title = `DEB-${Date.now()}`;
+    const res = await page.request.post("/api/checklist", {
+      data: { name: title, text: "notes before" },
+      headers: { "Content-Type": "application/json" },
+    });
+    expect(res.ok(), "card create should succeed").toBeTruthy();
+    const cl = await res.json();
+
+    try {
+      await page.goto("/");
+      await page.locator("[data-testid=card-title]", { hasText: title }).first().click();
+      const dialog = editorDialog(page);
+      await expect(dialog).toBeVisible();
+
+      // Retype the title, then move straight on to the notes without pausing, so
+      // the two edits land in the same debounce window.
+      await dialog.locator('textarea[placeholder="Enter a checklist title..."]').fill(`${title}-edited`);
+      await dialog.locator("[data-testid=card-notes-rendered]").click();
+      await dialog.locator("[data-testid=card-notes-textarea]").fill("notes after");
+
+      await expect
+        .poll(
+          async () => {
+            const got = await page.request.get(`/api/checklist/${cl.id}`);
+            if (!got.ok()) return null;
+            const card = await got.json();
+            return `${card.name}|${card.text}`;
+          },
+          { timeout: 10_000, intervals: [200, 400, 800] }
+        )
+        .toBe(`${title}-edited|notes after`);
+    } finally {
+      await page.request.delete(`/api/checklist/${cl.id}`).catch(() => {});
+    }
+  });
+
   test("close button dismisses the editor in one click and returns to the board", async ({ page }) => {
     await page.getByRole("button", { name: "New Check List" }).click();
     const dialog = editorDialog(page);

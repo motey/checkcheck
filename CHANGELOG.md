@@ -163,6 +163,14 @@ and the app is installable as a PWA.
   are removed after `NOTIFY_FEED_RETENTION_DAYS` (default 180; set it to 0 to
   keep everything). Unread notifications are never pruned.
 
+### Fixed
+
+- **Editing a card's notes no longer drops the title you just typed.** The open
+  card sent both fields through one shared 500ms timer, so touching the notes
+  within half a second of the title replaced the title's pending write and it
+  never reached the server. The title stayed on screen until the next sync
+  quietly restored the old one. Each field now has its own timer.
+
 ### Upgrade notes
 
 See [`docs/UPGRADING.md`](docs/UPGRADING.md). In short: there are **no production
