@@ -3,6 +3,22 @@
     <!-- Create link form ----------------------------------------------------- -->
     <div class="flex flex-col gap-2 rounded-md border border-default p-3">
       <div class="flex flex-wrap items-center gap-2">
+        <label class="text-xs text-muted w-16">Name</label>
+        <UInput
+          v-model="linkName"
+          size="sm"
+          class="w-40"
+          placeholder="optional"
+          maxlength="60"
+          autocomplete="off"
+          data-testid="public-link-name"
+        />
+        <!-- Static hint, never a computed preview: the numbering rule lives on
+             the server so it is written once (plan decision 9). -->
+        <span class="text-xs text-muted">leave empty for an automatic name like Link-3</span>
+      </div>
+
+      <div class="flex flex-wrap items-center gap-2">
         <label class="text-xs text-muted w-16">Level</label>
         <USelect
           v-model="level"
@@ -60,8 +76,10 @@
       class="flex flex-col gap-2 rounded-md border border-success bg-elevated p-3"
       data-testid="public-link-fresh"
     >
-      <p class="text-xs font-medium text-highlighted">
-        Copy this link now — the server never returns it again.
+      <!-- Naming the link here is the one moment its name and its URL are on
+           screen together, which is what makes the name usable later. -->
+      <p class="text-xs font-medium text-highlighted" data-testid="public-link-fresh-name">
+        Copy the link for "{{ freshName }}" now, the server never returns it again.
       </p>
       <div class="flex items-center gap-2">
         <UInput
@@ -104,7 +122,35 @@
         data-testid="public-link-row"
       >
         <div class="flex min-w-0 flex-col gap-0.5">
-          <div class="flex items-center gap-2">
+          <div class="flex min-w-0 items-center gap-2">
+            <!-- Rename in place: the name is plain text until it is clicked,
+                 then a real input takes its spot (the same focus-swap shape the
+                 card notes use). Blanking it commits "" and the server hands
+                 back a fresh automatic name. -->
+            <UInput
+              v-if="renamingId === link.id"
+              v-model="renameDraft"
+              size="xs"
+              class="w-40"
+              maxlength="60"
+              autocomplete="off"
+              aria-label="Link name"
+              data-testid="public-link-row-name-input"
+              @keydown.enter.prevent="commitRename(link)"
+              @keydown.esc.prevent="cancelRename"
+              @blur="commitRename(link)"
+            />
+            <span
+              v-else
+              class="min-w-0 truncate text-sm font-medium text-highlighted cursor-text rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+              role="button"
+              tabindex="0"
+              :title="`Rename ${link.name}`"
+              data-testid="public-link-row-name"
+              @click="startRename(link)"
+              @keydown.enter.prevent="startRename(link)"
+              @keydown.space.prevent="startRename(link)"
+            >{{ link.name }}</span>
             <UBadge color="neutral" variant="subtle" size="sm">{{ link.permission }}</UBadge>
             <span
               v-if="link.password_protected"
@@ -191,15 +237,21 @@
 
       <!-- Step 1: who, which link, and an optional note. -->
       <template v-if="!confirming">
-        <div v-if="links.length > 1" class="flex flex-wrap items-center gap-2">
+        <!-- Which link is being sent is never implicit: a select when there is
+             a choice to make, a plain statement when there is not. -->
+        <div class="flex flex-wrap items-center gap-2">
           <label class="text-xs text-muted w-16">Link</label>
           <USelect
+            v-if="sendableLinks.length > 1"
             v-model="emailLinkId"
             :items="sendableLinkOptions"
             size="sm"
             class="w-56"
             data-testid="public-link-email-select"
           />
+          <span v-else class="text-xs text-highlighted" data-testid="public-link-email-chosen">
+            Sending: {{ selectedLink ? linkLabel(selectedLink) : "no sendable link" }}
+          </span>
         </div>
 
         <UInput
@@ -270,6 +322,16 @@
         class="flex flex-col gap-2 rounded-md border border-warning p-3"
         data-testid="public-link-email-confirm"
       >
+        <!-- Which link, then what it lets the recipient do. Two lines on
+             purpose: the name is the owner's own label, while the sentence below
+             is the one the recipient gets, word for word. -->
+        <p
+          v-if="selectedLink"
+          class="text-xs text-muted"
+          data-testid="public-link-email-confirm-link"
+        >
+          Sending: {{ linkLabel(selectedLink) }}
+        </p>
         <p class="text-sm">{{ confirmLine }}</p>
         <p class="text-xs text-muted">
           They will not need to sign in, and anyone they pass the link on to gets
@@ -308,13 +370,14 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from "vue";
+import { computed, nextTick, onMounted, ref, watch } from "vue";
 import { useShareStore } from "@/stores/share";
 import { usePublicConfigStore } from "@/stores/publicConfig";
 import {
   AUDIENCE_COMPARISON,
   confirmSentence,
   internalDomainHint,
+  linkLabel,
   sendErrorMessage,
   validateSend,
 } from "@/utils/publicLinkEmail";
@@ -352,6 +415,7 @@ const links = computed(() => shareStore.linksFor(props.checkListId));
 
 const today = new Date().toISOString().slice(0, 10);
 
+const linkName = ref<string>("");
 const level = ref<SharePermission>("view");
 const expiry = ref<string>("");
 const password = ref<string>("");
@@ -359,6 +423,15 @@ const creating = ref(false);
 const busyId = ref<string | null>(null);
 
 const freshUrl = ref<string | null>(null);
+// Which link the fresh-URL box is about, so it can say which link this URL
+// belongs to. Read back out of the list rather than captured, so renaming the
+// row right below does not leave the box quoting an old name; the create
+// result is the fallback for a link deleted while its URL is still on screen.
+const freshLinkId = ref<string | null>(null);
+const freshCreatedName = ref<string>("");
+const freshName = computed(
+  () => links.value.find((link) => link.id === freshLinkId.value)?.name ?? freshCreatedName.value
+);
 // Which URL was last copied (link id, or "fresh" for the just-created box) — for
 // per-button "✓ copied" feedback.
 const copiedKey = ref<string | null>(null);
@@ -393,11 +466,16 @@ async function create() {
     // The backend normalises tz to naive UTC.
     if (expiry.value) body.expires_at = new Date(expiry.value).toISOString();
     if (password.value) body.password = password.value;
+    // Omitted when blank, so the server generates the next "Link-n" itself.
+    if (linkName.value.trim()) body.name = linkName.value.trim();
 
     const res = await shareStore.createLink(props.checkListId, body);
     freshUrl.value = `${location.origin}/p/${res.token}`;
+    freshLinkId.value = res.id;
+    freshCreatedName.value = res.name;
     copiedKey.value = null;
     // Reset the form for the next link (leave the level as-is for convenience).
+    linkName.value = "";
     expiry.value = "";
     password.value = "";
     toast.add({ title: "Public link created", color: "success" });
@@ -419,6 +497,55 @@ async function copy(url: string, key: string) {
     // Clipboard may be blocked (e.g. headless / insecure context) — the URL is
     // still visible and selectable in the field, so just nudge the user.
     toast.add({ title: "Copy failed — select and copy the link manually", color: "warning" });
+  }
+}
+
+// ── Renaming a link in place ────────────────────────────────────────────────
+//
+// Only one row can be in rename state at a time, so a single draft is enough.
+// Escape clears `renamingId` before the input unmounts, which is also what stops
+// the teardown blur from committing.
+
+const renamingId = ref<string | null>(null);
+const renameDraft = ref("");
+
+function startRename(link: PublicLinkReadType) {
+  if (busyId.value) return;
+  renamingId.value = link.id;
+  renameDraft.value = link.name;
+  // Found in the document rather than through a template ref: a ref inside a
+  // v-for is collected into an array, and there is exactly one of these inputs
+  // on screen at a time anyway.
+  nextTick(() => {
+    const el = document.querySelector<HTMLInputElement>(
+      'input[data-testid="public-link-row-name-input"]'
+    );
+    el?.focus();
+    el?.select();
+  });
+}
+
+function cancelRename() {
+  renamingId.value = null;
+}
+
+async function commitRename(link: PublicLinkReadType) {
+  // Escape (or an earlier commit) already left this row, so the blur that
+  // follows the input being torn down has nothing left to do.
+  if (renamingId.value !== link.id) return;
+  const next = renameDraft.value.trim();
+  renamingId.value = null;
+  // A stray click that changed nothing is not worth a PATCH. Blanking it is:
+  // the server answers "" with a fresh automatic name and the store splices the
+  // response back in, so the row repaints itself.
+  if (next === link.name) return;
+  busyId.value = link.id;
+  try {
+    await shareStore.updateLink(props.checkListId, link.id, { name: next });
+  } catch {
+    toast.add({ title: "Could not update link", color: "error" });
+  } finally {
+    busyId.value = null;
   }
 }
 
@@ -474,10 +601,7 @@ const sendableLinks = computed(() =>
   )
 );
 const sendableLinkOptions = computed(() =>
-  sendableLinks.value.map((link) => ({
-    label: `${link.permission}${link.password_protected ? " (passphrase)" : ""} · created ${formatDate(link.created_at)}`,
-    value: link.id,
-  }))
+  sendableLinks.value.map((link) => ({ label: linkLabel(link), value: link.id }))
 );
 const selectedLink = computed(
   () => sendableLinks.value.find((link) => link.id === emailLinkId.value) ?? sendableLinks.value[0]

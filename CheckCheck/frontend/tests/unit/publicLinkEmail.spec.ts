@@ -5,6 +5,7 @@ import {
   emailDomain,
   internalDomainHint,
   isInternalAddress,
+  linkLabel,
   looksLikeEmail,
   permissionSentence,
   sendErrorMessage,
@@ -104,6 +105,31 @@ describe("internalDomainHint", () => {
   it("stays quiet while the address is still being typed", () => {
     expect(internalDomainHint("anna@exam", ["example.com"])).toBeNull();
     expect(internalDomainHint("", ["example.com"])).toBeNull();
+  });
+});
+
+describe("linkLabel", () => {
+  it("leads with the name, then what sending it hands over", () => {
+    expect(linkLabel({ name: "Groceries", permission: "view", password_protected: false })).toBe(
+      "Groceries · view"
+    );
+    expect(linkLabel({ name: "Contractors", permission: "edit", password_protected: true })).toBe(
+      "Contractors · edit · passphrase"
+    );
+  });
+
+  it("still labels a link whose name never made it through", () => {
+    // The API guarantees a name, so this is only about a row written outside it:
+    // an unlabelled option in the picker would be worse than a generic word.
+    expect(linkLabel({ name: "   ", permission: "check", password_protected: false })).toBe(
+      "Link · check"
+    );
+  });
+
+  it("keeps the automatic names apart", () => {
+    expect(linkLabel({ name: "Link-1", permission: "view", password_protected: false })).not.toBe(
+      linkLabel({ name: "Link-2", permission: "view", password_protected: false })
+    );
   });
 });
 

@@ -105,6 +105,13 @@ and the app is installable as a PWA.
   (`SHARING_PUBLIC_LINK_EMAIL_MAX_PER_HOUR`) and the recipient address is never
   echoed back in an error, so the endpoint is neither an open relay nor an
   address oracle.
+- **Named public links.** Every public link carries a short name, given when it
+  is created or changed later by clicking it in the list, so several links on one
+  card can be told apart. Leaving the field empty picks the next automatic name
+  (`Link-1`, `Link-2`, and so on). The name is the owner's own label: it is shown
+  in the link list, in the picker for mailing a link, and in the "your public link
+  was opened" notification, and it never reaches an anonymous visitor or the
+  person a link is mailed to. (Migration `0018`.)
 - **Per-user webhooks** (`NOTIFY_WEBHOOK_ENABLED`, off by default). A third
   notification channel that POSTs a small JSON body to a URL each user saves in
   the notification settings, with a "Send test webhook" action. Because this lets

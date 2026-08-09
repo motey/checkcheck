@@ -119,6 +119,26 @@ export function internalDomainHint(
 }
 
 /**
+ * How a link is named where one has to be picked out of several: its own name
+ * first, then the two properties that decide what sending it actually hands
+ * over. The creation date used to stand in for the name here, which told the
+ * owner nothing about which capability they were about to mail.
+ *
+ * The passphrase note is part of the label rather than a detail: a recipient who
+ * does not know the passphrase cannot open the link, and this is the moment to
+ * notice that.
+ */
+export function linkLabel(link: {
+  name: string;
+  permission: string;
+  password_protected: boolean;
+}): string {
+  const parts = [(link.name ?? "").trim() || "Link", link.permission];
+  if (link.password_protected) parts.push("passphrase");
+  return parts.join(" · ");
+}
+
+/**
  * What the confirm step says, in the words the recipient will be able to act in.
  *
  * Matches `notify/invitation.permission_sentence` on the server, so the promise

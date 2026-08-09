@@ -98,6 +98,9 @@ def notification_context(
         # type, and stripped in `minimal` exactly like a card title: it is text
         # somebody typed about a card, and it leaves the instance the same way.
         "note": payload.get("note") or None,
+        # The opened link's own name (chunk N4). Null for every other type, and
+        # for rows queued before public links had names.
+        "link_name": payload.get("link_name") or None,
         "created_at": created_at.isoformat(),
         "digest": digest,
     }
@@ -133,6 +136,20 @@ def _card_name(context: dict, config: Config) -> Optional[str]:
     if _minimal(config):
         return None
     return context.get("checklist_name")
+
+
+def _link_name(context: dict, config: Config) -> Optional[str]:
+    """The opened public link's own name, or None when it must not be told.
+
+    Held to the same rule as a card title: the name is the owner's note to
+    themselves about who holds the link ("contractors"), which is exactly the
+    kind of thing an operator on ``minimal`` does not want leaving the instance.
+    Missing on rows queued before this existed, so every wording below stays
+    correct without it.
+    """
+    if _minimal(config):
+        return None
+    return context.get("link_name")
 
 
 def _actor_name(context: dict, config: Config) -> Optional[str]:
@@ -184,6 +201,9 @@ def _wording_for_one(context: dict, config: Config) -> str:
             return f'You were invited to "{card}"'
         return "You were invited to a card"
     if type == "public_link_opened":
+        link = _link_name(context, config)
+        if link and card:
+            return f'Your public link "{link}" to "{card}" was opened'
         if card:
             return f'Your public link to "{card}" was opened'
         return "One of your public links was opened"
@@ -244,6 +264,12 @@ def _line_for(context: dict, config: Config) -> str:
         who = actor or "Someone"
         return f"{who} invited you to {subject_card}."
     if type == "public_link_opened":
+        link = _link_name(context, config)
+        if link:
+            return (
+                f'Your public link "{link}" to {subject_card} was opened for '
+                "the first time."
+            )
         return f"Your public link to {subject_card} was opened for the first time."
     who = actor or "Someone"
     return f"{who} shared {subject_card} with you."
@@ -397,6 +423,11 @@ def _push_title(context: dict, config: Config) -> str:
     if type == "public_link_opened":
         if minimal:
             return "One of your public links was opened"
+        # The link's name last, where _within_push_budget's tail clipping takes
+        # it first: knowing a link was opened matters more than knowing which.
+        link = context.get("link_name")
+        if card and link:
+            return f'Your public link to "{card}" was opened ({link})'
         if card:
             return f'Your public link to "{card}" was opened'
         return "One of your public links was opened"
