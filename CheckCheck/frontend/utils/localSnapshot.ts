@@ -16,7 +16,7 @@ import {
   writeSnapshotOwner,
 } from "@/utils/snapshotDb";
 import { mergeDelta, type DeltaTarget, type ItemCountMaps } from "@/utils/deltaApply";
-import { combineGuards, defaultEditGuard } from "@/utils/editGuard";
+import { clearOwnWrites, combineGuards, defaultEditGuard } from "@/utils/editGuard";
 import { emitSyncNotice } from "@/utils/syncNotices";
 import { beginSync, endSync } from "@/utils/syncStatus";
 import { useOutbox } from "@/composables/useOutbox";
@@ -175,6 +175,7 @@ export async function reconcileAccount(pinia: Pinia, userId: string): Promise<bo
       console.warn("[localFirst] failed to clear outbox on account switch", err);
     }
     resetBoardStores(pinia); // drop A's hydrated board from memory
+    clearOwnWrites(); // A's sent values must not mask a conflict for B
     // The previous session ended without a clean logout (crash, closed tab,
     // expired cookie), so Navbar's unregister never ran and this browser is
     // still subscribed to push for A (N5, finding 5.2). Only the local half is
@@ -196,6 +197,7 @@ export async function reconcileAccount(pinia: Pinia, userId: string): Promise<bo
  */
 export async function clearLocalState(): Promise<void> {
   await dropSnapshot();
+  clearOwnWrites();
   try {
     await useOutbox().clearAll();
   } catch (err) {

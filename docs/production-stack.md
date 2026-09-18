@@ -119,7 +119,7 @@ services:
         ipv4_address: 172.28.0.10
 
   checkcheck:
-    image: motey/checkcheck:0.4.0    # pin a release tag; see deployment.md#image-tags
+    image: motey/checkcheck:1.0.0    # pin a release tag; see deployment.md#image-tags
     restart: unless-stopped
     depends_on:
       db:

@@ -178,7 +178,7 @@ def test_uncheck_all_requires_check_permission():
     cl_id = req("api/checklist", "post", b={"name": "uncheck perms"})["id"]
     _new_item(cl_id, "a", checked=True)
 
-    # A view collaborator cannot untick all.
+    # A view collaborator cannot uncheck all.
     _share(cl_id, viewer_id, "view")
     req(
         f"api/checklist/{cl_id}/items/uncheck-all",
@@ -204,7 +204,7 @@ def test_delete_checked_requires_edit_permission():
     cl_id = req("api/checklist", "post", b={"name": "delete perms"})["id"]
     _new_item(cl_id, "a", checked=True)
 
-    # A check collaborator cannot delete ticked items (needs edit).
+    # A check collaborator cannot delete checked items (needs edit).
     _share(cl_id, collab_id, "check")
     req(
         f"api/checklist/{cl_id}/items/delete-checked",

@@ -3,11 +3,16 @@
 All notable changes to CheckCheck are recorded here. The format is loosely based
 on [Keep a Changelog](https://keepachangelog.com/); dates are ISO-8601.
 
-## [2.0.0] — unreleased
+## [1.0.0] - 2026-09-19
 
-The **offline / local-first** release. CheckCheck now works while disconnected:
-edits are applied locally, queued, and synced back when the connection returns,
-and the app is installable as a PWA.
+The first stable release. This entry collects everything since the project
+started, including the `0.x` pre-releases, which had no changelog entries of
+their own. The headline is **offline / local-first**: CheckCheck works while
+disconnected, applies edits locally, queues them, and syncs them back when the
+connection returns, and it installs as a PWA.
+
+Older planning documents under `docs/` call this milestone "2.0". That was an
+internal working name; the released version is 1.0.0.
 
 ### Added
 
@@ -29,11 +34,11 @@ and the app is installable as a PWA.
   bounce you to `/login`.
 - **Soft delete (tombstones)** for checklists, items, and labels so deletions
   propagate correctly through the delta feed.
-- **Bulk item actions** in a card's ⋮ menu — **Untick all items** and **Delete
-  ticked items** — each a single offline-safe operation (one dedicated endpoint,
+- **Bulk item actions** in a card's ⋮ menu — **Uncheck all items** and **Delete
+  checked items** — each a single offline-safe operation (one dedicated endpoint,
   one outbox op) rather than a per-item fan-out, so they work on the whole card
   even when only a preview is loaded and reach collaborators through the normal
-  delta feed. Deleting ticked items asks for confirmation.
+  delta feed. Deleting checked items asks for confirmation.
 - **Markdown card notes.** The card description (the "notes" field) now renders
   as Markdown on the board preview, in the open card when you are not editing, on
   the public share page, and for view-only collaborators. Inside an open card the
@@ -118,7 +123,7 @@ and the app is installable as a PWA.
   never reached it. It now renders from the same components the open card does, and
   gains everything that had drifted: the **"separate checked items" layout** with
   its collapsible checked section (the reported symptom: a visitor could neither
-  see checked items grouped nor untick them), **Markdown-rendered item text**,
+  see checked items grouped nor uncheck them), **Markdown-rendered item text**,
   the card's **colour theme**, and, on an `edit` link, **drag-reordering items**
   and editing the card's **title and notes**. Whether the checked section is
   collapsed is stored on the card, not per visitor, so a `check`-or-better link
@@ -153,7 +158,7 @@ and the app is installable as a PWA.
 
 ### Changed
 
-- **Local-first is on by default.** Self-hosters who want the pre-2.0 online-only
+- **Local-first is on by default.** Self-hosters who want the old online-only
   behaviour can opt out per-deploy with `NUXT_PUBLIC_LOCAL_FIRST=false`. A
   `?localFirst=0` query param / localStorage override also works for one-off
   debugging.
@@ -162,9 +167,22 @@ and the app is installable as a PWA.
 - **The in-app notification feed is pruned.** Notifications that have been read
   are removed after `NOTIFY_FEED_RETENTION_DAYS` (default 180; set it to 0 to
   keep everything). Unread notifications are never pruned.
+- **The card editor on phones is full screen with a back button.** Below tablet
+  width the open card fills the screen with a header bar: a back arrow on the
+  left, the pin and sync state on the right, the title underneath. It stays
+  usable while typing: the editor ends at the on-screen keyboard instead of
+  sliding under it, so the back arrow and the title stay reachable. Item
+  suggestions ("Uncheck ...") no longer hide behind the keyboard; the list
+  scrolls into view as it appears. A very long title is capped at four lines
+  and scrolls inside itself. The desktop editor is unchanged.
 
 ### Fixed
 
+- **No more "also edited elsewhere" message for your own edits.** Your own save
+  comes back to your device through the sync feed. If you kept typing in the
+  meantime, the returning value no longer matched what was on screen, and the app
+  reported it as someone else's edit. The client now remembers the values it
+  sent and warns only about values it did not send.
 - **Editing a card's notes no longer drops the title you just typed.** The open
   card sent both fields through one shared 500ms timer, so touching the notes
   within half a second of the title replaced the title's pending write and it
@@ -230,11 +248,11 @@ and the app is installable as a PWA.
 
 ### Upgrade notes
 
-See [`docs/UPGRADING.md`](docs/UPGRADING.md). In short: there are **no production
-instances yet**, so 2.0 ships a squashed migration baseline — **recreate any
-pre-2.0 development database** (the schema is built with `create_all`, which does
-not alter existing tables). From 2.0 on, schema changes ship as real Alembic
-revisions.
+See [`docs/UPGRADING.md`](docs/UPGRADING.md). In short: the early migration
+history was squashed into baseline `0010`, so a **development database from
+before that baseline must be recreated once** (the schema is built with
+`create_all`, which does not alter existing tables). Every schema change after
+it ships as a real Alembic revision and is applied at startup.
 
 Email, the public-link invitation and webhooks are all **off by default**, so an
 existing deployment behaves exactly as before until an operator turns them on.

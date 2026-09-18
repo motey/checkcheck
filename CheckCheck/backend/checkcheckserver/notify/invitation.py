@@ -62,9 +62,9 @@ def permission_sentence(permission: SharePermission | str) -> str:
     """
     value = permission.value if isinstance(permission, SharePermission) else str(permission)
     if value == SharePermission.edit.value:
-        return "add, change and tick off items on this list, without signing in"
+        return "add, change and check off items on this list, without signing in"
     if value == SharePermission.check.value:
-        return "tick items off this list, without signing in"
+        return "check items off this list, without signing in"
     return "read this list, without signing in"
 
 

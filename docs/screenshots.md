@@ -43,17 +43,17 @@ formatting help link right there when you need it.
 ## Working through items
 
 The card menu keeps the list tidy as you go. **Separate checked items** moves
-ticked things to the bottom (on by default), or turn it off to check them in
-place. Two batch actions clear a full list in one step: **Untick all items** and
-**Delete ticked items**.
+checked things to the bottom (on by default), or turn it off to check them in
+place. Two batch actions clear a full list in one step: **Uncheck all items** and
+**Delete checked items**.
 
-<a href="screenshots/DesktopCompactShowItemOptions.png"><img src="screenshots/DesktopCompactShowItemOptions.png" alt="The card menu: separate checked items, suggest existing items, untick all, delete ticked"></a>
+<a href="screenshots/DesktopCompactShowItemOptions.png"><img src="screenshots/DesktopCompactShowItemOptions.png" alt="The card menu: separate checked items, suggest existing items, uncheck all, delete checked"></a>
 
 With **Suggest existing items** on, typing the name of something you already
 checked off offers to uncheck it again, instead of adding a duplicate. Handy for
 a grocery list you reuse week after week.
 
-<a href="screenshots/DesktopCompactShowItemSuggestions.png"><img src="screenshots/DesktopCompactShowItemSuggestions.png" alt="Typing an item name suggests unchecking a matching item that is already ticked"></a>
+<a href="screenshots/DesktopCompactShowItemSuggestions.png"><img src="screenshots/DesktopCompactShowItemSuggestions.png" alt="Typing an item name suggests unchecking a matching item that is already checked"></a>
 
 ## Sharing a list
 

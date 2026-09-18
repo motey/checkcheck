@@ -6,6 +6,7 @@ import {
   classifyError,
   coalesce,
   httpStatusOf,
+  opOwnWrites,
   outboxFieldGuard,
   partitionResync,
   pendingChecklistIds,
@@ -16,6 +17,17 @@ import {
   type OutboxStore,
 } from "@/utils/outbox";
 import { createOutboxStore } from "@/utils/outboxDb";
+import { ANY_OWN_VALUE } from "@/utils/editGuard";
+import {
+  checklistLabelAddOp,
+  checklistPositionOp,
+  checklistUpdateOp,
+  itemCreateOp,
+  itemDeleteOp,
+  itemPositionOp,
+  itemStateOp,
+  itemUpdateOp,
+} from "@/utils/outboxOps";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -178,7 +190,7 @@ function checklistPosition(id: string, body: Record<string, unknown>): OutboxOpI
   };
 }
 
-/** A bulk "untick all" op: entity is the CARD, kind is append-only. */
+/** A bulk "uncheck all" op: entity is the CARD, kind is append-only. */
 function bulkUncheck(clId: string): OutboxOpInput {
   return {
     entityType: "item",
@@ -191,7 +203,7 @@ function bulkUncheck(clId: string): OutboxOpInput {
     },
   };
 }
-/** A bulk "delete ticked" op: entity is the CARD, kind is append-only. */
+/** A bulk "delete checked" op: entity is the CARD, kind is append-only. */
 function bulkDeleteChecked(clId: string): OutboxOpInput {
   return {
     entityType: "item",
@@ -1066,7 +1078,7 @@ describe("OutboxEngine drain-window race", () => {
 
 describe("bulk item ops (coalesce / resync / pending)", () => {
   it("appends both bulk kinds in order — never merges across kinds", () => {
-    // "untick all" then "delete ticked" are distinct, order-dependent ops; if
+    // "uncheck all" then "delete checked" are distinct, order-dependent ops; if
     // they coalesced (or a delete cancelled the uncheck) the replay would diverge
     // from what the user did. Both must survive, in enqueue order.
     let q = coalesce([], op(1, bulkUncheck("cl1")));
@@ -1112,5 +1124,44 @@ describe("bulk item ops (coalesce / resync / pending)", () => {
   it("does not move the sidebar card-count badges (item counts, not card counts)", () => {
     expect(affectsSidebarCounts(op(1, bulkUncheck("cl1")))).toBe(false);
     expect(affectsSidebarCounts(op(2, bulkDeleteChecked("cl1")))).toBe(false);
+  });
+});
+
+// ── opOwnWrites (self-echo suppression) ──────────────────────────────────────
+
+describe("opOwnWrites", () => {
+  it("maps each op kind's body to DTO field paths", () => {
+    expect(opOwnWrites(itemUpdateOp("c", "i", { text: "milk" }))).toEqual([
+      { kind: "item", id: "i", field: "text", value: "milk" },
+    ]);
+    expect(opOwnWrites(itemStateOp("c", "i", { checked: true }))).toEqual([
+      { kind: "item", id: "i", field: "state.checked", value: true },
+    ]);
+    expect(opOwnWrites(itemPositionOp("c", "i", { index: 2.5, indentation: 1 }))).toEqual([
+      { kind: "item", id: "i", field: "position.index", value: 2.5 },
+      { kind: "item", id: "i", field: "position.indentation", value: 1 },
+    ]);
+    expect(opOwnWrites(checklistPositionOp("c", { pinned: true }))).toEqual([
+      { kind: "checklist", id: "c", field: "position.pinned", value: true },
+    ]);
+  });
+
+  it("reads nested create bodies and skips unguarded keys (id, settings flags)", () => {
+    const writes = opOwnWrites(itemCreateOp("c", "i", { text: "", position: { index: 1 }, state: { checked: false } }));
+    expect(writes).toEqual([
+      { kind: "item", id: "i", field: "text", value: "" },
+      { kind: "item", id: "i", field: "position.index", value: 1 },
+      { kind: "item", id: "i", field: "state.checked", value: false },
+    ]);
+    expect(opOwnWrites(checklistUpdateOp("c", { name: "N", checked_items_collapsed: true }))).toEqual([
+      { kind: "checklist", id: "c", field: "name", value: "N" },
+    ]);
+  });
+
+  it("records a label pair-op as any value of the card's label set; deletes record nothing", () => {
+    expect(opOwnWrites(checklistLabelAddOp("c", "l"))).toEqual([
+      { kind: "checklist", id: "c", field: "labels", value: ANY_OWN_VALUE },
+    ]);
+    expect(opOwnWrites(itemDeleteOp("c", "i"))).toEqual([]);
   });
 });

@@ -208,7 +208,7 @@ export function itemPositionOp(
 
 // ── Bulk item-operation builders ─────────────────────────────────────────────
 //
-// Card-level bulk operations — "untick all items" and "delete ticked items" —
+// Card-level bulk operations — "uncheck all items" and "delete checked items" —
 // each modelled as ONE outbox op replayed against a dedicated server endpoint
 // (the server operates on its current item set, so the client never has to hold
 // all items). `entityType: "item"` reuses the existing item plumbing with no
@@ -224,7 +224,7 @@ export function itemPositionOp(
 // partitionResync's `existsAfterResync(entityId)` then holds while the card lives.
 
 /**
- * `POST /api/checklist/{id}/items/uncheck-all` — untick every checked item of the
+ * `POST /api/checklist/{id}/items/uncheck-all` — uncheck every checked item of the
  * card in one server-side operation. Idempotent on replay (nothing left to
  * uncheck). Append-only in the outbox (see `OutboxOpKind`).
  */

@@ -1,5 +1,7 @@
 <template>
-  <div>
+  <div class="scroll-mb-16">
+  <!-- scroll-mb-16: a focused row (plus its suggestion list) keeps some air
+       above the on-screen keyboard when it is scrolled into view. -->
   <div class="checklist-item-row flex items-start gap-1.5 py-0.5" data-testid="item-row" @mouseover="hover = true" @mouseleave="hover = false">
     <span
       v-if="showHandle"

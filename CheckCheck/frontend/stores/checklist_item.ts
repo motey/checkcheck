@@ -309,7 +309,7 @@ export const useCheckListsItemStore = defineStore("checkListitem", {
       }
     },
     /**
-     * Bulk "untick all items": uncheck every item of the card. Local-first
+     * Bulk "uncheck all items": uncheck every item of the card. Local-first
      * (offline-safe) — one outbox op, reconciled by the delta pull's
      * preview-count refresh. Legacy path hits the endpoint then re-reads the
      * authoritative counts/items.
@@ -324,13 +324,13 @@ export const useCheckListsItemStore = defineStore("checkListitem", {
           path: { checklist_id: checkListId },
         });
       } catch (error) {
-        console.error("Could not untick all items 'POST /checklist/" + checkListId + "/items/uncheck-all'", error);
+        console.error("Could not uncheck all items 'POST /checklist/" + checkListId + "/items/uncheck-all'", error);
         throw error;
       }
       await this.fetchMultipleChecklistsItemsPreview([checkListId], null, true);
     },
     /**
-     * Bulk "delete ticked items": soft-delete every checked item of the card.
+     * Bulk "delete checked items": soft-delete every checked item of the card.
      * Local-first (offline-safe) — one outbox op, reconciled by the delta pull.
      * Legacy path hits the endpoint then re-reads the authoritative counts/items.
      */
@@ -344,7 +344,7 @@ export const useCheckListsItemStore = defineStore("checkListitem", {
           path: { checklist_id: checkListId },
         });
       } catch (error) {
-        console.error("Could not delete ticked items 'POST /checklist/" + checkListId + "/items/delete-checked'", error);
+        console.error("Could not delete checked items 'POST /checklist/" + checkListId + "/items/delete-checked'", error);
         throw error;
       }
       await this.fetchMultipleChecklistsItemsPreview([checkListId], null, true);
@@ -523,7 +523,7 @@ export const useCheckListsItemStore = defineStore("checkListitem", {
       return newState;
     },
     /**
-     * Optimistic "untick all": flip every loaded item to unchecked and set the
+     * Optimistic "uncheck all": flip every loaded item to unchecked and set the
      * count maps directly (all unchecked, total unchanged), then enqueue the
      * single bulk op. For a preview card only the loaded slice is flipped, but
      * the count maps are set from the authoritative total; the delta pull +
@@ -541,7 +541,7 @@ export const useCheckListsItemStore = defineStore("checkListitem", {
       useOutbox().enqueue(itemsUncheckAllOp(checkListId));
     },
     /**
-     * Optimistic "delete ticked": drop every checked item from the loaded slice
+     * Optimistic "delete checked": drop every checked item from the loaded slice
      * and adjust the count maps (total shrinks by the checked count, checked→0),
      * then enqueue the single bulk op. Preview cards reconcile via the delta pull.
      */

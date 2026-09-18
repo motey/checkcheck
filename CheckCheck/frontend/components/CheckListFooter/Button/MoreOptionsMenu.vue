@@ -10,30 +10,30 @@
     </UTooltip>
   </UDropdownMenu>
 
-  <!-- Destructive "delete ticked items" confirm. Untick-all is non-destructive
-       and fires straight from the menu; deleting ticked items goes through this
+  <!-- Destructive "delete checked items" confirm. Uncheck-all is non-destructive
+       and fires straight from the menu; deleting checked items goes through this
        confirm because it tombstones rows. -->
   <UModal
     v-model:open="confirmDeleteOpen"
-    title="Delete ticked items?"
+    title="Delete checked items?"
     :ui="{ content: 'max-w-sm w-[calc(100vw-1rem)] sm:w-full rounded-2xl ring ring-default' }"
   >
     <template #content>
       <div class="p-4 sm:p-6 flex flex-col gap-4">
         <div class="flex flex-col gap-1">
-          <h2 class="text-lg font-semibold">Delete ticked items?</h2>
+          <h2 class="text-lg font-semibold">Delete checked items?</h2>
           <p class="text-sm text-muted">
-            {{ checkedCount }} ticked {{ checkedCount === 1 ? "item" : "items" }} will be deleted. This can't be undone.
+            {{ checkedCount }} checked {{ checkedCount === 1 ? "item" : "items" }} will be deleted. This can't be undone.
           </p>
         </div>
         <div class="flex justify-end gap-2">
           <UButton color="neutral" variant="ghost" label="Cancel" @click.stop="confirmDeleteOpen = false" />
           <UButton
             color="error"
-            label="Delete ticked"
-            data-testid="confirm-delete-ticked"
+            label="Delete checked"
+            data-testid="confirm-delete-checked"
             :loading="deleting"
-            @click.stop="deleteTicked()"
+            @click.stop="deleteChecked()"
           />
         </div>
       </div>
@@ -77,13 +77,13 @@ const deleting = ref(false);
 // reminder notifies nobody but the person who set it.
 const reminderPanel = useReminderPanel();
 
-async function deleteTicked() {
+async function deleteChecked() {
   deleting.value = true;
   try {
     await checkListItemStore.deleteCheckedItems(props.checkListId);
     confirmDeleteOpen.value = false;
   } catch {
-    toast.add({ title: "Could not delete ticked items", color: "error" });
+    toast.add({ title: "Could not delete checked items", color: "error" });
   } finally {
     deleting.value = false;
   }
@@ -131,20 +131,20 @@ const items = computed(
           ]
         : []),
       {
-        label: "Untick all items",
+        label: "Uncheck all items",
         icon: "i-lucide-list-x",
         disabled: !canCheck.value || checkedCount.value === 0,
-        "data-testid": "card-untick-all",
+        "data-testid": "card-uncheck-all",
         onSelect() {
           checkListItemStore.uncheckAllItems(props.checkListId);
         },
       },
       {
-        label: "Delete ticked items",
+        label: "Delete checked items",
         icon: "i-lucide-trash-2",
         color: "error" as const,
         disabled: !canEdit.value || checkedCount.value === 0,
-        "data-testid": "card-delete-ticked",
+        "data-testid": "card-delete-checked",
         onSelect() {
           confirmDeleteOpen.value = true;
         },

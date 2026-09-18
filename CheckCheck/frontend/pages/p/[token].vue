@@ -351,7 +351,7 @@ const permissionLabel = computed(() => {
     case "owner":
       return "You can view and edit this list";
     case "check":
-      return "You can view and tick items";
+      return "You can view and check items";
     default:
       return "You're viewing a read-only list";
   }

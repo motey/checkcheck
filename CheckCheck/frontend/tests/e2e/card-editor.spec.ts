@@ -87,4 +87,24 @@ test.describe("card editor modal", () => {
     await expect(editorDialog(page)).toHaveCount(0, { timeout: 5_000 });
     await expect(page).not.toHaveURL(/\/card\//);
   });
+
+  // The full-screen phone layout (mobile editor M2, touch-editor.spec.ts) is
+  // scoped below `sm`. On desktop the editor stays a centered modal with the
+  // floating X and pin, and no header bar.
+  test("desktop editor stays a centered modal, not full screen", async ({ page }) => {
+    await page.getByRole("button", { name: "New Check List" }).click();
+    const dialog = editorDialog(page);
+    await expect(dialog).toBeVisible();
+
+    const viewport = page.viewportSize()!;
+    const box = (await dialog.boundingBox())!;
+    expect(box.width).toBeLessThan(viewport.width * 0.8);
+    expect(box.x).toBeGreaterThan(0);
+    expect(box.y).toBeGreaterThan(0);
+    await expect(dialog.getByTestId("editor-header")).toHaveCount(0);
+    await expect(dialog.getByRole("button", { name: "Close" })).toHaveCount(1);
+
+    await dialog.getByRole("button", { name: "Close" }).click();
+    await expect(editorDialog(page)).toHaveCount(0, { timeout: 5_000 });
+  });
 });

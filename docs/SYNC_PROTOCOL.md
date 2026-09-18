@@ -1,4 +1,4 @@
-# CheckCheck Sync Protocol (2.0)
+# CheckCheck Sync Protocol
 
 **Status:** Active — the client-facing contract the local-first frontend (WI-6…11)
 is built against.
@@ -22,7 +22,7 @@ CheckCheck syncs with a **DIY delta-sync** design (no CRDT, no client SQLite):
   device “there are changes, pull now”. It is never the source of truth and may be
   missed (offline, reconnect) without data loss — the next pull catches up.
 - Conflict resolution is **per-field Last-Writer-Wins**, where “last” =
-  **server-arrival order** (§4). There is no text CRDT in 2.0.
+  **server-arrival order** (§4). There is no text CRDT.
 
 A client therefore needs three things: a persisted **cursor**, a persisted
 **outbox** of pending writes, and the local **store snapshot**. The server keeps

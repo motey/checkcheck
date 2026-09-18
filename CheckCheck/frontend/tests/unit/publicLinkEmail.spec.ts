@@ -136,9 +136,9 @@ describe("linkLabel", () => {
 describe("what the user is told before sending", () => {
   it("states the granted level in words a recipient can act on", () => {
     expect(permissionSentence("edit")).toBe(
-      "add, change and tick off items on this list, without signing in"
+      "add, change and check off items on this list, without signing in"
     );
-    expect(permissionSentence("check")).toBe("tick items off this list, without signing in");
+    expect(permissionSentence("check")).toBe("check items off this list, without signing in");
     expect(permissionSentence("view")).toBe("read this list, without signing in");
     // A level a later release adds falls back to the safest wording.
     expect(permissionSentence("something_new")).toBe("read this list, without signing in");
@@ -146,7 +146,7 @@ describe("what the user is told before sending", () => {
 
   it("names the person and the level in the confirm line", () => {
     expect(confirmSentence("  anna@example.org ", "edit")).toBe(
-      "anna@example.org will be able to add, change and tick off items on this list, without signing in."
+      "anna@example.org will be able to add, change and check off items on this list, without signing in."
     );
   });
 

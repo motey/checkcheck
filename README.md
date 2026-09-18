@@ -11,8 +11,8 @@ A collaborative, self-hostable, offline-capable checklist app, inspired by Googl
 > Not affiliated with, endorsed by, or sponsored by Google. Google Keep is a trademark of Google LLC.
 
 Think of CheckCheck as a shared home for all your lists: the shopping list your
-family keeps updating together, the packing list you and your friends tick
-through while planning a holiday, or the to-dos for a move that everyone chips
+family keeps updating together, the packing list you and your friends check
+off while planning a holiday, or the to-dos for a move that everyone chips
 in on. Everyone sees the same up-to-date list on their own device, online or
 offline.
 
@@ -21,9 +21,11 @@ organise with labels, and share individual cards with other people. Because it
 is local-first, the app keeps working while you are offline and syncs back up
 when the connection returns, and it installs as a PWA.
 
-**Status: Beta.** Usable and self-hostable, but edges remain and
-things can still change. See [Limitations](#limitations) before you rely on it.  
-(I just started driving it in real life)
+**Status: 1.0.** The feature set I set out to build is in place, and I run it
+for my own lists. From here on, breaking changes and database migrations are
+announced in the [changelog](CHANGELOG.md) and the
+[upgrade notes](docs/UPGRADING.md). It is still a hobby project with a single
+maintainer, so read [Limitations](#limitations) before you rely on it.
 
 ![Screenshot](docs/screenshots/desktopDarkLightMix.png)
 
@@ -126,7 +128,7 @@ Every setting can come from an environment variable or a mounted `config.yml`
 
 ## Limitations
 
-CheckCheck is young. Know these before deploying:
+CheckCheck has a deliberately narrow scope. Know these before deploying:
 
 - **Not built for a large user base.** It targets personal use and small,
   trusted groups, running on PostgreSQL (see [docs/deployment.md](docs/deployment.md)).
@@ -143,8 +145,10 @@ CheckCheck is young. Know these before deploying:
   nothing while disconnected.
 - **The offline snapshot is stored unencrypted on the device.** Treat shared or
   public machines accordingly.
-- **Beta stability.** Expect bugs and occasional changes. Read
-  [docs/UPGRADING.md](docs/UPGRADING.md) before upgrading and keep backups.
+- **Bugs still happen.** There are backend, frontend and end-to-end test
+  suites, but the app has one maintainer and a small number of real-world
+  users so far. Read [docs/UPGRADING.md](docs/UPGRADING.md) before upgrading
+  and keep backups.
 - **LLMs.** For finishing the project I made heavy usage of Claude code. The core, base design and first prototypes are handwritten. Later stuff is mostly LLM generated. Do whatever you want with this information.
 
 > [!IMPORTANT]  

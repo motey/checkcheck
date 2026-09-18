@@ -1,11 +1,13 @@
 <template>
   <!-- A subtle corner badge shown while this card has undrained offline writes
        (WI-11 per-card pending indicator; feeds the WI-14 global status UI). It
-       floats over the top-left corner so it never overlaps the title text. -->
+       floats over the top-left corner so it never overlaps the title text.
+       `inline` drops the float for the full-screen editor's header bar. -->
   <UTooltip v-if="pending" :text="online ? 'Syncing changes…' : 'Changes saved offline — will sync when online'">
     <span
       data-testid="card-sync-pending"
-      class="absolute -top-2 -left-2 z-10 flex h-5 w-5 items-center justify-center rounded-full bg-elevated text-dimmed shadow ring-1 ring-default"
+      :class="inline ? 'flex-none' : 'absolute -top-2 -left-2 z-10'"
+      class="flex h-5 w-5 items-center justify-center rounded-full bg-elevated text-dimmed shadow ring-1 ring-default"
     >
       <UIcon
         :name="online ? 'i-lucide-refresh-cw' : 'i-lucide-cloud-off'"
@@ -19,7 +21,7 @@
 import { isLocalFirstEnabled } from "@/utils/localFirst";
 import { useOutbox } from "@/composables/useOutbox";
 
-const props = defineProps<{ checkListId: string }>();
+const props = defineProps<{ checkListId: string; inline?: boolean }>();
 
 // Flag-off there is no outbox, so never mount the composable / indicator.
 const localFirst = isLocalFirstEnabled();

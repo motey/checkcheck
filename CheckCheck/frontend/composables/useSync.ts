@@ -351,7 +351,7 @@ export const useSync = createSharedComposable(() => {
 
       case "item_state":
         if (!cliId) {
-          // Bulk "untick all" (cli_id=null): a single item refresh can't cover it,
+          // Bulk "uncheck all" (cli_id=null): a single item refresh can't cover it,
           // so refetch the whole card's items (debounced, and only if loaded).
           scheduleItemRefresh(clId);
         } else if (checkListItemStore.checkListsItems[clId]) {
@@ -378,7 +378,7 @@ export const useSync = createSharedComposable(() => {
 
       case "item_deleted":
         if (!cliId) {
-          // Bulk "delete ticked" (cli_id=null): refetch the whole card's items
+          // Bulk "delete checked" (cli_id=null): refetch the whole card's items
           // (debounced) rather than splicing a single known id.
           scheduleItemRefresh(clId);
         } else {

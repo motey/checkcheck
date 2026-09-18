@@ -2,7 +2,7 @@
 // functions over plain array/record slices — no Nuxt/Pinia/IndexedDB needed.
 import { describe, it, expect } from "vitest";
 import { mergeDelta, type DeltaTarget, type ItemCountMaps } from "@/utils/deltaApply";
-import type { EditGuard } from "@/utils/editGuard";
+import { combineGuards, type EditGuard } from "@/utils/editGuard";
 
 // ── Row factories (minimal shapes the core actually touches) ─────────────────
 
@@ -361,6 +361,59 @@ describe("mergeDelta — outbox-op field protection", () => {
     );
     expect(t.checkLists[0]!.labels.map((l: any) => l.id)).toEqual(["l1"]);
     expect(s.conflicts).toContainEqual({ kind: "checklist", id: "a", field: "labels" });
+  });
+});
+
+// ── Self-echo is not a conflict ──────────────────────────────────────────────
+//
+// The author's own save comes back through the delta feed. If they kept typing
+// meanwhile, the echo differs from the local value but is not someone else's
+// edit, so no "also edited elsewhere" toast.
+
+describe("mergeDelta — own-write echo", () => {
+  /** Protect `kind:id:field` and treat the listed `kind:id:field=value` pairs as our own writes. */
+  const guardOwn = (protectedKey: string, own: Record<string, unknown[]>): EditGuard => ({
+    isEditing: (kind, id, field) => `${kind}:${id}:${field}` === protectedKey,
+    isOwnValue: (kind, id, field, value) => (own[`${kind}:${id}:${field}`] ?? []).includes(value),
+  });
+
+  it("keeps the typed-ahead text and records NO conflict when the delta echoes our earlier save", () => {
+    const t = target({ items: { c: [ITEM("i", "c", { text: "milk 2l" })] } });
+    const s = mergeDelta(
+      t,
+      emptyDelta({ items: [ITEM("i", "c", { text: "milk" })] }),
+      guardOwn("item:i:text", { "item:i:text": ["milk"] })
+    );
+    expect(t.items["c"]![0]!.text).toBe("milk 2l");
+    expect(s.conflicts).toEqual([]);
+  });
+
+  it("still records a conflict when the incoming value was never sent by this client", () => {
+    const t = target({ items: { c: [ITEM("i", "c", { text: "milk 2l" })] } });
+    const s = mergeDelta(
+      t,
+      emptyDelta({ items: [ITEM("i", "c", { text: "bread" })] }),
+      guardOwn("item:i:text", { "item:i:text": ["milk"] })
+    );
+    expect(s.conflicts).toEqual([{ kind: "item", id: "i", field: "text" }]);
+  });
+
+  it("resolves nested DTO paths (position.index) and card fields against own writes", () => {
+    const t = target({
+      checkLists: [CL("a", { name: "Shopping list" })],
+      items: { c: [ITEM("i", "c", { index: 5 })] },
+    });
+    const s = mergeDelta(
+      t,
+      emptyDelta({ checklists: [CL("a", { name: "Shop" })], items: [ITEM("i", "c", { index: 3 })] }),
+      combineGuards(
+        guardOwn("checklist:a:name", { "checklist:a:name": ["Shop"] }),
+        guardOwn("item:i:position.index", { "item:i:position.index": [3] })
+      )
+    );
+    expect(t.checkLists[0]!.name).toBe("Shopping list");
+    expect(t.items["c"]![0]!.position.index).toBe(5);
+    expect(s.conflicts).toEqual([]);
   });
 });
 

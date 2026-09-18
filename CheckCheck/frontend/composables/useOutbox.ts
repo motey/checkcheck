@@ -2,6 +2,7 @@ import { createSharedComposable } from "@vueuse/core";
 import { ref } from "vue";
 import {
   OutboxEngine,
+  opOwnWrites,
   outboxFieldGuard,
   pendingChecklistIds,
   queuedCreateIds,
@@ -10,7 +11,7 @@ import {
   type OutboxOp,
   type OutboxOpInput,
 } from "@/utils/outbox";
-import type { EditGuard } from "@/utils/editGuard";
+import { recordOwnWrite, type EditGuard } from "@/utils/editGuard";
 import { createOutboxStore } from "@/utils/outboxDb";
 import { emitSyncNotice } from "@/utils/syncNotices";
 import {
@@ -111,7 +112,12 @@ export const useOutbox = createSharedComposable(() => {
 
   return {
     /** Queue a write (WI-8/WI-9 stores call this from their optimistic actions). */
-    enqueue: (input: OutboxOpInput): Promise<OutboxOp> => engine.enqueue(input),
+    enqueue: (input: OutboxOpInput): Promise<OutboxOp> => {
+      // Remember what we send, so its echo in the delta feed is not mistaken for
+      // someone else's edit ("also edited elsewhere" on the author's own device).
+      for (const w of opOwnWrites(input)) recordOwnWrite(w.kind, w.id, w.field, w.value);
+      return engine.enqueue(input);
+    },
     /** Reactive count of queued (unsynced) ops — feeds the WI-14 status UI. */
     pendingCount,
     /** Reactive set of checklist ids with a pending op — the per-card WI-11 indicator. */
