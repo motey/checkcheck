@@ -49,11 +49,12 @@
 // and the permission ladder), while all the layout, Markdown rendering and
 // keyboard behaviour is the shared row's, which the `/p/<token>` viewer renders too.
 import { ref } from "vue";
-import { useDebounceFn } from "@vueuse/core";
+import { useDebounceFn, usePreferredReducedMotion } from "@vueuse/core";
 import type { PropType } from "vue";
 import { useCheckListsItemStore } from "@/stores/checklist_item";
 import { markEditing, clearEditing } from "@/utils/editGuard";
 import { findMatchingCheckedItems } from "@/utils/normalizeItemText";
+import { revealRow } from "@/utils/revealRow";
 
 const props = defineProps({
   checkListItem: { type: Object as PropType<CheckListItemType>, required: false },
@@ -127,6 +128,32 @@ defineExpose({ focusTextarea });
 const { can } = usePermissions();
 const canCheck = computed(() => can(props.parentCheckList, "check"));
 const canEdit = computed(() => can(props.parentCheckList, "edit"));
+
+// Mobile editor M3: nothing else scrolls the suggestion list into view, so on a
+// phone it can appear behind the keyboard. Reveal the row plus its list whenever
+// the list appears or changes length, and again when the visual viewport resizes
+// while this row is focused (the keyboard often finishes opening after focus).
+// revealRow never scrolls the row itself out of the top.
+const editingHere = computed(() => props.parentEditMode && textFocused.value);
+const { height: viewportHeight } = useVisualViewport(editingHere);
+const reducedMotion = usePreferredReducedMotion();
+function revealSelf() {
+  nextTick(() => {
+    const block = rowRef.value?.$el as HTMLElement | undefined;
+    const row = block?.firstElementChild as HTMLElement | null | undefined;
+    if (!block || !row) return;
+    revealRow(block, row, reducedMotion.value === "reduce" ? "auto" : "smooth");
+  });
+}
+watch(
+  () => suggestions.value.length,
+  (n) => {
+    if (n) revealSelf();
+  }
+);
+watch(viewportHeight, () => {
+  if (editingHere.value) revealSelf();
+});
 
 function toggleCheck() {
   if (!canCheck.value) return;

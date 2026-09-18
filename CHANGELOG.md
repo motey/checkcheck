@@ -162,6 +162,14 @@ and the app is installable as a PWA.
 - **The in-app notification feed is pruned.** Notifications that have been read
   are removed after `NOTIFY_FEED_RETENTION_DAYS` (default 180; set it to 0 to
   keep everything). Unread notifications are never pruned.
+- **The card editor on phones is full screen with a back button.** Below tablet
+  width the open card fills the screen with a header bar: a back arrow on the
+  left, the pin and sync state on the right, the title underneath. It stays
+  usable while typing: the editor ends at the on-screen keyboard instead of
+  sliding under it, so the back arrow and the title stay reachable. Item
+  suggestions ("Uncheck ...") no longer hide behind the keyboard; the list
+  scrolls into view as it appears. A very long title is capped at four lines
+  and scrolls inside itself. The desktop editor is unchanged.
 
 ### Fixed
 

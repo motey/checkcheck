@@ -1,6 +1,8 @@
 # Plan: mobile card editor (closable header, keyboard-aware layout, visible suggestions)
 
-**Status:** M1 done (2026-09-18). M2 done (2026-09-18, uncommitted). M3, M4 open.
+**Status:** done (2026-09-18). M1, M2, M3 and M4 landed. The on-device
+checklist in section 5 is with the maintainer; the flip-up fallback in
+decision 5 is only built if that check finds a case scrolling does not cover.
 
 **Deviations so far:**
 
@@ -28,6 +30,22 @@
 - M2: on desktop the rendered styles are unchanged, but the card root's
   `border border-default rounded-xl` moved from the static `class` to the
   bound one, so the class attribute order differs.
+- M3: the reveal is not `scrollIntoView({ block: "nearest" })`. With five
+  suggestions and a small visible area, "nearest" aligns the bottom of the
+  row-plus-list block and can push the row being typed out of the top. A small
+  helper, `utils/revealRow.ts`, scrolls the nearest scrollable ancestor by
+  just enough to show the block plus its `scroll-margin-bottom`, capped so the
+  row's top edge stays visible. It measures against the scroll region clipped
+  to `window.visualViewport`, so the keyboard counts as covered even where the
+  layout viewport does not shrink (iOS Safari).
+- M3: `scroll-margin-bottom` is Tailwind's `scroll-mb-16` (4rem) on the row
+  wrapper in `CardParts/ItemRow.vue`. The helper reads it back from the
+  computed style, so there is one number.
+- M3: `CheckListItem.vue` holds `useVisualViewport` only while its own row is
+  focused in the open card, and re-reveals on every `height` change then.
+  Reduced motion gives `behavior: "auto"` (instant) instead of `"smooth"`.
+- M4 folded into the M3 session. The changelog entry lives under 2.0.0,
+  *Changed*, since that release is still unreleased.
 
 Two pieces of user feedback, same root cause:
 
