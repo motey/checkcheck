@@ -66,7 +66,7 @@ link. It is on by default; the switches to narrow or disable it are in
 A few behaviours worth knowing when you support users:
 
 - **A public link carries a permission level**, chosen when the link is created:
-  `view` reads the card, `check` also ticks and unticks items, `edit` also adds,
+  `view` reads the card, `check` also checks and unchecks items, `edit` also adds,
   renames, deletes and reorders items and edits the card's title and notes.
   Whoever holds the URL has that level, with no account and no sign-in, which is
   what makes `SHARING_PUBLIC_LINKS_ENABLED` worth a deliberate decision.

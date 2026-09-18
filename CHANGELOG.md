@@ -29,11 +29,11 @@ and the app is installable as a PWA.
   bounce you to `/login`.
 - **Soft delete (tombstones)** for checklists, items, and labels so deletions
   propagate correctly through the delta feed.
-- **Bulk item actions** in a card's ⋮ menu — **Untick all items** and **Delete
-  ticked items** — each a single offline-safe operation (one dedicated endpoint,
+- **Bulk item actions** in a card's ⋮ menu — **Uncheck all items** and **Delete
+  checked items** — each a single offline-safe operation (one dedicated endpoint,
   one outbox op) rather than a per-item fan-out, so they work on the whole card
   even when only a preview is loaded and reach collaborators through the normal
-  delta feed. Deleting ticked items asks for confirmation.
+  delta feed. Deleting checked items asks for confirmation.
 - **Markdown card notes.** The card description (the "notes" field) now renders
   as Markdown on the board preview, in the open card when you are not editing, on
   the public share page, and for view-only collaborators. Inside an open card the
@@ -118,7 +118,7 @@ and the app is installable as a PWA.
   never reached it. It now renders from the same components the open card does, and
   gains everything that had drifted: the **"separate checked items" layout** with
   its collapsible checked section (the reported symptom: a visitor could neither
-  see checked items grouped nor untick them), **Markdown-rendered item text**,
+  see checked items grouped nor uncheck them), **Markdown-rendered item text**,
   the card's **colour theme**, and, on an `edit` link, **drag-reordering items**
   and editing the card's **title and notes**. Whether the checked section is
   collapsed is stored on the card, not per visitor, so a `check`-or-better link

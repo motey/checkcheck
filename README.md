@@ -11,8 +11,8 @@ A collaborative, self-hostable, offline-capable checklist app, inspired by Googl
 > Not affiliated with, endorsed by, or sponsored by Google. Google Keep is a trademark of Google LLC.
 
 Think of CheckCheck as a shared home for all your lists: the shopping list your
-family keeps updating together, the packing list you and your friends tick
-through while planning a holiday, or the to-dos for a move that everyone chips
+family keeps updating together, the packing list you and your friends check
+off while planning a holiday, or the to-dos for a move that everyone chips
 in on. Everyone sees the same up-to-date list on their own device, online or
 offline.
 

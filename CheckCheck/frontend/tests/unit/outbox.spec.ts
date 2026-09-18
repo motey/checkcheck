@@ -178,7 +178,7 @@ function checklistPosition(id: string, body: Record<string, unknown>): OutboxOpI
   };
 }
 
-/** A bulk "untick all" op: entity is the CARD, kind is append-only. */
+/** A bulk "uncheck all" op: entity is the CARD, kind is append-only. */
 function bulkUncheck(clId: string): OutboxOpInput {
   return {
     entityType: "item",
@@ -191,7 +191,7 @@ function bulkUncheck(clId: string): OutboxOpInput {
     },
   };
 }
-/** A bulk "delete ticked" op: entity is the CARD, kind is append-only. */
+/** A bulk "delete checked" op: entity is the CARD, kind is append-only. */
 function bulkDeleteChecked(clId: string): OutboxOpInput {
   return {
     entityType: "item",
@@ -1066,7 +1066,7 @@ describe("OutboxEngine drain-window race", () => {
 
 describe("bulk item ops (coalesce / resync / pending)", () => {
   it("appends both bulk kinds in order — never merges across kinds", () => {
-    // "untick all" then "delete ticked" are distinct, order-dependent ops; if
+    // "uncheck all" then "delete checked" are distinct, order-dependent ops; if
     // they coalesced (or a delete cancelled the uncheck) the replay would diverge
     // from what the user did. Both must survive, in enqueue order.
     let q = coalesce([], op(1, bulkUncheck("cl1")));

@@ -194,7 +194,7 @@ export function usePublicCard(token: string) {
    * `checked_items_collapsed` is a column on `checklist`, not a per-user row, so a
    * persisted toggle is visible to the owner and to every other visitor on the
    * link. At `check` or better that is fine: such a link already writes to the card
-   * every time somebody ticks a box, so one more display flag changes nothing about
+   * every time somebody checks a box, so one more display flag changes nothing about
    * what the capability means. A `view` link grants no write path at all, so its
    * visitor collapses the section in their own session only, which is the one
    * asymmetry between the levels here.

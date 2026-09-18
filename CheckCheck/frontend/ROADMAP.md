@@ -22,7 +22,7 @@ These are things that exist in the UI but don't work yet.
 Core missing feature — sharing is entirely absent. No UI, no flows, the Share button in the footer is a stub that does nothing.
 
 - **Share a board** – Generate a shareable link for a checklist (read-only or edit access).
-- **Access levels** – At minimum: view-only vs. full-edit. Ideally also a "check-off only" mode for guests who should only be able to tick items, not edit text.
+- **Access levels** – At minimum: view-only vs. full-edit. Ideally also a "check-off only" mode for guests who should only be able to check items, not edit text.
 - **Manage collaborators** – List who has access, change their permission level, revoke access.
 - **Accept an invitation** – Flow for a recipient: open a share link → sign in or continue as guest → see the shared board.
 - **Shared boards in the sidebar** – Distinguish boards you own from boards shared with you or board you share. Lets have a filter similar to the labels.

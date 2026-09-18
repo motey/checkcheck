@@ -1,11 +1,11 @@
 /**
- * Bulk item operations — "Untick all items" & "Delete ticked items".
+ * Bulk item operations — "Uncheck all items" & "Delete checked items".
  *
  * Two entries in a card's kebab (⋮) menu, both offline-safe (one outbox op each,
  * replayed against a dedicated server endpoint):
  *
- *   • Untick all items   — sets every item's state to unchecked (needs `check`).
- *   • Delete ticked items — soft-deletes every checked item (needs `edit`); it is
+ *   • Uncheck all items   — sets every item's state to unchecked (needs `check`).
+ *   • Delete checked items — soft-deletes every checked item (needs `edit`); it is
  *     destructive, so it goes through a confirm modal.
  *
  * Online: the optimistic store update + delta reconcile leaves the card correct.
@@ -78,7 +78,7 @@ test.describe("bulk item operations", () => {
     await page.goto("about:blank").catch(() => {});
   });
 
-  test("untick all items unchecks every item and zeroes the checked count", async ({ page }) => {
+  test("uncheck all items unchecks every item and zeroes the checked count", async ({ page }) => {
     const tag = Date.now();
     const clName = `BulkUncheck-${tag}`;
 
@@ -98,9 +98,9 @@ test.describe("bulk item operations", () => {
     await dialog.locator("li").nth(1).getByRole("checkbox").click();
     await expect(dialog).toContainText(/2\s+checked items/, { timeout: 5_000 });
 
-    // Kebab → Untick all items.
+    // Kebab → Uncheck all items.
     await openKebab(page, dialog);
-    await page.getByRole("menuitem", { name: "Untick all items" }).click();
+    await page.getByRole("menuitem", { name: "Uncheck all items" }).click();
 
     // The checked count returns to 0 (every item unchecked).
     await expect(dialog).toContainText(/0\s+checked items/, { timeout: 5_000 });
@@ -116,7 +116,7 @@ test.describe("bulk item operations", () => {
       .toBe(0);
   });
 
-  test("delete ticked items removes only the checked items after confirm", async ({ page }) => {
+  test("delete checked items removes only the checked items after confirm", async ({ page }) => {
     const tag = Date.now();
     const clName = `BulkDelete-${tag}`;
 
@@ -138,10 +138,10 @@ test.describe("bulk item operations", () => {
     const dialog = await openCardByTitle(page, clName);
     await expect(dialog.locator("[data-testid=item-row]")).toHaveCount(3, { timeout: 5_000 });
 
-    // Kebab → Delete ticked items → confirm.
+    // Kebab → Delete checked items → confirm.
     await openKebab(page, dialog);
-    await page.getByRole("menuitem", { name: "Delete ticked items" }).click();
-    await page.locator("[data-testid=confirm-delete-ticked]").click();
+    await page.getByRole("menuitem", { name: "Delete checked items" }).click();
+    await page.locator("[data-testid=confirm-delete-checked]").click();
 
     // Only the unchecked item survives in the editor.
     await expect(dialog.locator("[data-testid=item-row]")).toHaveCount(1, { timeout: 5_000 });
@@ -158,7 +158,7 @@ test.describe("bulk item operations", () => {
       .toEqual([keep.id]);
   });
 
-  test("untick all works offline and drains on reconnect", async ({ page }) => {
+  test("uncheck all works offline and drains on reconnect", async ({ page }) => {
     const tag = Date.now();
     const clName = `BulkUncheckOffline-${tag}`;
 
@@ -178,10 +178,10 @@ test.describe("bulk item operations", () => {
     const dialog = await openCardByTitle(page, clName);
     await expect(dialog.locator("[data-testid=item-row]")).toHaveCount(2, { timeout: 5_000 });
 
-    // ── Go offline, untick all via the kebab. ──────────────────────────────────
+    // ── Go offline, uncheck all via the kebab. ──────────────────────────────────
     await page.route("**/api/**", (route) => route.abort());
     await openKebab(page, dialog);
-    await page.getByRole("menuitem", { name: "Untick all items" }).click();
+    await page.getByRole("menuitem", { name: "Uncheck all items" }).click();
 
     // Optimistic: checked count 0 and exactly one op queued (with the API blocked
     // nothing could have reached the server yet).

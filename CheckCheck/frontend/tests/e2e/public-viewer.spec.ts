@@ -190,8 +190,8 @@ test.describe("F4 public viewer", () => {
       page,
       "view",
       [
-        ["Unticked-item", false],
-        ["Ticked-item", true],
+        ["Unchecked-item", false],
+        ["Checked-item", true],
       ],
       { collapsed: false }
     );
@@ -205,12 +205,12 @@ test.describe("F4 public viewer", () => {
       "1 checked items"
     );
 
-    // The ticked item is under the separator, NOT inline with the unticked one.
+    // The checked item is under the separator, NOT inline with the unchecked one.
     const unchecked = anon.locator("[data-testid=public-unchecked-items]");
     const checked = anon.locator("[data-testid=public-checked-items]");
-    await expect(unchecked).toContainText("Unticked-item");
-    await expect(unchecked).not.toContainText("Ticked-item");
-    await expect(checked).toContainText("Ticked-item");
+    await expect(unchecked).toContainText("Unchecked-item");
+    await expect(unchecked).not.toContainText("Checked-item");
+    await expect(checked).toContainText("Checked-item");
   });
 
   test("a view link can collapse the checked section for itself only, and it survives a reload", async ({
@@ -221,8 +221,8 @@ test.describe("F4 public viewer", () => {
       page,
       "view",
       [
-        ["Unticked-item", false],
-        ["Ticked-item", true],
+        ["Unchecked-item", false],
+        ["Checked-item", true],
       ],
       { collapsed: false }
     );
@@ -250,8 +250,8 @@ test.describe("F4 public viewer", () => {
       page,
       "check",
       [
-        ["Unticked-item", false],
-        ["Ticked-item", true],
+        ["Unchecked-item", false],
+        ["Checked-item", true],
       ],
       { collapsed: false }
     );
@@ -376,7 +376,7 @@ test.describe("F4 public viewer", () => {
     await expect(anon.getByText(/Error 4\d\d/)).toHaveCount(0);
   });
 
-  test("check-level link lets an anonymous visitor tick an item", async ({ page, browser }) => {
+  test("check-level link lets an anonymous visitor check an item", async ({ page, browser }) => {
     const { token } = await createSharedLink(page, "check");
 
     const anon = await openAnon(browser, token);

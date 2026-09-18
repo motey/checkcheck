@@ -109,7 +109,7 @@ export async function closeSse(page: Page): Promise<void> {
  *
  * 1. **Separated checked items.** `checked_items_seperated` is the default, so
  *    the editor should show the collapsed "N checked items" divider rather than
- *    ticked items struck through inline. Seeded cards come in both modes, so
+ *    checked items struck through inline. Seeded cards come in both modes, so
  *    candidates are filtered to those whose preview renders the divider.
  * 2. **Fits the dialog.** The fullest cards overflow, pushing that divider below
  *    the fold — exactly the part the shot is meant to show. Cards whose preview

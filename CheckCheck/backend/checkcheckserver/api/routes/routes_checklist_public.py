@@ -220,7 +220,7 @@ async def update_public_checklist(
     The route guard is ``check`` because that is the lowest level allowed to write
     anything here: ``checked_items_collapsed`` is a display flag stored on the card
     (not per-user), and a check link already writes to the card every time somebody
-    ticks a box. ``name`` and ``text`` are content, so they need ``edit``, checked
+    checks a box. ``name`` and ``text`` are content, so they need ``edit``, checked
     below (*before* the update runs, so a check link can never partially apply).
     """
     fields = body.model_fields_set

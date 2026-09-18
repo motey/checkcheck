@@ -123,7 +123,7 @@ test.describe("F1 permission-aware gating", () => {
     await userPage.keyboard.press("Escape");
   });
 
-  test("check collaborator can tick but not edit text", async ({ page, browser }) => {
+  test("check collaborator can check but not edit text", async ({ page, browser }) => {
     // The middle rung of the ladder: a `check` collaborator may toggle item state
     // but must NOT edit item text or add new items (that needs `edit`). view/edit
     // are covered above; this asserts the in-between level the plan calls out

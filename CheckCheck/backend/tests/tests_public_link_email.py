@@ -209,7 +209,7 @@ def test_the_message_names_the_card_the_sender_and_the_personal_note(
     assert sender.name in mail[0].text_body
     assert "the one we talked about on Friday" in mail[0].text_body
     # The level is stated in words the recipient can act on, not as an enum.
-    assert "tick items off this list, without signing in" in mail[0].text_body
+    assert "check items off this list, without signing in" in mail[0].text_body
     # It is an invitation, not a subscription: nothing to unsubscribe from.
     assert "List-Unsubscribe" not in mail[0].headers
 

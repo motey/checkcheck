@@ -68,7 +68,7 @@ test("DesktopCompactShowItemOptions", async ({ page }) => {
   await expect(menu).toBeVisible();
   // The menu is the subject; confirm it rendered its bulk actions before
   // shooting, so a half-mounted dropdown can never be captured.
-  await expect(menu.locator("[data-testid=card-untick-all]")).toBeVisible();
+  await expect(menu.locator("[data-testid=card-uncheck-all]")).toBeVisible();
 
   await stabilize(page);
   // stabilize() injects its own style tag, so re-assert the footer override

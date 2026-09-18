@@ -108,7 +108,7 @@ test.describe("E6 mailing a public link", () => {
     const confirm = block.locator("[data-testid=public-link-email-confirm]");
     await expect(confirm).toBeVisible();
     await expect(confirm).toContainText("stranger@example.org");
-    await expect(confirm).toContainText("add, change and tick off items");
+    await expect(confirm).toContainText("add, change and check off items");
     await expect(confirm).toContainText("without signing in");
 
     await confirm.locator("[data-testid=public-link-email-confirm-send]").click();

@@ -146,7 +146,7 @@ class CheckListItemCRUD(
         return obj
 
     async def delete_checked_items(self, checklist_id: uuid.UUID) -> int:
-        """Bulk "delete ticked": soft-delete (tombstone) every checked, live item
+        """Bulk "delete checked": soft-delete (tombstone) every checked, live item
         of this checklist in a single transaction.
 
         MUST mutate ORM objects in a loop (not a Core ``DELETE`` / bulk

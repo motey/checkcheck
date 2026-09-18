@@ -145,8 +145,8 @@ export function linkLabel(link: {
  * made in the dialog is the sentence that arrives in the message.
  */
 export function permissionSentence(permission: string): string {
-  if (permission === "edit") return "add, change and tick off items on this list, without signing in";
-  if (permission === "check") return "tick items off this list, without signing in";
+  if (permission === "edit") return "add, change and check off items on this list, without signing in";
+  if (permission === "check") return "check items off this list, without signing in";
   return "read this list, without signing in";
 }
 

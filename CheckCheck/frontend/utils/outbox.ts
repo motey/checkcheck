@@ -27,7 +27,7 @@ export type OutboxEntityType = "checklist" | "item" | "label";
  * `bulk_uncheck` / `bulk_delete_checked` are card-level bulk item operations
  * (one op per click, replayed against a dedicated server endpoint). They are
  * deliberately NOT coalescable and NOT `delete`/`create`: they are distinct,
- * order-dependent operations ("untick all" then "delete ticked" must replay in
+ * order-dependent operations ("uncheck all" then "delete checked" must replay in
  * that order), so they always append and never merge across kinds.
  */
 export type OutboxOpKind =

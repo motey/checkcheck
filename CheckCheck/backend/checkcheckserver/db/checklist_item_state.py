@@ -111,7 +111,7 @@ class CheckListItemStateCRUD(
         return all_states
 
     async def uncheck_all_items(self, checklist_id: uuid.UUID) -> int:
-        """Bulk "untick all": flip every checked, live item of this checklist to
+        """Bulk "uncheck all": flip every checked, live item of this checklist to
         unchecked in a single transaction.
 
         MUST mutate ORM objects in a loop (not a Core ``UPDATE ... SET``): the
