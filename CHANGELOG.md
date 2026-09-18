@@ -3,11 +3,16 @@
 All notable changes to CheckCheck are recorded here. The format is loosely based
 on [Keep a Changelog](https://keepachangelog.com/); dates are ISO-8601.
 
-## [2.0.0] — unreleased
+## [1.0.0] - 2026-09-19
 
-The **offline / local-first** release. CheckCheck now works while disconnected:
-edits are applied locally, queued, and synced back when the connection returns,
-and the app is installable as a PWA.
+The first stable release. This entry collects everything since the project
+started, including the `0.x` pre-releases, which had no changelog entries of
+their own. The headline is **offline / local-first**: CheckCheck works while
+disconnected, applies edits locally, queues them, and syncs them back when the
+connection returns, and it installs as a PWA.
+
+Older planning documents under `docs/` call this milestone "2.0". That was an
+internal working name; the released version is 1.0.0.
 
 ### Added
 
@@ -153,7 +158,7 @@ and the app is installable as a PWA.
 
 ### Changed
 
-- **Local-first is on by default.** Self-hosters who want the pre-2.0 online-only
+- **Local-first is on by default.** Self-hosters who want the old online-only
   behaviour can opt out per-deploy with `NUXT_PUBLIC_LOCAL_FIRST=false`. A
   `?localFirst=0` query param / localStorage override also works for one-off
   debugging.
@@ -243,11 +248,11 @@ and the app is installable as a PWA.
 
 ### Upgrade notes
 
-See [`docs/UPGRADING.md`](docs/UPGRADING.md). In short: there are **no production
-instances yet**, so 2.0 ships a squashed migration baseline — **recreate any
-pre-2.0 development database** (the schema is built with `create_all`, which does
-not alter existing tables). From 2.0 on, schema changes ship as real Alembic
-revisions.
+See [`docs/UPGRADING.md`](docs/UPGRADING.md). In short: the early migration
+history was squashed into baseline `0010`, so a **development database from
+before that baseline must be recreated once** (the schema is built with
+`create_all`, which does not alter existing tables). Every schema change after
+it ships as a real Alembic revision and is applied at startup.
 
 Email, the public-link invitation and webhooks are all **off by default**, so an
 existing deployment behaves exactly as before until an operator turns them on.

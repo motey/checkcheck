@@ -13,7 +13,7 @@ settings see [configuration.md](configuration.md).
 | `latest` | Newest stable release. |
 | `beta` | Newest pre-release. |
 | `dev` | Latest build from `main` (bleeding edge). |
-| `<version>` | A specific release, for example `0.1.0`. Pin this in production. |
+| `<version>` | A specific release, for example `1.0.0`. Pin this in production. |
 
 ## Data that must persist
 
@@ -118,9 +118,9 @@ sync counter on a live database.
 ## Upgrading
 
 Read [UPGRADING.md](UPGRADING.md) before pulling a new tag, and keep a backup.
-The database schema is versioned with Alembic and migrated on start. Installs
-that predate the 2.0 schema baseline must recreate their database once; this is
-called out in the upgrade notes.
+The database schema is versioned with Alembic and migrated on start. Development
+databases that predate the schema baseline (migration `0010`) must be recreated
+once; this is called out in the upgrade notes.
 
 ## Building the image yourself
 
