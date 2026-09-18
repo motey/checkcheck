@@ -173,6 +173,11 @@ and the app is installable as a PWA.
 
 ### Fixed
 
+- **No more "also edited elsewhere" message for your own edits.** Your own save
+  comes back to your device through the sync feed. If you kept typing in the
+  meantime, the returning value no longer matched what was on screen, and the app
+  reported it as someone else's edit. The client now remembers the values it
+  sent and warns only about values it did not send.
 - **Editing a card's notes no longer drops the title you just typed.** The open
   card sent both fields through one shared 500ms timer, so touching the notes
   within half a second of the title replaced the title's pending write and it

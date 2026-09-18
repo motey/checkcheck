@@ -47,6 +47,12 @@ export interface EditGuard {
   isEditing(kind: EditGuardKind, id: string, field: EditGuardField): boolean;
   /** Optional: true if the entity has a queued delete, so its local removal stands. */
   isRemoved?(kind: EditGuardKind, id: string): boolean;
+  /**
+   * Optional: true if `value` is one this client itself wrote to the field. A
+   * protected field whose incoming value is our own echo (an earlier save coming
+   * back while the user kept typing) is not a concurrent edit, so no conflict.
+   */
+  isOwnValue?(kind: EditGuardKind, id: string, field: EditGuardField, value: unknown): boolean;
 }
 
 function keyOf(kind: EditGuardKind, id: string, field: EditGuardField): string {
@@ -70,8 +76,49 @@ export function isEditing(kind: EditGuardKind, id: string, field: EditGuardField
   return editing.has(keyOf(kind, id, field));
 }
 
+// ── Own-write registry (self-echo suppression) ──────────────────────────────
+//
+// Every local write reaches the server and comes back to THIS client through the
+// delta feed (the poke goes to every session, the author's included). If the user
+// kept typing in the meantime, the echo differs from the local value and used to
+// be reported as "also edited elsewhere" although nobody else touched the row.
+// So each write records the values it sends, and a conflict is only raised when
+// the incoming value is not one of ours. Bounded: the last few values per field,
+// and a cap on the number of fields tracked (oldest evicted first).
+
+/** Recorded for set-valued fields (a card's `labels`) where any echo counts as ours. */
+export const ANY_OWN_VALUE: unique symbol = Symbol("any-own-value");
+
+const OWN_VALUES_PER_FIELD = 20;
+const OWN_FIELDS_MAX = 1000;
+const ownWrites = new Map<string, unknown[]>();
+
+/** Remember a value this client sent for a field (call when the write is queued). */
+export function recordOwnWrite(kind: EditGuardKind, id: string, field: EditGuardField, value: unknown): void {
+  const key = keyOf(kind, id, field);
+  const values = ownWrites.get(key) ?? [];
+  // Re-insert so the Map's insertion order doubles as least-recently-written order.
+  ownWrites.delete(key);
+  values.push(value);
+  if (values.length > OWN_VALUES_PER_FIELD) values.shift();
+  ownWrites.set(key, values);
+  if (ownWrites.size > OWN_FIELDS_MAX) ownWrites.delete(ownWrites.keys().next().value!);
+}
+
+/** True if `value` is one this client wrote to the field (i.e. an incoming echo of our own save). */
+export function isOwnWrite(kind: EditGuardKind, id: string, field: EditGuardField, value: unknown): boolean {
+  const values = ownWrites.get(keyOf(kind, id, field));
+  if (!values) return false;
+  return values.some((v) => v === ANY_OWN_VALUE || v === value || (v == null && value == null));
+}
+
+/** Forget every recorded write (account switch / tests). */
+export function clearOwnWrites(): void {
+  ownWrites.clear();
+}
+
 /** The shared, module-level guard the live app wires into deltaApply. */
-export const defaultEditGuard: EditGuard = { isEditing };
+export const defaultEditGuard: EditGuard = { isEditing, isOwnValue: isOwnWrite };
 
 /** A guard that never protects anything — the default for tests / bootstrap. */
 export const noopEditGuard: EditGuard = { isEditing: () => false };
@@ -86,5 +133,6 @@ export function combineGuards(...guards: EditGuard[]): EditGuard {
   return {
     isEditing: (kind, id, field) => guards.some((g) => g.isEditing(kind, id, field)),
     isRemoved: (kind, id) => guards.some((g) => g.isRemoved?.(kind, id) ?? false),
+    isOwnValue: (kind, id, field, value) => guards.some((g) => g.isOwnValue?.(kind, id, field, value) ?? false),
   };
 }

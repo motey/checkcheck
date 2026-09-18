@@ -244,6 +244,11 @@ export function mergeDelta(
   return summary;
 }
 
+/** Read a DTO-shaped field path (`"position.index"`) off an incoming row. */
+function fieldValue(row: object, field: EditGuardField): unknown {
+  return field.split(".").reduce<any>((obj, key) => obj?.[key], row);
+}
+
 /**
  * Build the merged checklist row: the incoming server row, but with any field
  * the local user is protecting (focused edit or queued op) kept at its local
@@ -258,10 +263,14 @@ function preserveChecklistFields(
   summary: DeltaSummary
 ): CheckListType {
   const merged: CheckListType = { ...incoming, position: { ...incoming.position } };
+  // `differs` alone is not a conflict: the incoming value may be the echo of this
+  // client's own earlier save (the user kept typing while it was in flight).
   const keep = (field: EditGuardField, differs: boolean, apply: () => void): void => {
     if (!guard.isEditing("checklist", incoming.id, field)) return;
     apply();
-    if (differs) summary.conflicts.push({ kind: "checklist", id: incoming.id, field });
+    if (differs && !guard.isOwnValue?.("checklist", incoming.id, field, fieldValue(incoming, field))) {
+      summary.conflicts.push({ kind: "checklist", id: incoming.id, field });
+    }
   };
   keep("name", incoming.name !== existing.name, () => (merged.name = existing.name));
   keep("text", incoming.text !== existing.text, () => (merged.text = existing.text));
@@ -299,10 +308,14 @@ function preserveItemFields(
     position: { ...incoming.position },
     state: { ...incoming.state },
   };
+  // `differs` alone is not a conflict: the incoming value may be the echo of this
+  // client's own earlier save (the user kept typing while it was in flight).
   const keep = (field: EditGuardField, differs: boolean, apply: () => void): void => {
     if (!guard.isEditing("item", incoming.id, field)) return;
     apply();
-    if (differs) summary.conflicts.push({ kind: "item", id: incoming.id, field });
+    if (differs && !guard.isOwnValue?.("item", incoming.id, field, fieldValue(incoming, field))) {
+      summary.conflicts.push({ kind: "item", id: incoming.id, field });
+    }
   };
   keep("text", incoming.text !== existing.text, () => (merged.text = existing.text));
   keep(

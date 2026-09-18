@@ -142,7 +142,7 @@ function coalesceKey(op: Pick<OutboxOp, "entityType" | "entityId" | "kind">): st
  * NOT be parsed as a pair — the explicit colon guard keeps that op from being
  * silently mangled (finding B3). `i > 0` also rejects a stray leading colon.
  */
-function checklistLabelParentId(op: OutboxOp): string | null {
+function checklistLabelParentId(op: OutboxOpInput): string | null {
   if (op.entityType !== "label") return null;
   const i = op.entityId.indexOf(":");
   return i > 0 ? op.entityId.slice(0, i) : null;
@@ -267,7 +267,7 @@ export function queuedCreateIds(
 // `delete` is reported via `isRemoved` so a delta can't resurrect a row the user
 // removed offline.
 
-import type { EditGuard, EditGuardField, EditGuardKind } from "@/utils/editGuard";
+import { ANY_OWN_VALUE, type EditGuard, type EditGuardField, type EditGuardKind } from "@/utils/editGuard";
 
 /** The DTO field paths an item op will overwrite (empty for create/delete). */
 function itemOpFields(op: OutboxOp): EditGuardField[] {
@@ -356,6 +356,56 @@ export function outboxFieldGuard(queue: readonly OutboxOp[]): EditGuard {
     isRemoved: (kind: EditGuardKind, id: string): boolean =>
       (kind === "item" ? removedItems : removedChecklists).has(id),
   };
+}
+
+/** Every field path the delta merge can protect; anything else in a body is ignored. */
+const GUARDED_FIELDS: ReadonlySet<string> = new Set<EditGuardField>([
+  "name",
+  "text",
+  "color_id",
+  "labels",
+  "state.checked",
+  "position.index",
+  "position.indentation",
+  "position.pinned",
+  "position.archived",
+]);
+
+/** One value a write sends for a guarded field (see `recordOwnWrite`). */
+export interface OwnWrite {
+  kind: EditGuardKind;
+  id: string;
+  field: EditGuardField;
+  value: unknown;
+}
+
+/**
+ * The guarded field values an op will write to the server, so the caller can
+ * remember them and later recognise their echo in the delta feed as our own
+ * (not a concurrent edit). The `state` / `position` endpoints take a flat body
+ * for a nested DTO field; creates and content updates are already DTO-shaped.
+ * A label pair-op changes the card's label set, recorded as "any value".
+ */
+export function opOwnWrites(op: OutboxOpInput): OwnWrite[] {
+  if (op.entityType === "label") {
+    const checklistId = checklistLabelParentId(op);
+    return checklistId ? [{ kind: "checklist", id: checklistId, field: "labels", value: ANY_OWN_VALUE }] : [];
+  }
+  if (op.kind === "delete") return [];
+  const prefix = op.kind === "state" ? "state." : op.kind === "position" ? "position." : "";
+  const writes: OwnWrite[] = [];
+  const visit = (obj: Record<string, unknown>, path: string): void => {
+    for (const [key, value] of Object.entries(obj)) {
+      const field = path + key;
+      if (GUARDED_FIELDS.has(field)) {
+        writes.push({ kind: op.entityType as EditGuardKind, id: op.entityId, field: field as EditGuardField, value });
+      } else if (!path && value && typeof value === "object" && !Array.isArray(value)) {
+        visit(value as Record<string, unknown>, `${field}.`);
+      }
+    }
+  };
+  visit(op.request.body ?? {}, prefix);
+  return writes;
 }
 
 /**

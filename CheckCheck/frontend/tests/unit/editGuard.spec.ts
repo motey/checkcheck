@@ -10,6 +10,10 @@ import {
   defaultEditGuard,
   noopEditGuard,
   combineGuards,
+  recordOwnWrite,
+  isOwnWrite,
+  clearOwnWrites,
+  ANY_OWN_VALUE,
   type EditGuard,
 } from "@/utils/editGuard";
 import {
@@ -69,6 +73,42 @@ describe("combineGuards (WI-11: focus + outbox)", () => {
     const g = combineGuards(focusName, outboxPos);
     expect(g.isRemoved!("item", "gone")).toBe(true);
     expect(g.isRemoved!("item", "here")).toBe(false);
+  });
+});
+
+describe("own-write registry (self-echo suppression)", () => {
+  afterEach(() => clearOwnWrites());
+
+  it("recognises a value this client sent, keyed by (kind, id, field)", () => {
+    recordOwnWrite("item", "i1", "text", "milk");
+    expect(isOwnWrite("item", "i1", "text", "milk")).toBe(true);
+    expect(defaultEditGuard.isOwnValue!("item", "i1", "text", "milk")).toBe(true);
+    expect(isOwnWrite("item", "i1", "text", "bread")).toBe(false);
+    expect(isOwnWrite("item", "i2", "text", "milk")).toBe(false);
+    expect(isOwnWrite("checklist", "i1", "text", "milk")).toBe(false);
+  });
+
+  it("treats null and undefined as the same empty value", () => {
+    recordOwnWrite("checklist", "c1", "color_id", null);
+    expect(isOwnWrite("checklist", "c1", "color_id", undefined)).toBe(true);
+  });
+
+  it("matches anything for a field recorded as ANY_OWN_VALUE (label set)", () => {
+    recordOwnWrite("checklist", "c1", "labels", ANY_OWN_VALUE);
+    expect(isOwnWrite("checklist", "c1", "labels", [{ id: "l1" }])).toBe(true);
+  });
+
+  it("keeps only the most recent values per field", () => {
+    for (let n = 0; n < 25; n++) recordOwnWrite("item", "i1", "text", `v${n}`);
+    expect(isOwnWrite("item", "i1", "text", "v0")).toBe(false);
+    expect(isOwnWrite("item", "i1", "text", "v24")).toBe(true);
+  });
+
+  it("is forgotten on clear and passed through combineGuards", () => {
+    recordOwnWrite("item", "i1", "text", "milk");
+    expect(combineGuards(noopEditGuard, defaultEditGuard).isOwnValue!("item", "i1", "text", "milk")).toBe(true);
+    clearOwnWrites();
+    expect(isOwnWrite("item", "i1", "text", "milk")).toBe(false);
   });
 });
 
