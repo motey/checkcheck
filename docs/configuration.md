@@ -46,6 +46,20 @@ AUTH_OIDC_PROVIDERS='[{"ENABLED": true, "CLIENT_ID": "checkcheck", ...}]'
 
 which gets awkward fast, so if you use OIDC, prefer the YAML file (see below).
 
+### Setting null
+
+Some settings take `null` to switch something off, for example
+`API_TOKEN_MANAGEMENT_OIDC_LOGIN_MAX_AGE_DAYS: null`. The reference marks them
+with a type like `int or null`. In an environment variable, write `null` the same
+way:
+
+```bash
+API_TOKEN_MANAGEMENT_OIDC_LOGIN_MAX_AGE_DAYS=null
+```
+
+`EMAIL_TRANSPORT` is the one exception: `null` there is the name of the transport
+that discards mail, and it keeps that meaning in both places.
+
 ## The three things you must set
 
 A fresh instance has three required settings with no default. Without them the

@@ -170,6 +170,14 @@ and the app is installable as a PWA.
   within half a second of the title replaced the title's pending write and it
   never reached the server. The title stayed on screen until the next sync
   quietly restored the old one. Each field now has its own timer.
+- **Environment variables can set a setting to `null`.** Before, `null` only
+  worked in `config.yml`: `API_TOKEN_MANAGEMENT_OIDC_LOGIN_MAX_AGE_DAYS=null` and
+  other number settings stopped the server at start, and
+  `NEW_USER_DEFAULT_LABELS=null` silently kept the default labels. Now `VAR=null`
+  means null. `EMAIL_TRANSPORT=null` still selects the transport that discards
+  mail, and an unquoted `EMAIL_TRANSPORT: null` in `config.yml` now does the same
+  instead of failing validation. The configuration reference marks nullable
+  settings (`int or null`).
 
 ### Security
 

@@ -7,6 +7,7 @@ from urllib.parse import urlparse
 from pydantic import (
     Field,
     SecretStr,
+    field_validator,
     model_validator,
 )
 from pydantic_settings import (
@@ -986,6 +987,13 @@ class Config(BaseSettings):
         description="Path to the Alembic configuration used to run database migrations on start. The default resolves next to the source tree; rarely changed.",
     )
 
+    @field_validator("EMAIL_TRANSPORT", mode="before")
+    @classmethod
+    def _email_transport_null_is_the_null_transport(cls, value: object) -> object:
+        # `null` is a transport name here, not "unset". env_parse_none_str turns
+        # EMAIL_TRANSPORT=null into None, and so does an unquoted YAML null.
+        return "null" if value is None else value
+
     @model_validator(mode="after")
     def _validate_api_token_management_expiry(self) -> "Config":
         if (
@@ -1164,6 +1172,10 @@ class Config(BaseSettings):
         env_file_encoding="utf-8",
         yaml_file=config_file_path,
         extra="ignore",
+        # Lets an env var set a nullable setting to null (`VAR=null`). Without it
+        # pydantic-settings can not: an int setting fails validation, a str setting
+        # gets the text "null", a list setting silently keeps its default.
+        env_parse_none_str="null",
     )
 
     @classmethod
