@@ -1,6 +1,6 @@
 # Plan: mobile card editor (closable header, keyboard-aware layout, visible suggestions)
 
-**Status:** M1 done (2026-09-18, uncommitted). M2, M3, M4 open.
+**Status:** M1 done (2026-09-18). M2 done (2026-09-18, uncommitted). M3, M4 open.
 
 **Deviations so far:**
 
@@ -12,6 +12,22 @@
 - M1: `useVisualViewport(active)` takes an optional getter. The editor modal stays
   mounted after closing (`pages/index.vue` keeps the last card id), so it passes
   `() => open.value` and only holds the listeners while the editor is open.
+- M2: `CheckList.vue` got both shapes the plan offered, combined: a
+  `fullscreen` prop switches to the header bar, and a `#header-start` slot lets
+  the modal put its own back arrow in it. Pin and sync state are rendered by
+  `CheckList.vue` inside the bar. `CheckListSyncIndicator` gained an `inline`
+  prop (no corner float) for that.
+- M2: the title cap uses `UTextarea`'s `maxrows="4"` instead of `max-h` plus
+  `overflow-y-auto`. Autoresize sets an inline height, so a CSS `max-h` would
+  fight it; `maxrows` caps the rows and leaves the textarea scrollable.
+- M2: the safe-area paddings are `max(<normal padding>, env(safe-area-inset-*))`.
+  The viewport meta has no `viewport-fit=cover`, so the insets are 0 today and
+  the browser keeps the page out of the notch itself. The paddings only start
+  to matter if `viewport-fit=cover` is ever added. It was not added here
+  because it would affect every page, not just the editor.
+- M2: on desktop the rendered styles are unchanged, but the card root's
+  `border border-default rounded-xl` moved from the static `class` to the
+  bound one, so the class attribute order differs.
 
 Two pieces of user feedback, same root cause:
 

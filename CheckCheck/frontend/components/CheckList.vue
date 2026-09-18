@@ -4,30 +4,49 @@
     :style="cardStyle"
     :class="[
       hasColor ? '' : 'bg-elevated',
-      previewModeActive ? 'p-3 sm:p-4 sm:min-h-32 shadow-sm hover:shadow-md hover:ring-1 hover:ring-default cursor-pointer' : 'p-5 sm:p-6',
-      editModeActive ? 'max-h-[92dvh] overflow-hidden' : '',
+      previewModeActive ? 'p-3 sm:p-4 sm:min-h-32 shadow-sm hover:shadow-md hover:ring-1 hover:ring-default cursor-pointer' : fullscreen ? '' : 'p-5 sm:p-6',
+      editModeActive && !fullscreen ? 'max-h-[92dvh] overflow-hidden' : '',
+      fullscreen
+        ? 'h-full overflow-hidden rounded-none border-0 px-4 pt-[max(0.25rem,env(safe-area-inset-top))] pb-[max(0.75rem,env(safe-area-inset-bottom))]'
+        : 'border border-default rounded-xl',
     ]"
-    class="checklist group/card relative list-drag-handle textareas-inherit-color flex flex-col gap-1 border border-default rounded-xl transition-shadow"
+    class="checklist group/card relative list-drag-handle textareas-inherit-color flex flex-col gap-1 transition-shadow"
   >
 
-    <!-- In the editor the modal renders its own close button at top-right, so
-         shift the pin left of it; on board previews there is no close button. -->
-    <CheckListFooterButtonPin :checkListId="checkListId" :scrollIntoViewOnPin="previewModeActive" :class="['absolute top-2 z-10', editModeActive ? 'right-10' : 'right-2']" />
-    <!-- Offline-write indicator (WI-11): lights up while this card has queued ops. -->
-    <CheckListSyncIndicator :checkListId="checkListId" />
+    <!-- Full-screen editor on phones (mobile editor M2): a header bar with the
+         caller's close control on the left (slot) and pin plus sync state on
+         the right, all 44px targets. Nothing here is absolutely positioned. -->
+    <div v-if="fullscreen" data-testid="editor-header" class="flex-none flex items-center gap-2 -mx-2">
+      <slot name="header-start" />
+      <div class="flex-1" />
+      <CheckListSyncIndicator :checkListId="checkListId" inline />
+      <CheckListFooterButtonPin
+        :checkListId="checkListId"
+        class="size-11 justify-center rounded-full"
+      />
+    </div>
+    <template v-else>
+      <!-- In the editor the modal renders its own close button at top-right, so
+           shift the pin left of it; on board previews there is no close button. -->
+      <CheckListFooterButtonPin :checkListId="checkListId" :scrollIntoViewOnPin="previewModeActive" :class="['absolute top-2 z-10', editModeActive ? 'right-10' : 'right-2']" />
+      <!-- Offline-write indicator (WI-11): lights up while this card has queued ops. -->
+      <CheckListSyncIndicator :checkListId="checkListId" />
+    </template>
 
     <div v-if="!editModeActive" data-testid="card-title" class="flex-none pr-8 text-base font-semibold leading-snug break-words line-clamp-2" v-html="highlightText(checkList!.name, searchQuery)" />
     <UTextarea
       v-if="editModeActive"
       :autofocus="autofocusTitle"
       autoresize
+      :maxrows="4"
       variant="none"
       :rows="0"
       :padded="false"
       :disabled="!canEdit"
       placeholder="Enter a checklist title..."
       v-model="localName"
-      class="flex-none w-full pr-16 text-xl sm:text-2xl font-semibold"
+      :class="fullscreen ? '' : 'pr-16'"
+      class="flex-none w-full text-xl sm:text-2xl font-semibold"
       @focus="onFieldFocus('name')"
       @blur="onFieldBlur('name')"
     />
@@ -136,6 +155,9 @@ const props = defineProps({
   },
   editModeActive: { type: Boolean, default: false },
   previewModeActive: { type: Boolean, default: false },
+  // Full-screen editor on phones (mobile editor M2): render the header bar
+  // (slot `header-start` plus pin and sync state) instead of the floating pin.
+  fullscreen: { type: Boolean, default: false },
 });
 
 // Autofocus the title only when this editor is opening a card that was JUST
