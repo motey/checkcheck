@@ -216,20 +216,19 @@ async def set_user_password(
 )
 async def admin_list_user_api_keys(
     user_id: uuid.UUID,
-    include_revoked: bool = Query(default=False),
     _: bool = Security(user_is_usermanager),
     user_crud: UserCRUD = Depends(UserCRUD.get_crud),
     user_auth_crud: UserAuthCRUD = Depends(UserAuthCRUD.get_crud),
 ) -> List[UserAuthPublic]:
     user = await user_crud.get(
         user_id,
+        show_deactivated=True,
         raise_exception_if_none=HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="User not found"
         ),
     )
     tokens = await user_auth_crud.list_api_tokens_by_user_id(
         user_id=user.id,
-        include_revoked=include_revoked,
     )
     return [UserAuthPublic.model_validate(t) for t in tokens]
 

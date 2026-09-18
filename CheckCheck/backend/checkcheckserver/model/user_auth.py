@@ -72,6 +72,8 @@ class _UserAuthBase(BaseTable, table=False):
     oidc_provider_slug: Optional[str] = Field(index=True, default=None)
     api_token_id: Optional[str] = Field(
         default=None,
+        index=True,
+        unique=True,
         description="A non hashed/encrypted clear text identifier that is attached to the hashed token. This makes it easier to look up the hased token later",
     )
     api_token_source_user_auth_id: Optional[uuid.UUID] = Field(

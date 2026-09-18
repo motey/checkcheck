@@ -27,6 +27,9 @@ from checkcheckserver.db._base_crud import create_crud_base
 from checkcheckserver.api.paginator import QueryParamsInterface
 
 log = get_logger()
+
+# ``last_used_at`` is written at most this often per credential.
+LAST_USED_AT_WRITE_INTERVAL = datetime.timedelta(minutes=1)
 config = Config()
 
 
@@ -183,18 +186,14 @@ class UserAuthCRUD(
     async def list_api_tokens_by_user_id(
         self,
         user_id: uuid.UUID,
-        include_revoked: bool = False,
     ) -> Sequence[UserAuth]:
         query = select(UserAuth).where(
             and_(
                 UserAuth.user_id == user_id,
                 UserAuth.auth_source_type == AllowedAuthSchemeType.api_token,
+                or_(UserAuth.revoked == False, UserAuth.revoked == None),
             )
         )
-        if not include_revoked:
-            query = query.where(
-                or_(UserAuth.revoked == False, UserAuth.revoked == None)
-            )
         results = await self.session.exec(statement=query)
         return results.all()
 
@@ -222,17 +221,31 @@ class UserAuthCRUD(
         results = await self.session.exec(statement=query)
         return results.one()
 
-    async def touch_last_used_at(self, user_auth_id: uuid.UUID) -> None:
+    async def touch_last_used_at(
+        self,
+        user_auth_id: uuid.UUID,
+        min_interval: datetime.timedelta = LAST_USED_AT_WRITE_INTERVAL,
+    ) -> None:
+        """Stamp ``last_used_at`` with the current time.
+
+        Skips the write while the stored value is younger than ``min_interval``,
+        so a busy script does not turn every authenticated read into a commit.
+        """
         user_auth = await self.session.get(UserAuth, user_auth_id)
-        if user_auth is not None:
-            # Store naive UTC to match the project-wide datetime convention
-            # (see model._base_model.created_at). Postgres' TIMESTAMP columns are
-            # naive, and asyncpg rejects tz-aware values written to them.
-            user_auth.last_used_at = datetime.datetime.now(
-                tz=datetime.timezone.utc
-            ).replace(tzinfo=None)
-            self.session.add(user_auth)
-            await self.session.commit()
+        if user_auth is None:
+            return
+        # Store naive UTC to match the project-wide datetime convention
+        # (see model._base_model.created_at). Postgres' TIMESTAMP columns are
+        # naive, and asyncpg rejects tz-aware values written to them.
+        now = datetime.datetime.now(tz=datetime.timezone.utc).replace(tzinfo=None)
+        if (
+            user_auth.last_used_at is not None
+            and now - user_auth.last_used_at < min_interval
+        ):
+            return
+        user_auth.last_used_at = now
+        self.session.add(user_auth)
+        await self.session.commit()
 
     async def delete(
         self, id: str | uuid.UUID, raise_exception_if_not_exists=None

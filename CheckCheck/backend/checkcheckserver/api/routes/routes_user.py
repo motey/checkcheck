@@ -223,13 +223,11 @@ class APIKeyCreatedResponse(UserAuthPublic):
     description="List all active API keys belonging to the current user.",
 )
 async def list_my_api_keys(
-    include_revoked: bool = Query(default=False),
     current_user: User = Security(get_current_user_by_session),
     user_auth_crud: UserAuthCRUD = Depends(UserAuthCRUD.get_crud),
 ) -> List[UserAuthPublic]:
     tokens = await user_auth_crud.list_api_tokens_by_user_id(
         user_id=current_user.id,
-        include_revoked=include_revoked,
     )
     return [UserAuthPublic.model_validate(t) for t in tokens]
 

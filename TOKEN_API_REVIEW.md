@@ -267,11 +267,21 @@ Backend and frontend.
 
 Backend, one Alembic migration (or fold into chunk 2).
 
-- [ ] `touch_last_used_at`: write at most once per minute per key.
-- [ ] Unique index `ix_user_auth_api_token_id` on `user_auth.api_token_id`. The migration first
+- [x] `touch_last_used_at`: write at most once per minute per key.
+- [x] Unique index `ix_user_auth_api_token_id` on `user_auth.api_token_id`. The migration first
       checks for duplicate values and fails with a clear message if any exist.
-- [ ] Remove `include_revoked` from `GET /user/me/api-keys` and the admin list endpoint (nothing
+- [x] Remove `include_revoked` from `GET /user/me/api-keys` and the admin list endpoint (nothing
       sets `revoked`, the frontend does not use it). Regenerate `openapi.json`.
-- [ ] `admin_list_user_api_keys`: `user_crud.get(..., show_deactivated=True)` so admins can see
+- [x] `admin_list_user_api_keys`: `user_crud.get(..., show_deactivated=True)` so admins can see
       keys of deactivated users.
-- [ ] Tests for the throttled write and the admin listing of a deactivated user.
+- [x] Tests for the throttled write and the admin listing of a deactivated user.
+- Done 2026-09-18. The throttle lives in `UserAuthCRUD.touch_last_used_at` (skips the write
+  while the stored value is younger than `LAST_USED_AT_WRITE_INTERVAL`, one minute, a module
+  constant rather than a setting). The unique index comes from the model (`index=True,
+  unique=True` on `api_token_id`, so `create_all` builds it on fresh databases) and from
+  migration `0020_user_auth_api_token_id_unique.py` on existing ones; the migration raises
+  with the duplicate ids listed. The list endpoints still hide rows with `revoked=True`
+  (auth rejects them too), only the parameter is gone. Tests:
+  `tests/tests_api_token_housekeeping.py` (HTTP for throttle and admin listing, the
+  migration against in-memory SQLite). Release notes in `CHANGELOG.md` (Security) and
+  `docs/UPGRADING.md`.

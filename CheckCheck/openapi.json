@@ -653,49 +653,27 @@
         "summary": "List My Api Keys",
         "description": "List all active API keys belonging to the current user.",
         "operationId": "list_my_api_keys_api_user_me_api_keys_get",
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
-        "parameters": [
-          {
-            "name": "include_revoked",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "boolean",
-              "default": false,
-              "title": "Include Revoked"
-            }
-          }
-        ],
         "responses": {
           "200": {
             "description": "Successful Response",
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "array",
                   "items": {
                     "$ref": "#/components/schemas/UserAuthPublic"
                   },
+                  "type": "array",
                   "title": "Response List My Api Keys Api User Me Api Keys Get"
                 }
               }
             }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
           }
-        }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
       },
       "post": {
         "tags": [
@@ -704,20 +682,15 @@
         "summary": "Create My Api Key",
         "description": "Create a new named API key. The plaintext token is returned **once** \u2014 save it.",
         "operationId": "create_my_api_key_api_user_me_api_keys_post",
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
         "requestBody": {
-          "required": true,
           "content": {
             "application/json": {
               "schema": {
                 "$ref": "#/components/schemas/APIKeyCreateRequest"
               }
             }
-          }
+          },
+          "required": true
         },
         "responses": {
           "201": {
@@ -740,7 +713,12 @@
               }
             }
           }
-        }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
       }
     },
     "/api/user/me/api-keys/{api_token_id}": {
@@ -2047,16 +2025,6 @@
               "type": "string",
               "format": "uuid",
               "title": "User Id"
-            }
-          },
-          {
-            "name": "include_revoked",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "boolean",
-              "default": false,
-              "title": "Include Revoked"
             }
           }
         ],

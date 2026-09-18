@@ -212,6 +212,13 @@ and the app is installable as a PWA.
   manager offers no lifetime above the maximum and shows the server's reason when
   the limit is reached. `/api/public-config` reports the new values
   (`api_token_max_expiry_days`, `api_token_max_keys_per_user`).
+- **API key housekeeping.** `user_auth.api_token_id` gets a unique index
+  (migration `0020`), so looking up a key no longer scans the table. A key's
+  `last_used_at` is now written at most once per minute instead of on every
+  request, so the shown value can lag by up to a minute. The unused
+  `include_revoked` query parameter is gone from `GET /api/user/me/api-keys` and
+  `GET /api/user/{user_id}/api-keys` (nothing ever marked a key as revoked). Admins
+  can now list the keys of a deactivated user instead of getting `404`.
 
 ### Upgrade notes
 

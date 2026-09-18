@@ -5,6 +5,23 @@ changes see [`../CHANGELOG.md`](../CHANGELOG.md).
 
 ---
 
+## API key housekeeping (migration `0020`)
+
+Migration `0020` adds the unique index `ix_user_auth_api_token_id` on
+`user_auth.api_token_id`. It is applied at startup. Duplicate key ids are
+practically impossible, but if the database holds any, the migration stops the
+server with a message that names them. Such keys fail on every use anyway: delete
+those `user_auth` rows, let the owners create new keys, and start again.
+
+- `last_used_at` of a key is written at most once per minute, so the value in the
+  key list can lag by up to a minute.
+- `GET /api/user/me/api-keys` and `GET /api/user/{user_id}/api-keys` no longer take
+  `include_revoked`. It never returned more (nothing marked keys as revoked), and a
+  client that still sends it is not refused: FastAPI ignores unknown query
+  parameters.
+
+---
+
 ## API key policy (no migration)
 
 Keys created in the token manager have their own settings now, and the defaults
