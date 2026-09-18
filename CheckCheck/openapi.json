@@ -1805,6 +1805,8 @@
                 "created_at",
                 "updated_at",
                 "server_seq",
+                "oidc_provider_slug",
+                "last_oidc_login_at",
                 "email",
                 "display_name",
                 "id",
@@ -9839,6 +9841,32 @@
               }
             ],
             "title": "Server Seq"
+          },
+          "oidc_provider_slug": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 128
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Oidc Provider Slug",
+            "description": "Slug of the OIDC provider of the user's last OIDC login. Empty for local users."
+          },
+          "last_oidc_login_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Oidc Login At",
+            "description": "Time (UTC) of the user's last OIDC login. Empty for local users."
           },
           "email": {
             "anyOf": [

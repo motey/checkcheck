@@ -112,11 +112,12 @@ class UserAuthCreate(_UserAuthBase, UserAuthUpdate, table=False):
     )
 
     def generate_api_token(self):
-        self.api_token = secrets.token_urlsafe(40)
+        # Keep the plain token wrapped so no repr (log line, traceback) shows it.
+        self.api_token = SecretStr(secrets.token_urlsafe(40))
         self.api_token_id = secrets.token_urlsafe(12)
 
-    def get_api_token(self):
-        return f"{self.api_token_id}.{self.api_token}"
+    def get_api_token(self) -> str:
+        return f"{self.api_token_id}.{self.api_token.get_secret_value()}"
 
 
 class UserAuth(_UserAuthBase, TimestampedModel, table=True):
@@ -230,7 +231,6 @@ class UserAuth(_UserAuthBase, TimestampedModel, table=True):
             token: str = api_token.get_secret_value()
         else:
             token = api_token
-        log.debug(f"TOKEN {token}")
         if "." in token:
             token = token.split(".", maxsplit=1)[1]  # remove the token id
         token_correct = _hashing.verify_api_token(token, self.api_token_hashed)

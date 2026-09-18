@@ -190,7 +190,7 @@ async def set_user_password(
     user_auth_pw = await user_auth_crud.get_basic_auth_source_by_user_id(user_id)
 
     if user_auth_pw is None:
-        log.debug(f"First time set pw for user '{user.user_name}' {new_password}")
+        log.debug(f"First time set pw for user '{user.user_name}'")
         # lets create a userAuth with the new password
         user_auth_create = UserAuthCreate(
             user_id=user_id,

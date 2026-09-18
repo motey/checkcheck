@@ -171,6 +171,36 @@ and the app is installable as a PWA.
   never reached the server. The title stayed on screen until the next sync
   quietly restored the old one. Each field now has its own timer.
 
+### Security
+
+- **Secrets no longer end up in DEBUG logs.** With `LOG_LEVEL=DEBUG` the server
+  wrote the full API key of every key-authenticated request, the OIDC token
+  response (access, refresh and id token), the OIDC refresh token on every
+  refresh, all request headers of `/api/auth/list` (session cookie and
+  `Authorization` header included), and the plain password when an admin set a
+  user's first password. These lines are gone, and a freshly generated API key is
+  kept wrapped so it no longer shows up in a repr or traceback. **If your instance
+  ever ran with `LOG_LEVEL=DEBUG`, treat the API keys, OIDC refresh tokens and
+  passwords in those logs as leaked** (see `docs/UPGRADING.md`).
+- **API keys can no longer manage API keys.** Listing, creating and deleting keys
+  under `/api/user/me/api-keys` now needs a browser session. A request with an
+  `Authorization: Bearer` header (an API key or a login token) gets `403`. Before,
+  a leaked key could mint new keys that outlived its own revocation. The web app
+  is unaffected. Scripts that managed keys with a token must use a session login
+  instead. The admin endpoints under `/api/user/{id}/api-keys` are unchanged.
+- **A login token whose source login is gone now gets `401`** instead of a `500`.
+- **API keys of OIDC users follow the user's provider.** The
+  `RESTRICT_USER_SEARCH_TO_OWN_GROUPS` rule of an OIDC provider is now decided by
+  the user, not by how the request authenticates. Before, a key created in the
+  token manager bypassed it in user search and group sharing.
+- **API keys of OIDC users pause after a long time without OIDC login.** Groups
+  and roles are only synced at OIDC login, so a user removed at the provider kept
+  their old access through a key. A key from the token manager now gets `401` when
+  its user's last OIDC login is older than the new setting
+  `API_TOKEN_MANAGEMENT_OIDC_LOGIN_MAX_AGE_DAYS` (default `30`, `null` disables).
+  The next OIDC login reactivates the key. Local users are not affected. The user
+  records the provider and time of the last OIDC login (migration `0019`).
+
 ### Upgrade notes
 
 See [`docs/UPGRADING.md`](docs/UPGRADING.md). In short: there are **no production

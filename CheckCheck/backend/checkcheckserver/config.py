@@ -216,6 +216,21 @@ class Config(BaseSettings):
             "server."
         ),
     )
+    API_TOKEN_MANAGEMENT_OIDC_LOGIN_MAX_AGE_DAYS: Optional[int] = Field(
+        default=30,
+        ge=1,
+        title="Pause API tokens of OIDC users after (days)",
+        description=(
+            "Groups and roles of OIDC users are only refreshed when they sign in via their "
+            "provider. A token created in the token manager of such a user stops working "
+            "(401) when their last OIDC sign-in is older than this many days, so a user who "
+            "was removed at the provider does not keep access through old tokens. The token "
+            "is paused, not deleted: the next OIDC sign-in reactivates it. Local users and "
+            "users who have not signed in via OIDC since this check was introduced are not "
+            "affected. Set to null to disable the check."
+        ),
+        examples=[30, 90, None],
+    )
 
     # ── Sharing ───────────────────────────────────────────────────────────────
     SHARING_ENABLED: bool = Field(

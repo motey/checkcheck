@@ -29,10 +29,8 @@ from checkcheckserver.notify.invitation import (
 )
 
 from checkcheckserver.db.user import User, UserCRUD
-from checkcheckserver.db.user_auth import UserAuth
 from checkcheckserver.api.auth.security import (
     get_current_user,
-    get_current_user_auth,
     caller_restricted_to_own_groups,
 )
 from checkcheckserver.api.access import (
@@ -461,12 +459,11 @@ async def list_my_groups(
 def _require_group_in_scope(
     group: str,
     checklist_access: UserChecklistAccess,
-    current_user_auth: UserAuth,
 ) -> None:
     """Group scoping: a caller from an OIDC provider configured to restrict search
     to own groups may only target a group they themselves belong to (the same rule
     user-search applies). Local / unrestricted callers may target any group."""
-    if caller_restricted_to_own_groups(current_user_auth):
+    if caller_restricted_to_own_groups(checklist_access.user):
         if group not in (checklist_access.user.oidc_groups or []):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
@@ -517,7 +514,6 @@ async def share_with_group(
     checklist_access: UserChecklistAccess = Security(
         require_checklist_permission(ChecklistAccessLevel.owner)
     ),
-    current_user_auth: UserAuth = Depends(get_current_user_auth),
     user_crud: UserCRUD = Depends(UserCRUD.get_crud),
     checklist_group_share_crud: CheckListGroupShareCRUD = Depends(
         CheckListGroupShareCRUD.get_crud
@@ -531,7 +527,7 @@ async def share_with_group(
     sync_crud: SyncNotifiationCRUD = Depends(SyncNotifiationCRUD.get_crud),
     notification_crud: NotificationCRUD = Depends(NotificationCRUD.get_crud),
 ) -> GroupShareResult:
-    _require_group_in_scope(group, checklist_access, current_user_auth)
+    _require_group_in_scope(group, checklist_access)
 
     # Persist the group→level intent (source of truth), then materialize access for
     # its current members. The reconciler reads the card's group shares back, so the
@@ -577,7 +573,6 @@ async def revoke_group_share(
     checklist_access: UserChecklistAccess = Security(
         require_checklist_permission(ChecklistAccessLevel.owner)
     ),
-    current_user_auth: UserAuth = Depends(get_current_user_auth),
     user_crud: UserCRUD = Depends(UserCRUD.get_crud),
     checklist_group_share_crud: CheckListGroupShareCRUD = Depends(
         CheckListGroupShareCRUD.get_crud
@@ -591,7 +586,7 @@ async def revoke_group_share(
     sync_crud: SyncNotifiationCRUD = Depends(SyncNotifiationCRUD.get_crud),
     notification_crud: NotificationCRUD = Depends(NotificationCRUD.get_crud),
 ):
-    _require_group_in_scope(group, checklist_access, current_user_auth)
+    _require_group_in_scope(group, checklist_access)
     # Delete the source row first, then reconcile: the reconciler recomputes each
     # former member's level from the *remaining* group shares, so a member still in
     # another shared group keeps (or drops to) that group's level, while one who

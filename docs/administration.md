@@ -145,11 +145,18 @@ as email is opt-in per instance and takes a mail server: see
 
 ## API tokens
 
-Users can mint API tokens in the token manager. Two settings govern them:
+Users can mint API tokens in the token manager. These settings govern them:
 
 - `API_TOKEN_DEFAULT_EXPIRY_TIME_MINUTES` sets the default lifetime (one week).
 - `API_TOKEN_ALLOW_NEVER_EXPIRE` (default `true`) allows never-expiring tokens.
   Set it to `false` to force every token to carry an expiry.
+- `API_TOKEN_MANAGEMENT_OIDC_LOGIN_MAX_AGE_DAYS` (default `30`) pauses the tokens
+  of an OIDC user whose last sign-in via the provider is older than that, because
+  groups and roles are only refreshed at sign-in. The next sign-in reactivates
+  them. `null` switches this off. Local users are not affected.
+
+Tokens of OIDC users are restricted like their browser sessions, including a
+provider's `RESTRICT_USER_SEARCH_TO_OWN_GROUPS`.
 
 ## The offline (local-first) kill switch
 

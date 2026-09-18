@@ -37,6 +37,7 @@ from checkcheckserver.api.auth.security import (
     user_is_admin,
     user_is_usermanager,
     get_current_user,
+    get_current_user_by_session,
     get_current_user_auth,
     caller_restricted_to_own_groups,
 )
@@ -89,7 +90,6 @@ async def search_users(
     q: str = Query(min_length=2, description="Search term matched against user_name and display_name."),
     limit: int = Query(default=20, ge=1, le=50),
     current_user: User = Security(get_current_user),
-    current_user_auth: UserAuth = Depends(get_current_user_auth),
     user_crud: UserCRUD = Depends(UserCRUD.get_crud),
 ) -> List[UserSearchResult]:
     if not (config.SHARING_ENABLED and config.SHARING_USER_SEARCH_ENABLED):
@@ -99,7 +99,7 @@ async def search_users(
         )
 
     # Determine whether this caller's OIDC provider restricts search to own groups.
-    restrict_to_groups = caller_restricted_to_own_groups(current_user_auth)
+    restrict_to_groups = caller_restricted_to_own_groups(current_user)
 
     # When restricting to shared groups we filter in Python *after* the query, so
     # the DB-level limit must not pre-truncate matches that survive the filter —
@@ -220,7 +220,7 @@ class APIKeyCreatedResponse(UserAuthPublic):
 )
 async def list_my_api_keys(
     include_revoked: bool = Query(default=False),
-    current_user: User = Security(get_current_user),
+    current_user: User = Security(get_current_user_by_session),
     user_auth_crud: UserAuthCRUD = Depends(UserAuthCRUD.get_crud),
 ) -> List[UserAuthPublic]:
     tokens = await user_auth_crud.list_api_tokens_by_user_id(
@@ -238,7 +238,7 @@ async def list_my_api_keys(
 )
 async def create_my_api_key(
     body: APIKeyCreateRequest,
-    current_user: User = Security(get_current_user),
+    current_user: User = Security(get_current_user_by_session),
     user_auth_crud: UserAuthCRUD = Depends(UserAuthCRUD.get_crud),
 ) -> APIKeyCreatedResponse:
     expires_at: Optional[int] = None
@@ -285,7 +285,7 @@ async def create_my_api_key(
 )
 async def delete_my_api_key(
     api_token_id: str,
-    current_user: User = Security(get_current_user),
+    current_user: User = Security(get_current_user_by_session),
     user_auth_crud: UserAuthCRUD = Depends(UserAuthCRUD.get_crud),
 ):
     token_auth = await user_auth_crud.get_api_token_by_id(api_token_id)

@@ -100,7 +100,6 @@ async def oidc_refresh_access_token(
         oidc_server_metadata = await oauth_client.client.load_server_metadata()
         token_endpoint = oidc_server_metadata.get("token_endpoint", None)
         refresh_token = old_token.get("refresh_token")
-        log.debug(f"refresh_token: {refresh_token}")
         new_access_token = await oauth_client.client.fetch_access_token(
             token_endpoint,
             refresh_token=refresh_token,
@@ -211,7 +210,6 @@ async def wipe_expired_user_session_or_user_auth(
 
 
 def get_access_token_expires_at_value_from_token(token: dict) -> int:
-    log.debug(f"get_access_token_expires_at_value_from_token token {token}")
     if "userinfo" in token and "exp" in token["userinfo"]:
         return token["userinfo"]["exp"]
     if "expires_at" in token:
@@ -252,7 +250,6 @@ async def get_userinfo_from_token_or_endpoint(
             raw_userinfo = resp.json()
     if raw_userinfo is None:
         raise ValueError("Could not extract userinfo.")
-    log.debug(f"raw_userinfo {raw_userinfo}")
 
     return UserInfoOidc.from_raw_userinfo(raw_userinfo, oidc_config)
 

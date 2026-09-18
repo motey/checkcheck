@@ -158,6 +158,21 @@ API_TOKEN_DEFAULT_EXPIRY_TIME_MINUTES: 10080
 # Description: Whether users may create API tokens that never expire. When false, every token must carry an expiry: the 'Never' option is hidden in the UI and rejected by the server.
 API_TOKEN_ALLOW_NEVER_EXPIRE: true
 
+# ## API_TOKEN_MANAGEMENT_OIDC_LOGIN_MAX_AGE_DAYS - Pause API tokens of OIDC users after (days) ###
+# Type:        int
+# Required:    False
+# Default:     30
+# Constraints: Ge(ge=1)
+# Env-var:     'API_TOKEN_MANAGEMENT_OIDC_LOGIN_MAX_AGE_DAYS'
+# Description: Groups and roles of OIDC users are only refreshed when they sign in via their provider. A token created in the token manager of such a user stops working (401) when their last OIDC sign-in is older than this many days, so a user who was removed at the provider does not keep access through old tokens. The token is paused, not deleted: the next OIDC sign-in reactivates it. Local users and users who have not signed in via OIDC since this check was introduced are not affected. Set to null to disable the check.
+# Example No. 1:
+#  >API_TOKEN_MANAGEMENT_OIDC_LOGIN_MAX_AGE_DAYS: 30
+# Example No. 2:
+#  >API_TOKEN_MANAGEMENT_OIDC_LOGIN_MAX_AGE_DAYS: 90
+# Example No. 3:
+#  >API_TOKEN_MANAGEMENT_OIDC_LOGIN_MAX_AGE_DAYS: null
+API_TOKEN_MANAGEMENT_OIDC_LOGIN_MAX_AGE_DAYS: 30
+
 # ## SHARING_ENABLED - Enable sharing ###
 # Type:        bool
 # Required:    False
