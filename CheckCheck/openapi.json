@@ -6341,7 +6341,7 @@
               }
             ],
             "title": "Expires In Days",
-            "description": "Validity in days from now. Omit to use the server default (or set never_expires for a key that never expires)."
+            "description": "Validity in days from now. Omit to use the server default. Rejected (422) above the server maximum (see `api_token_max_expiry_days` in `/api/public-config`)."
           },
           "never_expires": {
             "type": "boolean",
@@ -8730,6 +8730,21 @@
             "description": "Whether an owner may mail an existing public link to an address of their choosing. When false, hide that field inside the public-links section. True only when the instance can also send mail at all."
           },
           "api_token_default_expiry_days": {
+            "type": "integer",
+            "title": "Api Token Default Expiry Days",
+            "description": "Default API-key validity in whole days, surfaced so the token manager can pre-select it."
+          },
+          "api_token_max_expiry_days": {
+            "type": "integer",
+            "title": "Api Token Max Expiry Days",
+            "description": "Longest validity in days a user may pick for an API key. The token manager offers no longer option."
+          },
+          "api_token_allow_never_expire": {
+            "type": "boolean",
+            "title": "Api Token Allow Never Expire",
+            "description": "Whether users may create never-expiring API keys. When false, the token manager hides the 'Never' option."
+          },
+          "api_token_max_keys_per_user": {
             "anyOf": [
               {
                 "type": "integer"
@@ -8738,13 +8753,8 @@
                 "type": "null"
               }
             ],
-            "title": "Api Token Default Expiry Days",
-            "description": "Default API-key validity in whole days, surfaced so the token manager can pre-select it. Null when the server default is no expiry."
-          },
-          "api_token_allow_never_expire": {
-            "type": "boolean",
-            "title": "Api Token Allow Never Expire",
-            "description": "Whether users may create never-expiring API keys. When false, the token manager hides the 'Never' option."
+            "title": "Api Token Max Keys Per User",
+            "description": "How many unexpired API keys one user may hold; creating more is refused with 409. Null means no limit."
           },
           "server_version": {
             "type": "string",
@@ -8786,6 +8796,8 @@
           "sharing_user_search_enabled",
           "sharing_require_invite_accept",
           "sharing_public_link_email_enabled",
+          "api_token_default_expiry_days",
+          "api_token_max_expiry_days",
           "api_token_allow_never_expire",
           "server_version",
           "email_enabled",

@@ -5,6 +5,33 @@ changes see [`../CHANGELOG.md`](../CHANGELOG.md).
 
 ---
 
+## API key policy (no migration)
+
+Keys created in the token manager have their own settings now, and the defaults
+are stricter. Nothing in the database changes, and **every existing key keeps
+working**, including never-expiring keys and keys with a longer lifetime than the
+new maximum. The new rules apply when a key is created.
+
+| Setting | Default | Before |
+|---|---|---|
+| `API_TOKEN_ALLOW_NEVER_EXPIRE` | `false` | `true` |
+| `API_TOKEN_MANAGEMENT_DEFAULT_EXPIRY_DAYS` (new) | `30` | one week, from `API_TOKEN_DEFAULT_EXPIRY_TIME_MINUTES` |
+| `API_TOKEN_MANAGEMENT_MAX_EXPIRY_DAYS` (new) | `365` (at most `3650`) | `3650` |
+| `API_TOKEN_MANAGEMENT_MAX_TOKENS_PER_USER` (new) | `20` | no limit |
+
+- `API_TOKEN_DEFAULT_EXPIRY_TIME_MINUTES` now only sets the lifetime of tokens
+  from the token login endpoints. If you set it to shape the keys in the token
+  manager, set `API_TOKEN_MANAGEMENT_DEFAULT_EXPIRY_DAYS` instead.
+- To keep offering never-expiring keys, set `API_TOKEN_ALLOW_NEVER_EXPIRE: true`.
+  Otherwise a create request with `never_expires` gets `422`.
+- The server refuses to start when the default lifetime is longer than the
+  maximum.
+- The key limit counts unexpired keys from the token manager. Login tokens and
+  expired keys do not count. A user above the limit at upgrade time keeps all
+  keys, but can only create a new one after getting below it.
+
+---
+
 ## API keys of OIDC users (migration `0019`)
 
 Migration `0019` adds `user.oidc_provider_slug` and `user.last_oidc_login_at`. The

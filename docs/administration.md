@@ -147,9 +147,15 @@ as email is opt-in per instance and takes a mail server: see
 
 Users can mint API tokens in the token manager. These settings govern them:
 
-- `API_TOKEN_DEFAULT_EXPIRY_TIME_MINUTES` sets the default lifetime (one week).
-- `API_TOKEN_ALLOW_NEVER_EXPIRE` (default `true`) allows never-expiring tokens.
-  Set it to `false` to force every token to carry an expiry.
+- `API_TOKEN_MANAGEMENT_DEFAULT_EXPIRY_DAYS` (default `30`) is the lifetime the
+  token manager pre-selects.
+- `API_TOKEN_MANAGEMENT_MAX_EXPIRY_DAYS` (default `365`, at most `3650`) is the
+  longest lifetime a user may pick.
+- `API_TOKEN_ALLOW_NEVER_EXPIRE` (default `false`) allows never-expiring tokens.
+- `API_TOKEN_MANAGEMENT_MAX_TOKENS_PER_USER` (default `20`) limits the unexpired
+  tokens a user may hold. `null` removes the limit.
+- `API_TOKEN_DEFAULT_EXPIRY_TIME_MINUTES` (one week) only sets the lifetime of
+  tokens from the token login endpoints, not of tokens from the token manager.
 - `API_TOKEN_MANAGEMENT_OIDC_LOGIN_MAX_AGE_DAYS` (default `30`) pauses the tokens
   of an OIDC user whose last sign-in via the provider is older than that, because
   groups and roles are only refreshed at sign-in. The next sign-in reactivates

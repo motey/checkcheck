@@ -28,10 +28,15 @@ export const usePublicConfigStore = defineStore("publicConfig", {
     userSearchEnabled: (state): boolean => state.config?.sharing_user_search_enabled ?? false,
     // Whether shares start as pending invites the target must accept (invite mode).
     requireInviteAccept: (state): boolean => state.config?.sharing_require_invite_accept ?? false,
-    // The server's default API-key validity in whole days (null → the default is
-    // no expiry). The token manager pre-selects the matching option.
+    // The server's default API-key validity in whole days. The token manager
+    // pre-selects the matching option. Null until the config resolves.
     apiTokenDefaultExpiryDays: (state): number | null =>
       state.config?.api_token_default_expiry_days ?? null,
+    // The longest validity the server accepts; the token manager offers nothing
+    // longer. Null until the config resolves (or from a snapshot of an older
+    // server that did not send it).
+    apiTokenMaxExpiryDays: (state): number | null =>
+      state.config?.api_token_max_expiry_days ?? null,
     // Whether the token manager may offer a never-expiring key.
     apiTokenAllowNeverExpire: (state): boolean =>
       state.config?.api_token_allow_never_expire ?? false,

@@ -236,18 +236,32 @@ Backend, one Alembic migration.
 
 Backend and frontend.
 
-- [ ] Separate settings for managed keys, independent of the login token lifetime
+- [x] Separate settings for managed keys, independent of the login token lifetime
       (`API_TOKEN_DEFAULT_EXPIRY_TIME_MINUTES` stays for login tokens):
       `API_TOKEN_MANAGEMENT_DEFAULT_EXPIRY_DAYS` (30 or 90),
       `API_TOKEN_MANAGEMENT_MAX_EXPIRY_DAYS` (365, capped at 3650, validator: default <= max),
       never-expiring keys off by default, `API_TOKEN_MANAGEMENT_MAX_TOKENS_PER_USER` (20,
       unexpired managed keys only, 409 beyond it). Existing keys keep working.
-- [ ] `GET /api/config/api-token` exposes these values.
-- [ ] Frontend key manager uses them for the default lifetime, the maximum and the "Never" option,
+- [x] `GET /api/config/api-token` exposes these values.
+- [x] Frontend key manager uses them for the default lifetime, the maximum and the "Never" option,
       and shows the 409 message.
-- [ ] Regenerate `openapi.json` and frontend types; extend `frontend/tests/e2e/api-keys.spec.ts`;
+- [x] Regenerate `openapi.json` and frontend types; extend `frontend/tests/e2e/api-keys.spec.ts`;
       backend tests for limit and expiry bounds.
-- [ ] Document the new settings and the changed defaults in the release notes.
+- [x] Document the new settings and the changed defaults in the release notes.
+- Done 2026-09-18. Default lifetime is 30 days. `API_TOKEN_ALLOW_NEVER_EXPIRE` kept its name
+  (it only ever applied to managed keys) and now defaults to `false`. The values are exposed
+  through the existing unauthenticated `GET /api/public-config` (`api_token_default_expiry_days`,
+  `api_token_max_expiry_days`, `api_token_allow_never_expire`, `api_token_max_keys_per_user`)
+  instead of a new `/api/config/api-token`, since the token manager already reads it. A
+  lifetime above the maximum and a disallowed "never" get 422, the key limit 409; the count
+  excludes login tokens and expired keys (`count_active_managed_api_tokens_by_user_id`). The
+  key manager caps its options at the maximum (adding the maximum itself as an option) and
+  shows the server's detail for 409/422. Tests: `tests/tests_api_token_policy.py` (HTTP with
+  defaults, route function with a fake CRUD for other settings, config validator); E2E runs
+  with never allowed, max 180 days and 5 keys (`backend/e2e/start_e2e_server.py`). Release
+  notes in `CHANGELOG.md` (Security) and `docs/UPGRADING.md`, admin docs in
+  `docs/administration.md`. Side observation: `GET /user/me/api-keys` also lists login tokens
+  (type `api_token` with a source login) as "Unnamed key"; out of scope here.
 
 ### Chunk 4: Housekeeping (findings 8, 9, 11, admin 404)
 

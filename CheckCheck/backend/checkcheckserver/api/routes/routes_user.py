@@ -191,7 +191,11 @@ class APIKeyCreateRequest(BaseModel):
         default=None,
         ge=1,
         le=3650,
-        description="Validity in days from now. Omit to use the server default (or set never_expires for a key that never expires).",
+        description=(
+            "Validity in days from now. Omit to use the server default. Rejected (422) "
+            "above the server maximum (see `api_token_max_expiry_days` in "
+            "`/api/public-config`)."
+        ),
     )
     never_expires: bool = Field(
         default=False,
@@ -243,24 +247,43 @@ async def create_my_api_key(
 ) -> APIKeyCreatedResponse:
     expires_at: Optional[int] = None
     if body.never_expires:
-        # Explicit no-expiry request; leaves expires_at None (guarded below).
-        pass
-    elif body.expires_in_days is not None:
-        expires_at = int(
-            (datetime.now(tz=timezone.utc) + timedelta(days=body.expires_in_days)).timestamp()
+        if not config.API_TOKEN_ALLOW_NEVER_EXPIRE:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Never-expiring API keys are disabled on this server.",
+            )
+    else:
+        expires_in_days = (
+            body.expires_in_days
+            if body.expires_in_days is not None
+            else config.API_TOKEN_MANAGEMENT_DEFAULT_EXPIRY_DAYS
         )
-    elif config.API_TOKEN_DEFAULT_EXPIRY_TIME_MINUTES is not None:
+        if expires_in_days > config.API_TOKEN_MANAGEMENT_MAX_EXPIRY_DAYS:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=(
+                    "API keys on this server may be valid for at most "
+                    f"{config.API_TOKEN_MANAGEMENT_MAX_EXPIRY_DAYS} days."
+                ),
+            )
         expires_at = int(
-            datetime.now(tz=timezone.utc).timestamp()
-            + config.API_TOKEN_DEFAULT_EXPIRY_TIME_MINUTES * 60
+            (datetime.now(tz=timezone.utc) + timedelta(days=expires_in_days)).timestamp()
         )
 
-    # A key with no expiry (whether requested explicitly or falling through to a
-    # server default of "never") is only allowed when the server permits it.
-    if expires_at is None and not config.API_TOKEN_ALLOW_NEVER_EXPIRE:
+    max_keys = config.API_TOKEN_MANAGEMENT_MAX_TOKENS_PER_USER
+    if (
+        max_keys is not None
+        and await user_auth_crud.count_active_managed_api_tokens_by_user_id(
+            current_user.id
+        )
+        >= max_keys
+    ):
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="Never-expiring API keys are disabled on this server.",
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                f"You already have {max_keys} active API keys, the most this server "
+                "allows. Revoke one before creating a new one."
+            ),
         )
 
     new_auth = UserAuthCreate(

@@ -200,6 +200,18 @@ and the app is installable as a PWA.
   `API_TOKEN_MANAGEMENT_OIDC_LOGIN_MAX_AGE_DAYS` (default `30`, `null` disables).
   The next OIDC login reactivates the key. Local users are not affected. The user
   records the provider and time of the last OIDC login (migration `0019`).
+- **Stricter policy for API keys from the token manager.** Keys now have their
+  own settings, separate from the lifetime of login tokens
+  (`API_TOKEN_DEFAULT_EXPIRY_TIME_MINUTES` now only applies to those):
+  `API_TOKEN_MANAGEMENT_DEFAULT_EXPIRY_DAYS` (default `30`),
+  `API_TOKEN_MANAGEMENT_MAX_EXPIRY_DAYS` (default `365`, at most `3650`; a longer
+  lifetime is refused with `422`) and `API_TOKEN_MANAGEMENT_MAX_TOKENS_PER_USER`
+  (default `20` unexpired keys, `409` beyond it, `null` for no limit).
+  **`API_TOKEN_ALLOW_NEVER_EXPIRE` now defaults to `false`.** Existing keys keep
+  working, including never-expiring ones and ones above the new maximum. The token
+  manager offers no lifetime above the maximum and shows the server's reason when
+  the limit is reached. `/api/public-config` reports the new values
+  (`api_token_max_expiry_days`, `api_token_max_keys_per_user`).
 
 ### Upgrade notes
 

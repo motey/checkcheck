@@ -8,7 +8,7 @@ import uuid
 import contextlib
 from pydantic import SecretStr, Json
 from fastapi import Depends, HTTPException, status
-from sqlmodel import Field, select, delete, Enum, Column, and_, or_
+from sqlmodel import Field, select, delete, Enum, Column, and_, or_, func
 import secrets
 
 # Internal
@@ -197,6 +197,30 @@ class UserAuthCRUD(
             )
         results = await self.session.exec(statement=query)
         return results.all()
+
+    async def count_active_managed_api_tokens_by_user_id(
+        self, user_id: uuid.UUID
+    ) -> int:
+        """Count the user's unexpired keys from the token manager.
+
+        Tokens from the token login (they carry an ``api_token_source_user_auth_id``)
+        do not count, and neither do expired keys still lying around.
+        """
+        now_epoch = int(datetime.datetime.now(tz=datetime.timezone.utc).timestamp())
+        query = select(func.count()).where(
+            and_(
+                UserAuth.user_id == user_id,
+                UserAuth.auth_source_type == AllowedAuthSchemeType.api_token,
+                UserAuth.api_token_source_user_auth_id == None,
+                or_(UserAuth.revoked == False, UserAuth.revoked == None),
+                or_(
+                    UserAuth.expires_at_epoch_time == None,
+                    UserAuth.expires_at_epoch_time > now_epoch,
+                ),
+            )
+        )
+        results = await self.session.exec(statement=query)
+        return results.one()
 
     async def touch_last_used_at(self, user_auth_id: uuid.UUID) -> None:
         user_auth = await self.session.get(UserAuth, user_auth_id)

@@ -515,20 +515,16 @@ def test_api_key_expiry_field_set():
     )
     req(f"api/user/me/api-keys/{res['api_token_id']}", "delete", expected_http_code=204, session=s)
 
-def test_api_key_never_expires():
-    # The default test server allows never-expiring keys (API_TOKEN_ALLOW_NEVER_EXPIRE
-    # defaults to True). `never_expires` must yield a key with no expiry.
-    s = _test_user_session()
-    res = req(
+def test_api_key_never_expires_rejected_by_default():
+    # API_TOKEN_ALLOW_NEVER_EXPIRE defaults to False: `never_expires` is refused.
+    # The allowed path is covered in tests_api_token_policy.py.
+    req(
         "api/user/me/api-keys",
         "post",
         b={"display_name": "Forever key", "never_expires": True},
-        session=s,
+        expected_http_code=422,
+        session=_test_user_session(),
     )
-    assert res["expires_at_epoch_time"] is None, (
-        "expires_at_epoch_time must be null for a never-expiring key"
-    )
-    req(f"api/user/me/api-keys/{res['api_token_id']}", "delete", expected_http_code=204, session=s)
 
 def test_api_key_expiry_and_never_conflict_rejected():
     # Setting both expires_in_days and never_expires is contradictory → 422.

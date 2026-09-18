@@ -138,25 +138,66 @@ AUTH_JWT_SECRET:
 #  >AUTH_BASIC_SESSION_LIFETIME_MINUTES: 1440
 AUTH_BASIC_SESSION_LIFETIME_MINUTES: 20160
 
-# ## API_TOKEN_DEFAULT_EXPIRY_TIME_MINUTES - Default API token lifetime (minutes) ###
+# ## API_TOKEN_DEFAULT_EXPIRY_TIME_MINUTES - Login token lifetime (minutes) ###
 # Type:        int
 # Required:    False
 # Default:     10080
 # Env-var:     'API_TOKEN_DEFAULT_EXPIRY_TIME_MINUTES'
-# Description: How long a newly created API token stays valid. Applies to the token minted on login and to tokens created in the token manager. Set to null for no default expiry.
+# Description: How long a token minted by the token login endpoints stays valid. Keys created in the token manager have their own settings (API_TOKEN_MANAGEMENT_*). Set to null for login tokens that never expire.
 # Example No. 1:
 #  >API_TOKEN_DEFAULT_EXPIRY_TIME_MINUTES: 10080
 # Example No. 2:
 #  >API_TOKEN_DEFAULT_EXPIRY_TIME_MINUTES: 43200
 API_TOKEN_DEFAULT_EXPIRY_TIME_MINUTES: 10080
 
-# ## API_TOKEN_ALLOW_NEVER_EXPIRE - Allow never-expiring API tokens ###
+# ## API_TOKEN_MANAGEMENT_DEFAULT_EXPIRY_DAYS - Default API key lifetime (days) ###
+# Type:        int
+# Required:    False
+# Default:     30
+# Constraints: Ge(ge=1)
+# Env-var:     'API_TOKEN_MANAGEMENT_DEFAULT_EXPIRY_DAYS'
+# Description: Lifetime of a key created in the token manager when the user does not pick one. The token manager pre-selects it. Must not exceed API_TOKEN_MANAGEMENT_MAX_EXPIRY_DAYS.
+# Example No. 1:
+#  >API_TOKEN_MANAGEMENT_DEFAULT_EXPIRY_DAYS: 30
+# Example No. 2:
+#  >API_TOKEN_MANAGEMENT_DEFAULT_EXPIRY_DAYS: 90
+API_TOKEN_MANAGEMENT_DEFAULT_EXPIRY_DAYS: 30
+
+# ## API_TOKEN_MANAGEMENT_MAX_EXPIRY_DAYS - Maximum API key lifetime (days) ###
+# Type:        int
+# Required:    False
+# Default:     365
+# Constraints: Ge(ge=1), Le(le=3650)
+# Env-var:     'API_TOKEN_MANAGEMENT_MAX_EXPIRY_DAYS'
+# Description: Longest lifetime a user may choose for a key created in the token manager. At most 3650 (ten years). Existing keys with a longer lifetime keep working.
+# Example No. 1:
+#  >API_TOKEN_MANAGEMENT_MAX_EXPIRY_DAYS: 365
+# Example No. 2:
+#  >API_TOKEN_MANAGEMENT_MAX_EXPIRY_DAYS: 90
+API_TOKEN_MANAGEMENT_MAX_EXPIRY_DAYS: 365
+
+# ## API_TOKEN_ALLOW_NEVER_EXPIRE - Allow never-expiring API keys ###
 # Type:        bool
 # Required:    False
-# Default:     true
+# Default:     false
 # Env-var:     'API_TOKEN_ALLOW_NEVER_EXPIRE'
-# Description: Whether users may create API tokens that never expire. When false, every token must carry an expiry: the 'Never' option is hidden in the UI and rejected by the server.
-API_TOKEN_ALLOW_NEVER_EXPIRE: true
+# Description: Whether users may create keys in the token manager that never expire. When false, the 'Never' option is hidden in the UI and rejected by the server. Existing never-expiring keys keep working either way; revoke them to end them.
+API_TOKEN_ALLOW_NEVER_EXPIRE: false
+
+# ## API_TOKEN_MANAGEMENT_MAX_TOKENS_PER_USER - Maximum API keys per user ###
+# Type:        int
+# Required:    False
+# Default:     20
+# Constraints: Ge(ge=1)
+# Env-var:     'API_TOKEN_MANAGEMENT_MAX_TOKENS_PER_USER'
+# Description: How many unexpired keys created in the token manager a single user may hold. Creating one more is refused (409) until the user revokes one. Tokens from the token login do not count. Set to null for no limit.
+# Example No. 1:
+#  >API_TOKEN_MANAGEMENT_MAX_TOKENS_PER_USER: 20
+# Example No. 2:
+#  >API_TOKEN_MANAGEMENT_MAX_TOKENS_PER_USER: 5
+# Example No. 3:
+#  >API_TOKEN_MANAGEMENT_MAX_TOKENS_PER_USER: null
+API_TOKEN_MANAGEMENT_MAX_TOKENS_PER_USER: 20
 
 # ## API_TOKEN_MANAGEMENT_OIDC_LOGIN_MAX_AGE_DAYS - Pause API tokens of OIDC users after (days) ###
 # Type:        int

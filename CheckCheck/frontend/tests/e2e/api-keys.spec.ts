@@ -115,8 +115,9 @@ test.describe("Chunk 2 API-key manager", () => {
     const expirySelect = dialog.locator("[data-testid=api-key-expiry]");
     await expect(expirySelect).not.toContainText("Server default");
 
-    // Open the dropdown and pick "Never expires" (the server default config
-    // allows never-expiring keys in the e2e server).
+    // Open the dropdown and pick "Never expires" (the e2e server allows
+    // never-expiring keys, see backend/e2e/start_e2e_server.py; the production
+    // default does not).
     await expirySelect.click();
     await page.getByRole("option", { name: "Never expires" }).click();
 
@@ -134,6 +135,58 @@ test.describe("Chunk 2 API-key manager", () => {
     expect(created, "the never-expiring key should exist").toBeTruthy();
     expect(created!.expires_at_epoch_time).toBeNull();
 
+    await expect(page.getByText(/Error 4\d\d/)).toHaveCount(0);
+  });
+
+  test("expiry options stop at the server maximum", async ({ page }) => {
+    // The e2e server caps keys at 180 days (start_e2e_server.py) and keeps the
+    // 30 day default.
+    const config = await page.request.get("/api/public-config").then((r) => r.json());
+    expect(config.api_token_max_expiry_days).toBe(180);
+
+    await page.goto("/");
+    const dialog = await openApiKeysModal(page);
+    const expirySelect = dialog.locator("[data-testid=api-key-expiry]");
+    await expect(expirySelect).toContainText(`${config.api_token_default_expiry_days} days`);
+
+    await expirySelect.click();
+    await expect(page.getByRole("option", { name: "180 days" })).toBeVisible();
+    await expect(page.getByRole("option", { name: "90 days" })).toBeVisible();
+    await expect(page.getByRole("option", { name: "1 year" })).toHaveCount(0);
+    await page.keyboard.press("Escape");
+  });
+
+  test("creating a key beyond the per-user limit shows the server's reason", async ({ page }) => {
+    const config = await page.request.get("/api/public-config").then((r) => r.json());
+    const limit: number = config.api_token_max_keys_per_user;
+    expect(limit, "the e2e server sets a small key limit").toBeGreaterThan(0);
+
+    // Fill the quota through the API; whatever keys the account already holds
+    // count too, so stop at the first 409.
+    const stamp = Date.now();
+    for (let i = 0; i <= limit; i++) {
+      const name = `e2e-limit-${stamp}-${i}`;
+      const res = await page.request.post("/api/user/me/api-keys", {
+        data: { display_name: name, expires_in_days: 1 },
+      });
+      if (res.status() === 409) break;
+      expect(res.status()).toBe(201);
+      createdNames.push(name);
+    }
+
+    await page.goto("/");
+    const dialog = await openApiKeysModal(page);
+    const name = `e2e-limit-${stamp}-ui`;
+    createdNames.push(name);
+    await dialog.locator("[data-testid=api-key-name-input]").fill(name);
+    await dialog.locator("[data-testid=api-key-create]").click();
+
+    // Scoped to the toast region: the same text also sits in an aria-live mirror.
+    await expect(
+      page.getByLabel(/^Notifications/).getByText(/Revoke one before creating a new one/)
+    ).toBeVisible({ timeout: 5_000 });
+    await expect(dialog.locator("[data-testid=api-key-token]")).toHaveCount(0);
+    // The modal owns this error; the central handler must stay out of it.
     await expect(page.getByText(/Error 4\d\d/)).toHaveCount(0);
   });
 
