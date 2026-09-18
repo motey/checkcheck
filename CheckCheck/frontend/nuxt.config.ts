@@ -167,6 +167,12 @@ export default defineNuxtConfig({
 
   app: {
     head: {
+      // Nuxt's default plus `interactive-widget=resizes-content`: Chromium and
+      // Firefox on Android then shrink the layout viewport when the on-screen
+      // keyboard opens, so plain CSS heights end at the keyboard edge instead of
+      // behind it. iOS Safari ignores it; composables/useVisualViewport.ts
+      // covers that side (docs/plans/MOBILE_EDITOR.md, M1).
+      viewport: "width=device-width, initial-scale=1, interactive-widget=resizes-content",
       meta: [
         { name: "theme-color", content: "#FBBF24" },
         // Standalone launch hints. `@vite-pwa/nuxt` only adds the manifest link

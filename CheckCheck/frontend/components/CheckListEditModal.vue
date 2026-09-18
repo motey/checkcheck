@@ -37,6 +37,11 @@
 <script setup lang="ts">
 const open = defineModel<boolean>("open", { default: false });
 
+// Mirror the visual viewport into --vv-height/--vv-top while the editor is
+// open, so it can size itself against the on-screen keyboard (mobile editor
+// plan, M1). The modal stays mounted after closing, hence the getter.
+useVisualViewport(() => open.value);
+
 defineProps({
   checkListId: {
     type: String,
