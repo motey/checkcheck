@@ -207,8 +207,13 @@ function labelForDays(days: number): string {
 type ExpiryChoice = number | "never";
 
 const expiryOptions = computed(() => {
-  // Base durations, plus the server default so it can always be selected.
-  const days = new Set<number>([7, 30, 90, 365]);
+  // Base durations up to the server maximum, plus the server default and the
+  // maximum itself so both can always be selected.
+  const maxDays = publicConfig.apiTokenMaxExpiryDays;
+  const days = new Set<number>(
+    [7, 30, 90, 365].filter((d) => maxDays == null || d <= maxDays)
+  );
+  if (maxDays != null) days.add(maxDays);
   const defaultDays = publicConfig.apiTokenDefaultExpiryDays;
   if (defaultDays != null) days.add(defaultDays);
 
@@ -223,7 +228,7 @@ const expiryOptions = computed(() => {
 });
 
 // The option pre-selected when the form opens: the server's configured default
-// duration, or "Never" when the server default is no-expiry (and it's allowed).
+// duration. The fallbacks only matter while the config has not loaded.
 const defaultExpiry = computed<ExpiryChoice>(() => {
   const defaultDays = publicConfig.apiTokenDefaultExpiryDays;
   if (defaultDays != null) return defaultDays;
@@ -298,8 +303,20 @@ async function create() {
     copied.value = false;
     name.value = "";
     toast.add({ title: "API key created", color: "success" });
-  } catch {
-    toast.add({ title: "Could not create API key", color: "error" });
+  } catch (err) {
+    // 409: the user holds the most keys the server allows. 422: the server
+    // refused the chosen lifetime (its policy changed since the form loaded).
+    // Both carry a readable detail worth showing as is.
+    const status = (err as any)?.statusCode ?? (err as any)?.response?.status;
+    const detail = (err as any)?.data?.detail;
+    toast.add({
+      title: "Could not create API key",
+      description:
+        (status === 409 || status === 422) && typeof detail === "string"
+          ? detail
+          : undefined,
+      color: "error",
+    });
   } finally {
     creating.value = false;
   }

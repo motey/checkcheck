@@ -170,6 +170,63 @@ and the app is installable as a PWA.
   within half a second of the title replaced the title's pending write and it
   never reached the server. The title stayed on screen until the next sync
   quietly restored the old one. Each field now has its own timer.
+- **Environment variables can set a setting to `null`.** Before, `null` only
+  worked in `config.yml`: `API_TOKEN_MANAGEMENT_OIDC_LOGIN_MAX_AGE_DAYS=null` and
+  other number settings stopped the server at start, and
+  `NEW_USER_DEFAULT_LABELS=null` silently kept the default labels. Now `VAR=null`
+  means null. `EMAIL_TRANSPORT=null` still selects the transport that discards
+  mail, and an unquoted `EMAIL_TRANSPORT: null` in `config.yml` now does the same
+  instead of failing validation. The configuration reference marks nullable
+  settings (`int or null`).
+
+### Security
+
+- **Secrets no longer end up in DEBUG logs.** With `LOG_LEVEL=DEBUG` the server
+  wrote the full API key of every key-authenticated request, the OIDC token
+  response (access, refresh and id token), the OIDC refresh token on every
+  refresh, all request headers of `/api/auth/list` (session cookie and
+  `Authorization` header included), and the plain password when an admin set a
+  user's first password. These lines are gone, and a freshly generated API key is
+  kept wrapped so it no longer shows up in a repr or traceback. **If your instance
+  ever ran with `LOG_LEVEL=DEBUG`, treat the API keys, OIDC refresh tokens and
+  passwords in those logs as leaked** (see `docs/UPGRADING.md`).
+- **API keys can no longer manage API keys.** Listing, creating and deleting keys
+  under `/api/user/me/api-keys` now needs a browser session. A request with an
+  `Authorization: Bearer` header (an API key or a login token) gets `403`. Before,
+  a leaked key could mint new keys that outlived its own revocation. The web app
+  is unaffected. Scripts that managed keys with a token must use a session login
+  instead. The admin endpoints under `/api/user/{id}/api-keys` are unchanged.
+- **A login token whose source login is gone now gets `401`** instead of a `500`.
+- **API keys of OIDC users follow the user's provider.** The
+  `RESTRICT_USER_SEARCH_TO_OWN_GROUPS` rule of an OIDC provider is now decided by
+  the user, not by how the request authenticates. Before, a key created in the
+  token manager bypassed it in user search and group sharing.
+- **API keys of OIDC users pause after a long time without OIDC login.** Groups
+  and roles are only synced at OIDC login, so a user removed at the provider kept
+  their old access through a key. A key from the token manager now gets `401` when
+  its user's last OIDC login is older than the new setting
+  `API_TOKEN_MANAGEMENT_OIDC_LOGIN_MAX_AGE_DAYS` (default `30`, `null` disables).
+  The next OIDC login reactivates the key. Local users are not affected. The user
+  records the provider and time of the last OIDC login (migration `0019`).
+- **Stricter policy for API keys from the token manager.** Keys now have their
+  own settings, separate from the lifetime of login tokens
+  (`API_TOKEN_DEFAULT_EXPIRY_TIME_MINUTES` now only applies to those):
+  `API_TOKEN_MANAGEMENT_DEFAULT_EXPIRY_DAYS` (default `30`),
+  `API_TOKEN_MANAGEMENT_MAX_EXPIRY_DAYS` (default `365`, at most `3650`; a longer
+  lifetime is refused with `422`) and `API_TOKEN_MANAGEMENT_MAX_TOKENS_PER_USER`
+  (default `20` unexpired keys, `409` beyond it, `null` for no limit).
+  **`API_TOKEN_ALLOW_NEVER_EXPIRE` now defaults to `false`.** Existing keys keep
+  working, including never-expiring ones and ones above the new maximum. The token
+  manager offers no lifetime above the maximum and shows the server's reason when
+  the limit is reached. `/api/public-config` reports the new values
+  (`api_token_max_expiry_days`, `api_token_max_keys_per_user`).
+- **API key housekeeping.** `user_auth.api_token_id` gets a unique index
+  (migration `0020`), so looking up a key no longer scans the table. A key's
+  `last_used_at` is now written at most once per minute instead of on every
+  request, so the shown value can lag by up to a minute. The unused
+  `include_revoked` query parameter is gone from `GET /api/user/me/api-keys` and
+  `GET /api/user/{user_id}/api-keys` (nothing ever marked a key as revoked). Admins
+  can now list the keys of a deactivated user instead of getting `404`.
 
 ### Upgrade notes
 

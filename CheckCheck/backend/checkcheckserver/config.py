@@ -7,6 +7,7 @@ from urllib.parse import urlparse
 from pydantic import (
     Field,
     SecretStr,
+    field_validator,
     model_validator,
 )
 from pydantic_settings import (
@@ -199,22 +200,71 @@ class Config(BaseSettings):
     )
     API_TOKEN_DEFAULT_EXPIRY_TIME_MINUTES: Optional[int] = Field(
         default=60 * 24 * 7,  # one week
-        title="Default API token lifetime (minutes)",
+        title="Login token lifetime (minutes)",
         description=(
-            "How long a newly created API token stays valid. Applies to the token minted on "
-            "login and to tokens created in the token manager. Set to null for no default "
-            "expiry."
+            "How long a token minted by the token login endpoints stays valid. Keys "
+            "created in the token manager have their own settings "
+            "(API_TOKEN_MANAGEMENT_*). Set to null for login tokens that never expire."
         ),
         examples=[60 * 24 * 7, 60 * 24 * 30],
     )
-    API_TOKEN_ALLOW_NEVER_EXPIRE: bool = Field(
-        default=True,
-        title="Allow never-expiring API tokens",
+    API_TOKEN_MANAGEMENT_DEFAULT_EXPIRY_DAYS: int = Field(
+        default=30,
+        ge=1,
+        title="Default API key lifetime (days)",
         description=(
-            "Whether users may create API tokens that never expire. When false, every token "
-            "must carry an expiry: the 'Never' option is hidden in the UI and rejected by the "
-            "server."
+            "Lifetime of a key created in the token manager when the user does not pick "
+            "one. The token manager pre-selects it. Must not exceed "
+            "API_TOKEN_MANAGEMENT_MAX_EXPIRY_DAYS."
         ),
+        examples=[30, 90],
+    )
+    API_TOKEN_MANAGEMENT_MAX_EXPIRY_DAYS: int = Field(
+        default=365,
+        ge=1,
+        le=3650,
+        title="Maximum API key lifetime (days)",
+        description=(
+            "Longest lifetime a user may choose for a key created in the token manager. "
+            "At most 3650 (ten years). Existing keys with a longer lifetime keep working."
+        ),
+        examples=[365, 90],
+    )
+    API_TOKEN_ALLOW_NEVER_EXPIRE: bool = Field(
+        default=False,
+        title="Allow never-expiring API keys",
+        description=(
+            "Whether users may create keys in the token manager that never expire. When "
+            "false, the 'Never' option is hidden in the UI and rejected by the server. "
+            "Existing never-expiring keys keep working either way; revoke them to end "
+            "them."
+        ),
+    )
+    API_TOKEN_MANAGEMENT_MAX_TOKENS_PER_USER: Optional[int] = Field(
+        default=20,
+        ge=1,
+        title="Maximum API keys per user",
+        description=(
+            "How many unexpired keys created in the token manager a single user may hold. "
+            "Creating one more is refused (409) until the user revokes one. Tokens from "
+            "the token login do not count. Set to null for no limit."
+        ),
+        examples=[20, 5, None],
+    )
+    API_TOKEN_MANAGEMENT_OIDC_LOGIN_MAX_AGE_DAYS: Optional[int] = Field(
+        default=30,
+        ge=1,
+        title="Pause API tokens of OIDC users after (days)",
+        description=(
+            "Groups and roles of OIDC users are only refreshed when they sign in via their "
+            "provider. A token created in the token manager of such a user stops working "
+            "(401) when their last OIDC sign-in is older than this many days, so a user who "
+            "was removed at the provider does not keep access through old tokens. The token "
+            "is paused, not deleted: the next OIDC sign-in reactivates it. Local users and "
+            "users who have not signed in via OIDC since this check was introduced are not "
+            "affected. Set to null to disable the check."
+        ),
+        examples=[30, 90, None],
     )
 
     # ── Sharing ───────────────────────────────────────────────────────────────
@@ -937,6 +987,27 @@ class Config(BaseSettings):
         description="Path to the Alembic configuration used to run database migrations on start. The default resolves next to the source tree; rarely changed.",
     )
 
+    @field_validator("EMAIL_TRANSPORT", mode="before")
+    @classmethod
+    def _email_transport_null_is_the_null_transport(cls, value: object) -> object:
+        # `null` is a transport name here, not "unset". env_parse_none_str turns
+        # EMAIL_TRANSPORT=null into None, and so does an unquoted YAML null.
+        return "null" if value is None else value
+
+    @model_validator(mode="after")
+    def _validate_api_token_management_expiry(self) -> "Config":
+        if (
+            self.API_TOKEN_MANAGEMENT_DEFAULT_EXPIRY_DAYS
+            > self.API_TOKEN_MANAGEMENT_MAX_EXPIRY_DAYS
+        ):
+            raise ValueError(
+                "API_TOKEN_MANAGEMENT_DEFAULT_EXPIRY_DAYS "
+                f"({self.API_TOKEN_MANAGEMENT_DEFAULT_EXPIRY_DAYS}) must not exceed "
+                "API_TOKEN_MANAGEMENT_MAX_EXPIRY_DAYS "
+                f"({self.API_TOKEN_MANAGEMENT_MAX_EXPIRY_DAYS})."
+            )
+        return self
+
     @model_validator(mode="after")
     def _resolve_public_address(self) -> "Config":
         """Resolve SERVER_PUBLIC_URL and the session-cookie Secure flag.
@@ -1101,6 +1172,10 @@ class Config(BaseSettings):
         env_file_encoding="utf-8",
         yaml_file=config_file_path,
         extra="ignore",
+        # Lets an env var set a nullable setting to null (`VAR=null`). Without it
+        # pydantic-settings can not: an int setting fails validation, a str setting
+        # gets the text "null", a list setting silently keeps its default.
+        env_parse_none_str="null",
     )
 
     @classmethod

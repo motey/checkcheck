@@ -117,7 +117,7 @@ The full external base URL where users reach the app, scheme included, e.g. `htt
 
 | Property | Value |
 |---|---|
-| Type | str |
+| Type | str or null |
 | Required | No |
 | Default | `null` |
 | Environment variable | `SERVER_PUBLIC_URL` |
@@ -219,7 +219,7 @@ Optional email address for the built-in administrator account.
 
 | Property | Value |
 |---|---|
-| Type | str |
+| Type | str or null |
 | Required | No |
 | Default | `null` |
 | Environment variable | `ADMIN_USER_EMAIL` |
@@ -270,10 +270,10 @@ How long a browser session stays valid before the user must log in again. Defaul
 
 | Property | Value |
 |---|---|
-| Type | int |
+| Type | int or null |
 | Required | No |
 | Default | `20160` |
-| Environment variable | `AUTH_BASIC_SESSION_LIFETIME_MINUTES` |
+| Environment variable | `AUTH_BASIC_SESSION_LIFETIME_MINUTES` (`null` sets null) |
 
 **Examples:**
 
@@ -293,16 +293,16 @@ AUTH_BASIC_SESSION_LIFETIME_MINUTES: 1440
 
 ## `API_TOKEN_DEFAULT_EXPIRY_TIME_MINUTES`
 
-*Default API token lifetime (minutes)*
+*Login token lifetime (minutes)*
 
-How long a newly created API token stays valid. Applies to the token minted on login and to tokens created in the token manager. Set to null for no default expiry.
+How long a token minted by the token login endpoints stays valid. Keys created in the token manager have their own settings (API_TOKEN_MANAGEMENT_*). Set to null for login tokens that never expire.
 
 | Property | Value |
 |---|---|
-| Type | int |
+| Type | int or null |
 | Required | No |
 | Default | `10080` |
-| Environment variable | `API_TOKEN_DEFAULT_EXPIRY_TIME_MINUTES` |
+| Environment variable | `API_TOKEN_DEFAULT_EXPIRY_TIME_MINUTES` (`null` sets null) |
 
 **Examples:**
 
@@ -320,18 +320,150 @@ API_TOKEN_DEFAULT_EXPIRY_TIME_MINUTES: 43200
 
 ---
 
+## `API_TOKEN_MANAGEMENT_DEFAULT_EXPIRY_DAYS`
+
+*Default API key lifetime (days)*
+
+Lifetime of a key created in the token manager when the user does not pick one. The token manager pre-selects it. Must not exceed API_TOKEN_MANAGEMENT_MAX_EXPIRY_DAYS.
+
+| Property | Value |
+|---|---|
+| Type | int |
+| Required | No |
+| Default | `30` |
+| Constraints | Ge(ge=1) |
+| Environment variable | `API_TOKEN_MANAGEMENT_DEFAULT_EXPIRY_DAYS` |
+
+**Examples:**
+
+*Example 1:*
+
+```yaml
+API_TOKEN_MANAGEMENT_DEFAULT_EXPIRY_DAYS: 30
+```
+
+*Example 2:*
+
+```yaml
+API_TOKEN_MANAGEMENT_DEFAULT_EXPIRY_DAYS: 90
+```
+
+---
+
+## `API_TOKEN_MANAGEMENT_MAX_EXPIRY_DAYS`
+
+*Maximum API key lifetime (days)*
+
+Longest lifetime a user may choose for a key created in the token manager. At most 3650 (ten years). Existing keys with a longer lifetime keep working.
+
+| Property | Value |
+|---|---|
+| Type | int |
+| Required | No |
+| Default | `365` |
+| Constraints | Ge(ge=1), Le(le=3650) |
+| Environment variable | `API_TOKEN_MANAGEMENT_MAX_EXPIRY_DAYS` |
+
+**Examples:**
+
+*Example 1:*
+
+```yaml
+API_TOKEN_MANAGEMENT_MAX_EXPIRY_DAYS: 365
+```
+
+*Example 2:*
+
+```yaml
+API_TOKEN_MANAGEMENT_MAX_EXPIRY_DAYS: 90
+```
+
+---
+
 ## `API_TOKEN_ALLOW_NEVER_EXPIRE`
 
-*Allow never-expiring API tokens*
+*Allow never-expiring API keys*
 
-Whether users may create API tokens that never expire. When false, every token must carry an expiry: the 'Never' option is hidden in the UI and rejected by the server.
+Whether users may create keys in the token manager that never expire. When false, the 'Never' option is hidden in the UI and rejected by the server. Existing never-expiring keys keep working either way; revoke them to end them.
 
 | Property | Value |
 |---|---|
 | Type | bool |
 | Required | No |
-| Default | `true` |
+| Default | `false` |
 | Environment variable | `API_TOKEN_ALLOW_NEVER_EXPIRE` |
+
+---
+
+## `API_TOKEN_MANAGEMENT_MAX_TOKENS_PER_USER`
+
+*Maximum API keys per user*
+
+How many unexpired keys created in the token manager a single user may hold. Creating one more is refused (409) until the user revokes one. Tokens from the token login do not count. Set to null for no limit.
+
+| Property | Value |
+|---|---|
+| Type | int or null |
+| Required | No |
+| Default | `20` |
+| Constraints | Ge(ge=1) |
+| Environment variable | `API_TOKEN_MANAGEMENT_MAX_TOKENS_PER_USER` (`null` sets null) |
+
+**Examples:**
+
+*Example 1:*
+
+```yaml
+API_TOKEN_MANAGEMENT_MAX_TOKENS_PER_USER: 20
+```
+
+*Example 2:*
+
+```yaml
+API_TOKEN_MANAGEMENT_MAX_TOKENS_PER_USER: 5
+```
+
+*Example 3:*
+
+```yaml
+API_TOKEN_MANAGEMENT_MAX_TOKENS_PER_USER: null
+```
+
+---
+
+## `API_TOKEN_MANAGEMENT_OIDC_LOGIN_MAX_AGE_DAYS`
+
+*Pause API tokens of OIDC users after (days)*
+
+Groups and roles of OIDC users are only refreshed when they sign in via their provider. A token created in the token manager of such a user stops working (401) when their last OIDC sign-in is older than this many days, so a user who was removed at the provider does not keep access through old tokens. The token is paused, not deleted: the next OIDC sign-in reactivates it. Local users and users who have not signed in via OIDC since this check was introduced are not affected. Set to null to disable the check.
+
+| Property | Value |
+|---|---|
+| Type | int or null |
+| Required | No |
+| Default | `30` |
+| Constraints | Ge(ge=1) |
+| Environment variable | `API_TOKEN_MANAGEMENT_OIDC_LOGIN_MAX_AGE_DAYS` (`null` sets null) |
+
+**Examples:**
+
+*Example 1:*
+
+```yaml
+API_TOKEN_MANAGEMENT_OIDC_LOGIN_MAX_AGE_DAYS: 30
+```
+
+*Example 2:*
+
+```yaml
+API_TOKEN_MANAGEMENT_OIDC_LOGIN_MAX_AGE_DAYS: 90
+```
+
+*Example 3:*
+
+```yaml
+API_TOKEN_MANAGEMENT_OIDC_LOGIN_MAX_AGE_DAYS: null
+```
 
 ---
 
@@ -512,7 +644,7 @@ Hostname of the mail server to hand messages to. Required when EMAIL_ENABLED is 
 
 | Property | Value |
 |---|---|
-| Type | str |
+| Type | str or null |
 | Required | No |
 | Default | `null` |
 | Environment variable | `EMAIL_SMTP_HOST` |
@@ -576,7 +708,7 @@ Username for SMTP authentication. Leave unset for a relay that needs no login.
 
 | Property | Value |
 |---|---|
-| Type | str |
+| Type | str or null |
 | Required | No |
 | Default | `null` |
 | Environment variable | `EMAIL_SMTP_USER` |
@@ -591,7 +723,7 @@ Password for SMTP authentication. Only used together with EMAIL_SMTP_USER. Suppl
 
 | Property | Value |
 |---|---|
-| Type | Object |
+| Type | Object or null |
 | Required | No |
 | Default | `null` |
 | Environment variable | `EMAIL_SMTP_PASSWORD` |
@@ -642,7 +774,7 @@ The address every message is sent from. Required when EMAIL_ENABLED is true, che
 
 | Property | Value |
 |---|---|
-| Type | str |
+| Type | str or null |
 | Required | No |
 | Default | `null` |
 | Environment variable | `EMAIL_FROM_ADDRESS` |
@@ -671,7 +803,7 @@ The human-readable name shown next to the sender address. Falls back to APP_NAME
 
 | Property | Value |
 |---|---|
-| Type | str |
+| Type | str or null |
 | Required | No |
 | Default | `null` |
 | Environment variable | `EMAIL_FROM_NAME` |
@@ -700,7 +832,7 @@ Optional address replies should go to. Set it to a monitored mailbox when EMAIL_
 
 | Property | Value |
 |---|---|
-| Type | str |
+| Type | str or null |
 | Required | No |
 | Default | `null` |
 | Environment variable | `EMAIL_REPLY_TO` |
@@ -751,7 +883,7 @@ Directory whose templates take priority over the bundled ones, matched by file n
 
 | Property | Value |
 |---|---|
-| Type | str |
+| Type | str or null |
 | Required | No |
 | Default | `null` |
 | Environment variable | `EMAIL_TEMPLATE_DIR` |
@@ -795,7 +927,7 @@ Absolute http(s) URL of a logo shown in the header of outgoing email and the uns
 
 | Property | Value |
 |---|---|
-| Type | str |
+| Type | str or null |
 | Required | No |
 | Default | `null` |
 | Environment variable | `EMAIL_LOGO_URL` |
@@ -1064,7 +1196,7 @@ The application server's public key, base64url-encoded. Optional: leave it unset
 
 | Property | Value |
 |---|---|
-| Type | str |
+| Type | str or null |
 | Required | No |
 | Default | `null` |
 | Environment variable | `VAPID_PUBLIC_KEY` |
@@ -1079,7 +1211,7 @@ The application server's private key, base64url-encoded. Optional, and set toget
 
 | Property | Value |
 |---|---|
-| Type | Object |
+| Type | Object or null |
 | Required | No |
 | Default | `null` |
 | Environment variable | `VAPID_PRIVATE_KEY` |
@@ -1094,7 +1226,7 @@ Contact address for the push services this instance calls, in case one needs to 
 
 | Property | Value |
 |---|---|
-| Type | str |
+| Type | str or null |
 | Required | No |
 | Default | `null` |
 | Environment variable | `VAPID_CONTACT_EMAIL` |
@@ -1205,9 +1337,9 @@ List of external OpenID Connect providers users may log in with. Empty by defaul
 
 | Property | Value |
 |---|---|
-| Type | List of Object (OpenIDConnectProvider) |
+| Type | List of Object (OpenIDConnectProvider) or null |
 | Required | No |
-| Environment variable | `AUTH_OIDC_PROVIDERS` |
+| Environment variable | `AUTH_OIDC_PROVIDERS` (`null` sets null) |
 
 **Examples:**
 
@@ -1289,10 +1421,10 @@ When true the login page immediately redirects to this provider instead of showi
 
 | Property | Value |
 |---|---|
-| Type | bool |
+| Type | bool or null |
 | Required | No |
 | Default | `false` |
-| Environment variable | `AUTH_OIDC_PROVIDERS[*]__AUTO_LOGIN` |
+| Environment variable | `AUTH_OIDC_PROVIDERS[*]__AUTO_LOGIN` (`null` sets null) |
 
 ---
 
@@ -1509,10 +1641,10 @@ Labels created automatically for every new account. Set to an empty list to star
 
 | Property | Value |
 |---|---|
-| Type | List of str |
+| Type | List of str or null |
 | Required | No |
 | Default | `["Work", "Private", "Inspiration"]` |
-| Environment variable | `NEW_USER_DEFAULT_LABELS` |
+| Environment variable | `NEW_USER_DEFAULT_LABELS` (`null` sets null) |
 
 **Examples:**
 
@@ -1541,9 +1673,9 @@ Optional list of YAML files whose contents are loaded into the database on start
 
 | Property | Value |
 |---|---|
-| Type | List of str |
+| Type | List of str or null |
 | Required | No |
-| Environment variable | `APP_PROVISIONING_DATA_YAML_FILES` |
+| Environment variable | `APP_PROVISIONING_DATA_YAML_FILES` (`null` sets null) |
 
 **Examples:**
 
@@ -1577,7 +1709,7 @@ When true the session cookie is only sent over HTTPS. Leave unset (the default) 
 
 | Property | Value |
 |---|---|
-| Type | bool |
+| Type | bool or null |
 | Required | No |
 | Default | `null` |
 | Environment variable | `SET_SESSION_COOKIE_SECURE` |
@@ -1592,7 +1724,7 @@ An additional browser origin allowed to call the API (CORS), on top of the serve
 
 | Property | Value |
 |---|---|
-| Type | str |
+| Type | str or null |
 | Required | No |
 | Default | `null` |
 | Environment variable | `CLIENT_URL` |
@@ -1628,7 +1760,7 @@ Log level for the uvicorn web server. Falls back to LOG_LEVEL when unset.
 
 | Property | Value |
 |---|---|
-| Type | str |
+| Type | str or null |
 | Required | No |
 | Default | `null` |
 | Environment variable | `SERVER_UVICORN_LOG_LEVEL` |
@@ -1673,10 +1805,10 @@ Deprecated. Use API_TOKEN_DEFAULT_EXPIRY_TIME_MINUTES instead.
 
 | Property | Value |
 |---|---|
-| Type | int |
+| Type | int or null |
 | Required | No |
 | Default | `20160` |
-| Environment variable | `AUTH_ACCESS_TOKEN_EXPIRES_MINUTES` |
+| Environment variable | `AUTH_ACCESS_TOKEN_EXPIRES_MINUTES` (`null` sets null) |
 
 ---
 

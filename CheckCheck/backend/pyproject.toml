@@ -84,7 +84,7 @@ test = [
 # Docs-only: renders docs/CONFIG_REFERENCE.md + config.example.yml from the
 # config model (see ../../gen_config_docs.sh). Not a runtime dependency.
 docs = [
-    "psyplus>=1.0.0",
+    "psyplus>=1.0.1",
 ]
 
 [tool.pytest.ini_options]

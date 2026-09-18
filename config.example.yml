@@ -51,7 +51,7 @@ SERVER_BIND_HOST: localhost
 SERVER_BIND_PORT: 8181
 
 # ## SERVER_PUBLIC_URL - Public base URL ###
-# Type:        str
+# Type:        str or null
 # Required:    False
 # Default:     null
 # Env-var:     'SERVER_PUBLIC_URL'
@@ -99,7 +99,7 @@ ADMIN_USER_PW:
   CHANGE_ME_generate_a_long_random_string_at_least_64_characters_long
 
 # ## ADMIN_USER_EMAIL - Admin email ###
-# Type:        str
+# Type:        str or null
 # Required:    False
 # Default:     null
 # Env-var:     'ADMIN_USER_EMAIL'
@@ -127,10 +127,10 @@ AUTH_JWT_SECRET:
   CHANGE_ME_generate_a_long_random_string_at_least_64_characters_long
 
 # ## AUTH_BASIC_SESSION_LIFETIME_MINUTES - Local session lifetime (minutes) ###
-# Type:        int
+# Type:        int or null
 # Required:    False
 # Default:     20160
-# Env-var:     'AUTH_BASIC_SESSION_LIFETIME_MINUTES'
+# Env-var:     'AUTH_BASIC_SESSION_LIFETIME_MINUTES' ('null' sets null)
 # Description: How long a browser session stays valid before the user must log in again. Default is two weeks.
 # Example No. 1:
 #  >AUTH_BASIC_SESSION_LIFETIME_MINUTES: 20160
@@ -138,25 +138,81 @@ AUTH_JWT_SECRET:
 #  >AUTH_BASIC_SESSION_LIFETIME_MINUTES: 1440
 AUTH_BASIC_SESSION_LIFETIME_MINUTES: 20160
 
-# ## API_TOKEN_DEFAULT_EXPIRY_TIME_MINUTES - Default API token lifetime (minutes) ###
-# Type:        int
+# ## API_TOKEN_DEFAULT_EXPIRY_TIME_MINUTES - Login token lifetime (minutes) ###
+# Type:        int or null
 # Required:    False
 # Default:     10080
-# Env-var:     'API_TOKEN_DEFAULT_EXPIRY_TIME_MINUTES'
-# Description: How long a newly created API token stays valid. Applies to the token minted on login and to tokens created in the token manager. Set to null for no default expiry.
+# Env-var:     'API_TOKEN_DEFAULT_EXPIRY_TIME_MINUTES' ('null' sets null)
+# Description: How long a token minted by the token login endpoints stays valid. Keys created in the token manager have their own settings (API_TOKEN_MANAGEMENT_*). Set to null for login tokens that never expire.
 # Example No. 1:
 #  >API_TOKEN_DEFAULT_EXPIRY_TIME_MINUTES: 10080
 # Example No. 2:
 #  >API_TOKEN_DEFAULT_EXPIRY_TIME_MINUTES: 43200
 API_TOKEN_DEFAULT_EXPIRY_TIME_MINUTES: 10080
 
-# ## API_TOKEN_ALLOW_NEVER_EXPIRE - Allow never-expiring API tokens ###
+# ## API_TOKEN_MANAGEMENT_DEFAULT_EXPIRY_DAYS - Default API key lifetime (days) ###
+# Type:        int
+# Required:    False
+# Default:     30
+# Constraints: Ge(ge=1)
+# Env-var:     'API_TOKEN_MANAGEMENT_DEFAULT_EXPIRY_DAYS'
+# Description: Lifetime of a key created in the token manager when the user does not pick one. The token manager pre-selects it. Must not exceed API_TOKEN_MANAGEMENT_MAX_EXPIRY_DAYS.
+# Example No. 1:
+#  >API_TOKEN_MANAGEMENT_DEFAULT_EXPIRY_DAYS: 30
+# Example No. 2:
+#  >API_TOKEN_MANAGEMENT_DEFAULT_EXPIRY_DAYS: 90
+API_TOKEN_MANAGEMENT_DEFAULT_EXPIRY_DAYS: 30
+
+# ## API_TOKEN_MANAGEMENT_MAX_EXPIRY_DAYS - Maximum API key lifetime (days) ###
+# Type:        int
+# Required:    False
+# Default:     365
+# Constraints: Ge(ge=1), Le(le=3650)
+# Env-var:     'API_TOKEN_MANAGEMENT_MAX_EXPIRY_DAYS'
+# Description: Longest lifetime a user may choose for a key created in the token manager. At most 3650 (ten years). Existing keys with a longer lifetime keep working.
+# Example No. 1:
+#  >API_TOKEN_MANAGEMENT_MAX_EXPIRY_DAYS: 365
+# Example No. 2:
+#  >API_TOKEN_MANAGEMENT_MAX_EXPIRY_DAYS: 90
+API_TOKEN_MANAGEMENT_MAX_EXPIRY_DAYS: 365
+
+# ## API_TOKEN_ALLOW_NEVER_EXPIRE - Allow never-expiring API keys ###
 # Type:        bool
 # Required:    False
-# Default:     true
+# Default:     false
 # Env-var:     'API_TOKEN_ALLOW_NEVER_EXPIRE'
-# Description: Whether users may create API tokens that never expire. When false, every token must carry an expiry: the 'Never' option is hidden in the UI and rejected by the server.
-API_TOKEN_ALLOW_NEVER_EXPIRE: true
+# Description: Whether users may create keys in the token manager that never expire. When false, the 'Never' option is hidden in the UI and rejected by the server. Existing never-expiring keys keep working either way; revoke them to end them.
+API_TOKEN_ALLOW_NEVER_EXPIRE: false
+
+# ## API_TOKEN_MANAGEMENT_MAX_TOKENS_PER_USER - Maximum API keys per user ###
+# Type:        int or null
+# Required:    False
+# Default:     20
+# Constraints: Ge(ge=1)
+# Env-var:     'API_TOKEN_MANAGEMENT_MAX_TOKENS_PER_USER' ('null' sets null)
+# Description: How many unexpired keys created in the token manager a single user may hold. Creating one more is refused (409) until the user revokes one. Tokens from the token login do not count. Set to null for no limit.
+# Example No. 1:
+#  >API_TOKEN_MANAGEMENT_MAX_TOKENS_PER_USER: 20
+# Example No. 2:
+#  >API_TOKEN_MANAGEMENT_MAX_TOKENS_PER_USER: 5
+# Example No. 3:
+#  >API_TOKEN_MANAGEMENT_MAX_TOKENS_PER_USER: null
+API_TOKEN_MANAGEMENT_MAX_TOKENS_PER_USER: 20
+
+# ## API_TOKEN_MANAGEMENT_OIDC_LOGIN_MAX_AGE_DAYS - Pause API tokens of OIDC users after (days) ###
+# Type:        int or null
+# Required:    False
+# Default:     30
+# Constraints: Ge(ge=1)
+# Env-var:     'API_TOKEN_MANAGEMENT_OIDC_LOGIN_MAX_AGE_DAYS' ('null' sets null)
+# Description: Groups and roles of OIDC users are only refreshed when they sign in via their provider. A token created in the token manager of such a user stops working (401) when their last OIDC sign-in is older than this many days, so a user who was removed at the provider does not keep access through old tokens. The token is paused, not deleted: the next OIDC sign-in reactivates it. Local users and users who have not signed in via OIDC since this check was introduced are not affected. Set to null to disable the check.
+# Example No. 1:
+#  >API_TOKEN_MANAGEMENT_OIDC_LOGIN_MAX_AGE_DAYS: 30
+# Example No. 2:
+#  >API_TOKEN_MANAGEMENT_OIDC_LOGIN_MAX_AGE_DAYS: 90
+# Example No. 3:
+#  >API_TOKEN_MANAGEMENT_OIDC_LOGIN_MAX_AGE_DAYS: null
+API_TOKEN_MANAGEMENT_OIDC_LOGIN_MAX_AGE_DAYS: 30
 
 # ## SHARING_ENABLED - Enable sharing ###
 # Type:        bool
@@ -243,7 +299,7 @@ EMAIL_ENABLED: false
 EMAIL_TRANSPORT: smtp
 
 # ## EMAIL_SMTP_HOST - SMTP host ###
-# Type:        str
+# Type:        str or null
 # Required:    False
 # Default:     null
 # Env-var:     'EMAIL_SMTP_HOST'
@@ -269,7 +325,7 @@ EMAIL_SMTP_HOST:
 EMAIL_SMTP_PORT: 587
 
 # ## EMAIL_SMTP_USER - SMTP username ###
-# Type:        str
+# Type:        str or null
 # Required:    False
 # Default:     null
 # Env-var:     'EMAIL_SMTP_USER'
@@ -277,7 +333,7 @@ EMAIL_SMTP_PORT: 587
 EMAIL_SMTP_USER:
 
 # ## EMAIL_SMTP_PASSWORD - SMTP password ###
-# Type:        Object
+# Type:        Object or null
 # Required:    False
 # Default:     null
 # Env-var:     'EMAIL_SMTP_PASSWORD'
@@ -300,7 +356,7 @@ EMAIL_SMTP_PASSWORD:
 EMAIL_SMTP_SECURITY: starttls
 
 # ## EMAIL_FROM_ADDRESS - Sender address ###
-# Type:        str
+# Type:        str or null
 # Required:    False
 # Default:     null
 # Env-var:     'EMAIL_FROM_ADDRESS'
@@ -312,7 +368,7 @@ EMAIL_SMTP_SECURITY: starttls
 EMAIL_FROM_ADDRESS:
 
 # ## EMAIL_FROM_NAME - Sender display name ###
-# Type:        str
+# Type:        str or null
 # Required:    False
 # Default:     null
 # Env-var:     'EMAIL_FROM_NAME'
@@ -324,7 +380,7 @@ EMAIL_FROM_ADDRESS:
 EMAIL_FROM_NAME: CheckCheck
 
 # ## EMAIL_REPLY_TO - Reply-To address ###
-# Type:        str
+# Type:        str or null
 # Required:    False
 # Default:     null
 # Env-var:     'EMAIL_REPLY_TO'
@@ -350,7 +406,7 @@ EMAIL_FILE_TRANSPORT_DIR: ./dev_mail
 EMAIL_TIMEOUT_SECONDS: 20
 
 # ## EMAIL_TEMPLATE_DIR - Email template override directory ###
-# Type:        str
+# Type:        str or null
 # Required:    False
 # Default:     null
 # Env-var:     'EMAIL_TEMPLATE_DIR'
@@ -370,7 +426,7 @@ EMAIL_TEMPLATE_DIR:
 EMAIL_BRAND_COLOR: '#059669'
 
 # ## EMAIL_LOGO_URL - Logo URL ###
-# Type:        str
+# Type:        str or null
 # Required:    False
 # Default:     null
 # Env-var:     'EMAIL_LOGO_URL'
@@ -596,7 +652,7 @@ NOTIFY_WEBHOOK_ALLOW_PRIVATE_IPS: false
 NOTIFY_PUSH_ENABLED: true
 
 # ## VAPID_PUBLIC_KEY - VAPID public key ###
-# Type:        str
+# Type:        str or null
 # Required:    False
 # Default:     null
 # Env-var:     'VAPID_PUBLIC_KEY'
@@ -604,7 +660,7 @@ NOTIFY_PUSH_ENABLED: true
 VAPID_PUBLIC_KEY:
 
 # ## VAPID_PRIVATE_KEY - VAPID private key ###
-# Type:        Object
+# Type:        Object or null
 # Required:    False
 # Default:     null
 # Env-var:     'VAPID_PRIVATE_KEY'
@@ -612,7 +668,7 @@ VAPID_PUBLIC_KEY:
 VAPID_PRIVATE_KEY:
 
 # ## VAPID_CONTACT_EMAIL - VAPID contact address ###
-# Type:        str
+# Type:        str or null
 # Required:    False
 # Default:     null
 # Env-var:     'VAPID_CONTACT_EMAIL'
@@ -667,9 +723,9 @@ AUTH_BASIC_LOGIN_IS_ENABLED: true
 AUTH_BASIC_USER_DB_REGISTER_ENABLED: false
 
 # ## AUTH_OIDC_PROVIDERS - OpenID Connect providers ###
-# Type:        List of Object (OpenIDConnectProvider)
+# Type:        List of Object (OpenIDConnectProvider) or null
 # Required:    False
-# Env-var:     'AUTH_OIDC_PROVIDERS'
+# Env-var:     'AUTH_OIDC_PROVIDERS' ('null' sets null)
 # Description: List of external OpenID Connect providers users may log in with. Empty by default (local login only). One entry per provider; see the example below and the walkthrough in `docs/configuration.md`. When any provider is set, also set AUTH_OIDC_TOKEN_STORAGE_SECRET.
 # Example:
 #  >AUTH_OIDC_PROVIDERS:
@@ -701,10 +757,10 @@ AUTH_OIDC_TOKEN_STORAGE_SECRET:
   change_me_only_relevant_when_an_oidc_provider_is_configured
 
 # ## NEW_USER_DEFAULT_LABELS - Default labels for new users ###
-# Type:        List of str
+# Type:        List of str or null
 # Required:    False
 # Default:     ["Work", "Private", "Inspiration"]
-# Env-var:     'NEW_USER_DEFAULT_LABELS'
+# Env-var:     'NEW_USER_DEFAULT_LABELS' ('null' sets null)
 # Description: Labels created automatically for every new account. Set to an empty list to start users with no labels.
 # Example No. 1:
 #  >NEW_USER_DEFAULT_LABELS:
@@ -737,9 +793,9 @@ NEW_USER_DEFAULT_LABELS:
   - Inspiration
 
 # ## APP_PROVISIONING_DATA_YAML_FILES - Extra provisioning data files ###
-# Type:        List of str
+# Type:        List of str or null
 # Required:    False
-# Env-var:     'APP_PROVISIONING_DATA_YAML_FILES'
+# Env-var:     'APP_PROVISIONING_DATA_YAML_FILES' ('null' sets null)
 # Description: Optional list of YAML files whose contents are loaded into the database on start. Use this to seed an instance with predefined data. Most deployments leave it empty.
 # Example:
 #  >APP_PROVISIONING_DATA_YAML_FILES:
@@ -755,7 +811,7 @@ APP_PROVISIONING_DATA_YAML_FILES: []
 EXPORT_CACHE_DIR: ./export_cache
 
 # ## SET_SESSION_COOKIE_SECURE - Secure session cookie ###
-# Type:        bool
+# Type:        bool or null
 # Required:    False
 # Default:     null
 # Env-var:     'SET_SESSION_COOKIE_SECURE'
@@ -763,7 +819,7 @@ EXPORT_CACHE_DIR: ./export_cache
 SET_SESSION_COOKIE_SECURE: false
 
 # ## CLIENT_URL - Extra allowed origin ###
-# Type:        str
+# Type:        str or null
 # Required:    False
 # Default:     null
 # Env-var:     'CLIENT_URL'
@@ -781,7 +837,7 @@ CLIENT_URL:
 DEBUG_SQL: false
 
 # ## SERVER_UVICORN_LOG_LEVEL - Uvicorn log level ###
-# Type:        str
+# Type:        str or null
 # Required:    False
 # Default:     null
 # Env-var:     'SERVER_UVICORN_LOG_LEVEL'
@@ -802,10 +858,10 @@ SERVER_UVICORN_LOG_LEVEL:
 AUTH_JWT_ALGORITHM: HS256
 
 # ## AUTH_ACCESS_TOKEN_EXPIRES_MINUTES - Access token lifetime (minutes, deprecated) ###
-# Type:        int
+# Type:        int or null
 # Required:    False
 # Default:     20160
-# Env-var:     'AUTH_ACCESS_TOKEN_EXPIRES_MINUTES'
+# Env-var:     'AUTH_ACCESS_TOKEN_EXPIRES_MINUTES' ('null' sets null)
 # Description: Deprecated. Use API_TOKEN_DEFAULT_EXPIRY_TIME_MINUTES instead.
 AUTH_ACCESS_TOKEN_EXPIRES_MINUTES: 20160
 

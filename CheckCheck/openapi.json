@@ -653,49 +653,27 @@
         "summary": "List My Api Keys",
         "description": "List all active API keys belonging to the current user.",
         "operationId": "list_my_api_keys_api_user_me_api_keys_get",
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
-        "parameters": [
-          {
-            "name": "include_revoked",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "boolean",
-              "default": false,
-              "title": "Include Revoked"
-            }
-          }
-        ],
         "responses": {
           "200": {
             "description": "Successful Response",
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "array",
                   "items": {
                     "$ref": "#/components/schemas/UserAuthPublic"
                   },
+                  "type": "array",
                   "title": "Response List My Api Keys Api User Me Api Keys Get"
                 }
               }
             }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
           }
-        }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
       },
       "post": {
         "tags": [
@@ -704,20 +682,15 @@
         "summary": "Create My Api Key",
         "description": "Create a new named API key. The plaintext token is returned **once** \u2014 save it.",
         "operationId": "create_my_api_key_api_user_me_api_keys_post",
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
         "requestBody": {
-          "required": true,
           "content": {
             "application/json": {
               "schema": {
                 "$ref": "#/components/schemas/APIKeyCreateRequest"
               }
             }
-          }
+          },
+          "required": true
         },
         "responses": {
           "201": {
@@ -740,7 +713,12 @@
               }
             }
           }
-        }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
       }
     },
     "/api/user/me/api-keys/{api_token_id}": {
@@ -1805,6 +1783,8 @@
                 "created_at",
                 "updated_at",
                 "server_seq",
+                "oidc_provider_slug",
+                "last_oidc_login_at",
                 "email",
                 "display_name",
                 "id",
@@ -2045,16 +2025,6 @@
               "type": "string",
               "format": "uuid",
               "title": "User Id"
-            }
-          },
-          {
-            "name": "include_revoked",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "boolean",
-              "default": false,
-              "title": "Include Revoked"
             }
           }
         ],
@@ -6339,7 +6309,7 @@
               }
             ],
             "title": "Expires In Days",
-            "description": "Validity in days from now. Omit to use the server default (or set never_expires for a key that never expires)."
+            "description": "Validity in days from now. Omit to use the server default. Rejected (422) above the server maximum (see `api_token_max_expiry_days` in `/api/public-config`)."
           },
           "never_expires": {
             "type": "boolean",
@@ -8728,6 +8698,21 @@
             "description": "Whether an owner may mail an existing public link to an address of their choosing. When false, hide that field inside the public-links section. True only when the instance can also send mail at all."
           },
           "api_token_default_expiry_days": {
+            "type": "integer",
+            "title": "Api Token Default Expiry Days",
+            "description": "Default API-key validity in whole days, surfaced so the token manager can pre-select it."
+          },
+          "api_token_max_expiry_days": {
+            "type": "integer",
+            "title": "Api Token Max Expiry Days",
+            "description": "Longest validity in days a user may pick for an API key. The token manager offers no longer option."
+          },
+          "api_token_allow_never_expire": {
+            "type": "boolean",
+            "title": "Api Token Allow Never Expire",
+            "description": "Whether users may create never-expiring API keys. When false, the token manager hides the 'Never' option."
+          },
+          "api_token_max_keys_per_user": {
             "anyOf": [
               {
                 "type": "integer"
@@ -8736,13 +8721,8 @@
                 "type": "null"
               }
             ],
-            "title": "Api Token Default Expiry Days",
-            "description": "Default API-key validity in whole days, surfaced so the token manager can pre-select it. Null when the server default is no expiry."
-          },
-          "api_token_allow_never_expire": {
-            "type": "boolean",
-            "title": "Api Token Allow Never Expire",
-            "description": "Whether users may create never-expiring API keys. When false, the token manager hides the 'Never' option."
+            "title": "Api Token Max Keys Per User",
+            "description": "How many unexpired API keys one user may hold; creating more is refused with 409. Null means no limit."
           },
           "server_version": {
             "type": "string",
@@ -8784,6 +8764,8 @@
           "sharing_user_search_enabled",
           "sharing_require_invite_accept",
           "sharing_public_link_email_enabled",
+          "api_token_default_expiry_days",
+          "api_token_max_expiry_days",
           "api_token_allow_never_expire",
           "server_version",
           "email_enabled",
@@ -9839,6 +9821,32 @@
               }
             ],
             "title": "Server Seq"
+          },
+          "oidc_provider_slug": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 128
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Oidc Provider Slug",
+            "description": "Slug of the OIDC provider of the user's last OIDC login. Empty for local users."
+          },
+          "last_oidc_login_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Oidc Login At",
+            "description": "Time (UTC) of the user's last OIDC login. Empty for local users."
           },
           "email": {
             "anyOf": [

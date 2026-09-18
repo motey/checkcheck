@@ -21,6 +21,7 @@ from typing import Optional
 from sqlmodel.ext.asyncio.session import AsyncSession
 from sqlmodel import Field, select, delete, Column, JSON, SQLModel
 
+import datetime
 import uuid
 from uuid import UUID
 
@@ -97,6 +98,25 @@ class UserUpdateByAdmin(UserUpdate, table=False):
         return False
 
 
+class _UserOidcLogin(SQLModel, table=False):
+    oidc_provider_slug: Optional[str] = Field(
+        default=None,
+        max_length=128,
+        description="Slug of the OIDC provider of the user's last OIDC login. Empty for local users.",
+    )
+    last_oidc_login_at: Optional[datetime.datetime] = Field(
+        default=None,
+        description="Time (UTC) of the user's last OIDC login. Empty for local users.",
+    )
+
+
+class UserUpdateOidcLogin(UserUpdateByAdmin, _UserOidcLogin, table=False):
+    """Internal update written by the OIDC callback. Not an API body: the
+    provider and login time must only come from an actual OIDC login."""
+
+    pass
+
+
 class _UserWithName(UserBase, table=False):
     user_name: Annotated[
         str,
@@ -162,7 +182,9 @@ class UserCreate(_UserWithName, UserUpdateByAdmin, table=False):
         return cls(**userdata)
 
 
-class User(_UserWithName, UserUpdateByAdmin, TimestampedModel, table=True):
+class User(
+    _UserWithName, UserUpdateByAdmin, _UserOidcLogin, TimestampedModel, table=True
+):
     __tablename__ = "user"
     id: uuid.UUID = Field(
         default_factory=uuid.uuid4,

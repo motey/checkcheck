@@ -114,6 +114,13 @@ def _configure_env() -> None:
     )
     os.environ.setdefault("VAPID_PRIVATE_KEY", "Mp6hqDn1uEMxJwMvqchFdkrCiID8zYUIvTwDI-rmLSA")
     os.environ.setdefault("VAPID_CONTACT_EMAIL", "admin@test.de")
+    # API key policy (tests/e2e/api-keys.spec.ts): never-expiring keys on so the
+    # "Never" option is real, a maximum that is no base option (180 days, so the
+    # spec sees "1 year" go and "180 days" appear), and a small key limit so the
+    # 409 message is cheap to reach.
+    os.environ.setdefault("API_TOKEN_ALLOW_NEVER_EXPIRE", "true")
+    os.environ.setdefault("API_TOKEN_MANAGEMENT_MAX_EXPIRY_DAYS", "180")
+    os.environ.setdefault("API_TOKEN_MANAGEMENT_MAX_TOKENS_PER_USER", "5")
     # Invite-mode E2E pass: SHARING_REQUIRE_INVITE_ACCEPT is left untouched here so
     # the caller's environment wins. The default pass leaves it unset (→ False, the
     # production default: shares are accepted instantly). The invite-flow pass —

@@ -3,6 +3,7 @@ from typing import Optional
 
 from typing import List, Literal, Annotated, NoReturn
 import asyncio
+import datetime
 import uuid
 
 from fastapi import (
@@ -38,6 +39,7 @@ from checkcheckserver.db.user_auth import (
 )
 from checkcheckserver.db.user_session import UserSessionCRUD, UserSession
 from checkcheckserver.config import Config
+from checkcheckserver.model._base_model import naive_utc_now
 from checkcheckserver.log import get_logger
 from checkcheckserver.api.auth.utils import (
     oidc_refresh_access_token,
@@ -56,30 +58,58 @@ oauth_clients: dict[str, OAuthContainer] = register_and_create_oauth_clients()
 SESSION_COOKIE_NAME = f"session_{slugify_string(config.APP_NAME,'_')}"
 
 
-def caller_restricted_to_own_groups(current_user_auth: "UserAuth") -> bool:
-    """True when the caller logged in via an OIDC provider configured with
-    ``RESTRICT_USER_SEARCH_TO_OWN_GROUPS`` — meaning they may only see / target
+def caller_restricted_to_own_groups(user: "User") -> bool:
+    """True when the caller's OIDC provider is configured with
+    ``RESTRICT_USER_SEARCH_TO_OWN_GROUPS``, meaning they may only see / target
     other users (and OIDC groups) they share at least one group with.
 
-    Local users and callers from an unrestricted provider return ``False``
-    (unrestricted). Shared by user-search (routes_user) and group-share
-    (routes_checklist_share) so both apply the exact same scoping rule."""
+    Decided by the user (the provider of their last OIDC login), not by the
+    credential of the request, so an API key of a restricted user is restricted
+    as well. Local users and users of an unrestricted provider return ``False``.
+    Shared by user-search (routes_user) and group-share (routes_checklist_share)
+    so both apply the exact same scoping rule."""
+    if user is None or not user.oidc_provider_slug:
+        return False
+    provider = next(
+        (
+            p
+            for p in config.AUTH_OIDC_PROVIDERS
+            if p.get_provider_name_slug() == user.oidc_provider_slug
+        ),
+        None,
+    )
+    return provider is not None and provider.RESTRICT_USER_SEARCH_TO_OWN_GROUPS
+
+
+def reject_paused_api_key(user_auth: "UserAuth", user: "User") -> None:
+    """Raise a 401 when `user_auth` is a key from the token manager and its OIDC
+    user has not signed in via their provider for longer than
+    ``API_TOKEN_MANAGEMENT_OIDC_LOGIN_MAX_AGE_DAYS``.
+
+    Groups and roles are only synced at OIDC login, so without this a user removed
+    at the provider would keep their old access through the key. The key is only
+    paused: the next OIDC login moves `last_oidc_login_at` and it works again.
+    Login tokens are not affected (they resolve to their source login, which is
+    checked against the provider on refresh), and neither are users without an
+    OIDC login time (local users, OIDC users not seen since the upgrade)."""
+    max_age_days = config.API_TOKEN_MANAGEMENT_OIDC_LOGIN_MAX_AGE_DAYS
     if (
-        current_user_auth is not None
-        and current_user_auth.auth_source_type == AllowedAuthSchemeType.oidc
-        and current_user_auth.oidc_provider_slug
+        max_age_days is None
+        or user_auth.auth_source_type != AllowedAuthSchemeType.api_token
+        or user.last_oidc_login_at is None
     ):
-        provider = next(
-            (
-                p
-                for p in config.AUTH_OIDC_PROVIDERS
-                if p.get_provider_name_slug() == current_user_auth.oidc_provider_slug
+        return
+    if naive_utc_now() - user.last_oidc_login_at > datetime.timedelta(
+        days=max_age_days
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=(
+                f"API key paused: your last sign-in via your login provider was more "
+                f"than {max_age_days} days ago. Sign in to CheckCheck in the browser "
+                f"once to reactivate it."
             ),
-            None,
         )
-        if provider is not None and provider.RESTRICT_USER_SEARCH_TO_OWN_GROUPS:
-            return True
-    return False
 
 
 NEEDS_ADMIN_API_INFO = "Needs Admin role"
@@ -134,6 +164,9 @@ async def get_current_user_auth(
             user_auth = await user_auth_crud.get(
                 user_auth_token.api_token_source_user_auth_id
             )
+            if user_auth is None:
+                # The login this token was minted from is gone (logout, cleanup).
+                raise not_authenticated_exception
 
     else:
         # if not token based auth then it must be a session
@@ -232,7 +265,31 @@ async def get_current_user(
     user = await user_crud.get(user_auth.user_id)
     if user is None:
         raise not_authenticated_exception
+    reject_paused_api_key(user_auth, user)
     return user
+
+
+async def get_current_user_by_session(
+    request: Request,
+    user_session_crud: UserSessionCRUD = Depends(UserSessionCRUD.get_crud),
+    user_auth_crud: UserAuthCRUD = Depends(UserAuthCRUD.get_crud),
+    user_crud: UserCRUD = Depends(UserCRUD.get_crud),
+    api_token: Optional[HTTPAuthorizationCredentials] = Depends(api_token_security),
+) -> User:
+    """Like `get_current_user`, but refuses API tokens. Used for API key management,
+    so a leaked key can not mint new keys that outlive its own revocation."""
+    if api_token:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="API keys can only be managed from a browser session, not with an API token.",
+        )
+    return await get_current_user(
+        request=request,
+        user_session_crud=user_session_crud,
+        user_auth_crud=user_auth_crud,
+        user_crud=user_crud,
+        api_token=None,
+    )
 
 
 async def user_is_admin(

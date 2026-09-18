@@ -58,6 +58,11 @@ class _AsUser:
         if self._saved is not None:
             os.environ[CHECKCHECK_ACCESS_TOKEN_ENV_NAME] = self._saved
 
+def _test_user_session():
+    """Browser session for the auth test user. API keys can only be managed from a
+    session (a Bearer token gets 403), so key management tests use this."""
+    return authorize_for_session(AUTH_TEST_USER_NAME, AUTH_TEST_USER_PW)
+
 # ── Auth scheme listing ───────────────────────────────────────────────────────
 
 def test_auth_list_schemes():
@@ -258,12 +263,13 @@ def test_change_to_long_password():
 # ── API key management ────────────────────────────────────────────────────────
 
 def test_api_key_create():
-    with _AsUser(AUTH_TEST_USER_NAME, AUTH_TEST_USER_PW):
-        res = req(
-            "api/user/me/api-keys",
-            "post",
-            b={"display_name": "CI pipeline key", "expires_in_days": 7},
-        )
+    s = _test_user_session()
+    res = req(
+        "api/user/me/api-keys",
+        "post",
+        b={"display_name": "CI pipeline key", "expires_in_days": 7},
+        session=s,
+    )
     dict_must_contain(res, required_keys=["id", "token", "display_name", "api_token_id", "created_at"])
     assert res["display_name"] == "CI pipeline key"
     assert "." in res["token"], "Token must be 'id.secret' format"
@@ -271,8 +277,8 @@ def test_api_key_create():
     _state["api_key_token_id"] = res["api_token_id"]
 
 def test_api_key_list():
-    with _AsUser(AUTH_TEST_USER_NAME, AUTH_TEST_USER_PW):
-        keys = req("api/user/me/api-keys")
+    s = _test_user_session()
+    keys = req("api/user/me/api-keys", session=s)
     assert isinstance(keys, list)
     list_contains_dict_that_must_contain(keys, {"display_name": "CI pipeline key"})
 
@@ -286,20 +292,46 @@ def test_api_key_authenticate():
         if saved is not None:
             os.environ[CHECKCHECK_ACCESS_TOKEN_ENV_NAME] = saved
 
+def test_api_tokens_can_not_manage_api_keys():
+    # A leaked key must not be able to mint new keys that outlive its own revocation.
+    # Neither a managed key nor a login token may list, create or delete keys.
+    login_token = authorize_for_access_token(AUTH_TEST_USER_NAME, AUTH_TEST_USER_PW)
+    for token in (_state["api_key_token"], login_token):
+        req("api/user/me/api-keys", expected_http_code=403, access_token=token)
+        req(
+            "api/user/me/api-keys",
+            "post",
+            b={"display_name": "Minted by a token"},
+            expected_http_code=403,
+            access_token=token,
+        )
+        req(
+            f"api/user/me/api-keys/{_state['api_key_token_id']}",
+            "delete",
+            expected_http_code=403,
+            access_token=token,
+        )
+    # The key survived the delete attempts and still authenticates.
+    me = req("api/user/me", access_token=_state["api_key_token"])
+    assert me["user_name"] == AUTH_TEST_USER_NAME
+    keys = req("api/user/me/api-keys", session=_test_user_session())
+    assert not any(k["display_name"] == "Minted by a token" for k in keys)
+
 def test_api_key_last_used_at_is_set():
-    with _AsUser(AUTH_TEST_USER_NAME, AUTH_TEST_USER_PW):
-        keys = req("api/user/me/api-keys")
+    s = _test_user_session()
+    keys = req("api/user/me/api-keys", session=s)
     key = find_first_dict_in_list(keys, {"api_token_id": _state["api_key_token_id"]})
     assert key["last_used_at"] is not None, "last_used_at must be set after use"
 
 def test_api_key_delete():
-    with _AsUser(AUTH_TEST_USER_NAME, AUTH_TEST_USER_PW):
-        req(
-            f"api/user/me/api-keys/{_state['api_key_token_id']}",
-            "delete",
-            expected_http_code=204,
-        )
-        keys = req("api/user/me/api-keys")
+    s = _test_user_session()
+    req(
+        f"api/user/me/api-keys/{_state['api_key_token_id']}",
+        "delete",
+        expected_http_code=204,
+        session=s,
+    )
+    keys = req("api/user/me/api-keys", session=s)
     found = find_first_dict_in_list(keys, {"api_token_id": _state["api_key_token_id"]}, raise_if_not_found=False)
     assert found is False, "Deleted API key must not appear in list"
 
@@ -313,21 +345,32 @@ def test_api_key_auth_after_delete_is_rejected():
             os.environ[CHECKCHECK_ACCESS_TOKEN_ENV_NAME] = saved
 
 def test_api_key_cannot_delete_another_users_key():
-    admin_key_res = req("api/user/me/api-keys", "post", b={"display_name": "Admin key for cross-user test"})
+    admin_session = authorize_for_session(ADMIN_USER_NAME, ADMIN_USER_PW)
+    admin_key_res = req(
+        "api/user/me/api-keys",
+        "post",
+        b={"display_name": "Admin key for cross-user test"},
+        session=admin_session,
+    )
     admin_key_id = admin_key_res["api_token_id"]
     _state["admin_cross_key_id"] = admin_key_id
 
-    with _AsUser(AUTH_TEST_USER_NAME, AUTH_TEST_USER_PW):
-        req(f"api/user/me/api-keys/{admin_key_id}", "delete", expected_http_code=404)
+    s = _test_user_session()
+    req(f"api/user/me/api-keys/{admin_key_id}", "delete", expected_http_code=404, session=s)
 
-    req(f"api/user/me/api-keys/{admin_key_id}", "delete", expected_http_code=204)
+    req(
+        f"api/user/me/api-keys/{admin_key_id}",
+        "delete",
+        expected_http_code=204,
+        session=admin_session,
+    )
 
 # ── Admin: API key management ─────────────────────────────────────────────────
 
 def test_admin_list_user_api_keys():
-    with _AsUser(AUTH_TEST_USER_NAME, AUTH_TEST_USER_PW):
-        res = req("api/user/me/api-keys", "post", b={"display_name": "Admin-visible key"})
-        _state["admin_visible_key_id"] = res["api_token_id"]
+    s = _test_user_session()
+    res = req("api/user/me/api-keys", "post", b={"display_name": "Admin-visible key"}, session=s)
+    _state["admin_visible_key_id"] = res["api_token_id"]
 
     user_id = _state["test_user_id"]
     keys = req(f"api/user/{user_id}/api-keys")
@@ -460,29 +503,36 @@ def test_logout_invalidates_token():
 # ── API key expiry field ──────────────────────────────────────────────────────
 
 def test_api_key_expiry_field_set():
-    with _AsUser(AUTH_TEST_USER_NAME, AUTH_TEST_USER_PW):
-        res = req("api/user/me/api-keys", "post", b={"display_name": "Short-lived key", "expires_in_days": 1})
-        assert res["expires_at_epoch_time"] is not None, (
-            "expires_at_epoch_time must be set when expires_in_days is given"
-        )
-        req(f"api/user/me/api-keys/{res['api_token_id']}", "delete", expected_http_code=204)
+    s = _test_user_session()
+    res = req(
+        "api/user/me/api-keys",
+        "post",
+        b={"display_name": "Short-lived key", "expires_in_days": 1},
+        session=s,
+    )
+    assert res["expires_at_epoch_time"] is not None, (
+        "expires_at_epoch_time must be set when expires_in_days is given"
+    )
+    req(f"api/user/me/api-keys/{res['api_token_id']}", "delete", expected_http_code=204, session=s)
 
-def test_api_key_never_expires():
-    # The default test server allows never-expiring keys (API_TOKEN_ALLOW_NEVER_EXPIRE
-    # defaults to True). `never_expires` must yield a key with no expiry.
-    with _AsUser(AUTH_TEST_USER_NAME, AUTH_TEST_USER_PW):
-        res = req("api/user/me/api-keys", "post", b={"display_name": "Forever key", "never_expires": True})
-        assert res["expires_at_epoch_time"] is None, (
-            "expires_at_epoch_time must be null for a never-expiring key"
-        )
-        req(f"api/user/me/api-keys/{res['api_token_id']}", "delete", expected_http_code=204)
+def test_api_key_never_expires_rejected_by_default():
+    # API_TOKEN_ALLOW_NEVER_EXPIRE defaults to False: `never_expires` is refused.
+    # The allowed path is covered in tests_api_token_policy.py.
+    req(
+        "api/user/me/api-keys",
+        "post",
+        b={"display_name": "Forever key", "never_expires": True},
+        expected_http_code=422,
+        session=_test_user_session(),
+    )
 
 def test_api_key_expiry_and_never_conflict_rejected():
     # Setting both expires_in_days and never_expires is contradictory → 422.
-    with _AsUser(AUTH_TEST_USER_NAME, AUTH_TEST_USER_PW):
-        req(
-            "api/user/me/api-keys",
-            "post",
-            b={"display_name": "Contradiction", "expires_in_days": 5, "never_expires": True},
-            expected_http_code=422,
-        )
+    s = _test_user_session()
+    req(
+        "api/user/me/api-keys",
+        "post",
+        b={"display_name": "Contradiction", "expires_in_days": 5, "never_expires": True},
+        expected_http_code=422,
+        session=s,
+    )

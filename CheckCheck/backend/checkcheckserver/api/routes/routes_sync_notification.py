@@ -24,6 +24,7 @@ from checkcheckserver.db.user_auth import UserAuthCRUD
 from checkcheckserver.db.user import UserCRUD
 from checkcheckserver.api.auth.security import (
     get_current_user_auth,
+    reject_paused_api_key,
     api_token_security,
     SESSION_COOKIE_NAME,
 )
@@ -139,6 +140,7 @@ async def resolve_sync_principal(
         if user_auth is not None:
             user = await user_crud.get(user_auth.user_id)
             if user is not None:
+                reject_paused_api_key(user_auth, user)
                 return user
 
     raise HTTPException(

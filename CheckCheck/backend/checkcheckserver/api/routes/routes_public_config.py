@@ -46,12 +46,18 @@ class PublicConfig(BaseModel):
             "only when the instance can also send mail at all."
         ),
     )
-    api_token_default_expiry_days: Optional[int] = Field(
-        default=None,
-        description="Default API-key validity in whole days, surfaced so the token manager can pre-select it. Null when the server default is no expiry.",
+    api_token_default_expiry_days: int = Field(
+        description="Default API-key validity in whole days, surfaced so the token manager can pre-select it.",
+    )
+    api_token_max_expiry_days: int = Field(
+        description="Longest validity in days a user may pick for an API key. The token manager offers no longer option.",
     )
     api_token_allow_never_expire: bool = Field(
         description="Whether users may create never-expiring API keys. When false, the token manager hides the 'Never' option.",
+    )
+    api_token_max_keys_per_user: Optional[int] = Field(
+        default=None,
+        description="How many unexpired API keys one user may hold; creating more is refused with 409. Null means no limit.",
     )
     server_version: str = Field(
         description="The running server's version string (from checkcheckserver.__version__), surfaced so the web client can display it.",
@@ -80,16 +86,6 @@ class PublicConfig(BaseModel):
     )
 
 
-def _default_api_token_expiry_days() -> Optional[int]:
-    """The server's default API-key validity expressed in whole days (rounded,
-    min 1), or None when the server default is no expiry — used to pre-select the
-    matching option in the token manager instead of an abstract 'server default'."""
-    minutes = config.API_TOKEN_DEFAULT_EXPIRY_TIME_MINUTES
-    if minutes is None:
-        return None
-    return max(1, round(minutes / (60 * 24)))
-
-
 @fast_api_public_config_router.get(
     "/public-config",
     response_model=PublicConfig,
@@ -112,8 +108,10 @@ async def get_public_config() -> PublicConfig:
             and config.SHARING_PUBLIC_LINK_EMAIL_ENABLED
             and config.EMAIL_ENABLED
         ),
-        api_token_default_expiry_days=_default_api_token_expiry_days(),
+        api_token_default_expiry_days=config.API_TOKEN_MANAGEMENT_DEFAULT_EXPIRY_DAYS,
+        api_token_max_expiry_days=config.API_TOKEN_MANAGEMENT_MAX_EXPIRY_DAYS,
         api_token_allow_never_expire=config.API_TOKEN_ALLOW_NEVER_EXPIRE,
+        api_token_max_keys_per_user=config.API_TOKEN_MANAGEMENT_MAX_TOKENS_PER_USER,
         server_version=server_version,
         email_enabled=config.EMAIL_ENABLED,
         webhook_enabled=config.NOTIFY_WEBHOOK_ENABLED,

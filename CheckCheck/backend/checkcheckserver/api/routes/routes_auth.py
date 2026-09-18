@@ -37,7 +37,12 @@ from checkcheckserver.db.label import Label, LabelCRUD
 #
 
 from checkcheckserver.db.user import UserCRUD, UserCreate
-from checkcheckserver.model.user import UserCreate, UserRegisterAPI
+from checkcheckserver.model.user import (
+    UserCreate,
+    UserRegisterAPI,
+    UserUpdateOidcLogin,
+)
+from checkcheckserver.model._base_model import naive_utc_now
 from checkcheckserver.db.user_auth import UserAuthCRUD
 from checkcheckserver.db.user_session import UserSessionCRUD
 from checkcheckserver.model.user_auth import (
@@ -86,7 +91,6 @@ class APIToken(BaseModel):
 
 @fast_api_auth_base_router.get("/auth/list", response_model=List[AuthSchemeInfo])
 async def list_available_login_schemes(request: Request):
-    log.debug(f"request.headers: {request.headers}")
     schemes: List[AuthSchemeInfo] = []
     if config.AUTH_BASIC_LOGIN_IS_ENABLED:
         schemes.append(
@@ -373,7 +377,6 @@ async def auth_oidc_callback(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Auth error can not fetch access token from {oauth_client.access_token_url}. Error: {e}",
         )
-    log.debug(f"Token {token}")
     userinfo = await get_userinfo_from_token_or_endpoint(
         token, oauth_client, oauth_config
     )
@@ -389,22 +392,31 @@ async def auth_oidc_callback(
                 detail=f"Can not validate user data: {e}",
             )
         user: User = await user_crud.create(user_create)
+        user = await user_crud.update(
+            user_update=UserUpdateOidcLogin(
+                oidc_provider_slug=oauth_config.get_provider_name_slug(),
+                last_oidc_login_at=naive_utc_now(),
+            ),
+            user_id=user.id,
+        )
         # A brand-new account: any group they arrived with is "new", so reconcile
         # so cards already shared with those groups appear on their first login.
         groups_changed = bool(user.oidc_groups)
     elif user is None:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED)
     else:
-        # Sync display_name, email and roles from the OIDC provider on every login
-        from checkcheckserver.db.user import UserUpdateByAdmin
-
+        # Sync display_name, email and roles from the OIDC provider on every login.
+        # Provider and login time let API keys of this user follow the provider
+        # (group restriction, paused keys after a long time without OIDC login).
         old_groups = set(user.oidc_groups or [])
         synced = UserCreate.from_oidc_userinfo(userinfo)
-        update = UserUpdateByAdmin(
+        update = UserUpdateOidcLogin(
             display_name=synced.display_name,
             email=synced.email,
             roles=synced.roles,
             oidc_groups=synced.oidc_groups,
+            oidc_provider_slug=oauth_config.get_provider_name_slug(),
+            last_oidc_login_at=naive_utc_now(),
         )
         user = await user_crud.update(user_update=update, user_id=user.id)
         # Living group shares: only reconcile when the OIDC group set actually
@@ -507,7 +519,6 @@ async def logout(
             if user_session:
                 await user_session_crud.delete(user_session.id)
         response.delete_cookie(key=SESSION_COOKIE_NAME)
-        log.debug(f"current_user_auth: {current_user_auth}")
         if current_user_auth.auth_source_type == AllowedAuthSchemeType.oidc:
             refresh_token = current_user_auth.get_decrypted_oidc_token().get(
                 "refresh_token"

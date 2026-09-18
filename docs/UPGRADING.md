@@ -5,6 +5,95 @@ changes see [`../CHANGELOG.md`](../CHANGELOG.md).
 
 ---
 
+## API key housekeeping (migration `0020`)
+
+Migration `0020` adds the unique index `ix_user_auth_api_token_id` on
+`user_auth.api_token_id`. It is applied at startup. Duplicate key ids are
+practically impossible, but if the database holds any, the migration stops the
+server with a message that names them. Such keys fail on every use anyway: delete
+those `user_auth` rows, let the owners create new keys, and start again.
+
+- `last_used_at` of a key is written at most once per minute, so the value in the
+  key list can lag by up to a minute.
+- `GET /api/user/me/api-keys` and `GET /api/user/{user_id}/api-keys` no longer take
+  `include_revoked`. It never returned more (nothing marked keys as revoked), and a
+  client that still sends it is not refused: FastAPI ignores unknown query
+  parameters.
+
+---
+
+## API key policy (no migration)
+
+Keys created in the token manager have their own settings now, and the defaults
+are stricter. Nothing in the database changes, and **every existing key keeps
+working**, including never-expiring keys and keys with a longer lifetime than the
+new maximum. The new rules apply when a key is created.
+
+| Setting | Default | Before |
+|---|---|---|
+| `API_TOKEN_ALLOW_NEVER_EXPIRE` | `false` | `true` |
+| `API_TOKEN_MANAGEMENT_DEFAULT_EXPIRY_DAYS` (new) | `30` | one week, from `API_TOKEN_DEFAULT_EXPIRY_TIME_MINUTES` |
+| `API_TOKEN_MANAGEMENT_MAX_EXPIRY_DAYS` (new) | `365` (at most `3650`) | `3650` |
+| `API_TOKEN_MANAGEMENT_MAX_TOKENS_PER_USER` (new) | `20` | no limit |
+
+- `API_TOKEN_DEFAULT_EXPIRY_TIME_MINUTES` now only sets the lifetime of tokens
+  from the token login endpoints. If you set it to shape the keys in the token
+  manager, set `API_TOKEN_MANAGEMENT_DEFAULT_EXPIRY_DAYS` instead.
+- To keep offering never-expiring keys, set `API_TOKEN_ALLOW_NEVER_EXPIRE: true`.
+  Otherwise a create request with `never_expires` gets `422`.
+- The server refuses to start when the default lifetime is longer than the
+  maximum.
+- The key limit counts unexpired keys from the token manager. Login tokens and
+  expired keys do not count. A user above the limit at upgrade time keeps all
+  keys, but can only create a new one after getting below it.
+
+---
+
+## API keys of OIDC users (migration `0019`)
+
+Migration `0019` adds `user.oidc_provider_slug` and `user.last_oidc_login_at`. The
+OIDC login sets both. The migration copies the provider from each user's newest
+stored OIDC login and leaves the login time empty. It is applied at startup.
+
+- **Group restriction for keys.** A provider with
+  `RESTRICT_USER_SEARCH_TO_OWN_GROUPS` now restricts the API keys of its users too
+  (user search and group sharing). This applies right after the upgrade to users
+  whose OIDC login was still stored. Other OIDC users are covered from their next
+  OIDC login.
+- **Keys pause without a recent OIDC login.** New setting
+  `API_TOKEN_MANAGEMENT_OIDC_LOGIN_MAX_AGE_DAYS` (default `30`). A key created in
+  the token manager answers `401` when its user last signed in via OIDC longer ago
+  than that. The key is not deleted: the next OIDC login makes it work again.
+  Because the login time starts empty, existing OIDC users are exempt until their
+  next OIDC login, so no key stops working on upgrade. Users who run scripts with
+  a key and rarely open the web app must sign in once within that window. Set the
+  value higher, or to `null` to switch the check off. Local users are not
+  affected.
+
+---
+
+## API token hardening (no migration)
+
+No schema change and no configuration change. Two things to act on:
+
+- **Check whether the server ever ran with `LOG_LEVEL=DEBUG`.** Earlier versions
+  wrote secrets to the log at that level: complete API keys, OIDC access, refresh
+  and id tokens, request headers including the session cookie, and the password an
+  admin set for a user without one. If it did:
+  1. Have every user delete and recreate their API keys (Settings, API keys).
+     Admins can remove a user's keys under `/api/user/{id}/api-keys`.
+  2. Revoke the logged OIDC refresh tokens at the identity provider, for example
+     by ending the affected users' sessions there. Users can also end their
+     CheckCheck sessions themselves in the session settings.
+  3. Change any password that was set while DEBUG logging was on.
+  4. Delete or rotate the old log files and anything that shipped them elsewhere.
+- **Key management needs a browser session.** `GET`, `POST` and `DELETE` on
+  `/api/user/me/api-keys` answer `403` to a request with an `Authorization:
+  Bearer` header. Automation that created keys with a token must log in with
+  `/api/auth/basic/login/session` and use the session cookie instead.
+
+---
+
 ## Public links have names (migration `0018`)
 
 A public link now carries a short name, so a card with several links stops being
