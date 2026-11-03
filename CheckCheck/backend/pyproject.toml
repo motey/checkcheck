@@ -13,7 +13,6 @@ classifiers = [
 ]
 dependencies = [
     "uvicorn",
-    "oauthlib",
     # Pin <0.119: 0.119.0 added a set-comprehension over field annotations in
     # get_definitions() that hashes Annotated metadata. SQLModel's
     # FieldInfoMetadata (a non-frozen, unhashable dataclass) lands in that
@@ -29,7 +28,12 @@ dependencies = [
     "pwdlib[argon2]",
     "Authlib",
     "httpx",
-    "sqlmodel",
+    # >=0.0.48: every timestamp column is stored as naive UTC and declared as
+    # pydantic's `NaiveDatetime`, which sqlmodel only maps to a plain
+    # `DateTime(timezone=False)` column since 0.0.45 (a bare `datetime` now means
+    # its tz-aware `UTCDateTime`, which rejects naive values). 0.0.48 is the first
+    # release that allows SQLAlchemy 2.1.
+    "sqlmodel>=0.0.48",
     "sqlalchemy[asyncio]",
     "aiosqlite",
     "asyncpg",
@@ -39,7 +43,6 @@ dependencies = [
     "pydantic[email]",
     "pydantic_settings",
     "getversion>=1.0.2",
-    "pip-tools",
     "python-multipart",
     "alembic",
     "email-validator",

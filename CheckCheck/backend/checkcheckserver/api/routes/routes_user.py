@@ -247,7 +247,7 @@ async def create_my_api_key(
     if body.never_expires:
         if not config.API_TOKEN_ALLOW_NEVER_EXPIRE:
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail="Never-expiring API keys are disabled on this server.",
             )
     else:
@@ -258,7 +258,7 @@ async def create_my_api_key(
         )
         if expires_in_days > config.API_TOKEN_MANAGEMENT_MAX_EXPIRY_DAYS:
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail=(
                     "API keys on this server may be valid for at most "
                     f"{config.API_TOKEN_MANAGEMENT_MAX_EXPIRY_DAYS} days."

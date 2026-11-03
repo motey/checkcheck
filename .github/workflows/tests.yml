@@ -42,26 +42,6 @@ jobs:
           pdm config venv.in_project true
           pdm install -G dev -G test
 
-      # The test harness reads CheckCheck/backend/tests/.env (gitignored, so it
-      # never reaches CI) for the two required secrets and the server port. The
-      # conftest pins CHECKCHECK_DOT_ENV_FILE to exactly this path, so we
-      # materialize a throwaway CI copy here. These are test-only values.
-      - name: Write test .env
-        run: |
-          cat > CheckCheck/backend/tests/.env <<'EOF'
-          LOG_LEVEL=INFO
-          DEBUG_SQL=False
-          AUTH_JWT_SECRET=ci-test-jwt-secret-0000000000000000000000000000000000000000000000
-          SERVER_SESSION_SECRET=ci-test-session-secret-000000000000000000000000000000000000000000
-          SERVER_BIND_PORT=8888
-          SERVER_PUBLIC_URL=http://localhost:8888
-          AUTH_BASIC_LOGIN_IS_ENABLED=true
-          AUTH_BASIC_USER_DB_REGISTER_ENABLED=false
-          AUTH_ACCESS_TOKEN_EXPIRES_MINUTES=1000
-          AUTH_OIDC_TOKEN_STORAGE_SECRET=ci-test-oidc-storage-secret-checkcheck
-          CHECKCHECK_TESTS_RESET_DB=True
-          EOF
-
       - name: Run backend test suite (PostgreSQL)
         working-directory: CheckCheck/backend
         env:

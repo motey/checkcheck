@@ -18,10 +18,10 @@ Like the outbox and the notification-settings table this is a delivery-plumbing
 table, not a syncable entity: no client reads it through the delta feed.
 """
 
-import datetime
 import uuid
 from typing import Optional
 
+from pydantic import NaiveDatetime
 from sqlmodel import Field
 
 from checkcheckserver.model._base_model import TimestampedModel, naive_utc_now
@@ -70,7 +70,7 @@ class PushSubscription(TimestampedModel, table=True):
             "this device in the settings UI's device list. Purely cosmetic."
         ),
     )
-    last_seen_at: datetime.datetime = Field(
+    last_seen_at: NaiveDatetime = Field(
         default_factory=naive_utc_now,
         description=(
             "Naive UTC. Bumped on every successful delivery to this subscription, "

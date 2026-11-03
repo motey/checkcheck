@@ -1,6 +1,6 @@
 from typing import Optional
 import datetime
-from pydantic import Field, field_validator, ValidationInfo
+from pydantic import Field, NaiveDatetime, field_validator, ValidationInfo
 from sqlalchemy import text, event as _sa_event
 from sqlalchemy.orm import Mapper as _SAMapper
 import uuid
@@ -54,6 +54,10 @@ def naive_utc_now() -> datetime.datetime:
     both DB backends. Used as the ``default_factory`` for ``created_at`` /
     ``updated_at`` and by the ``before_update`` stamp so the server — never the
     client — sets the sync version signal.
+
+    Every timestamp column is declared as pydantic's ``NaiveDatetime``: a bare
+    ``datetime`` field makes sqlmodel (>=0.0.45) create its tz-aware
+    ``UTCDateTime`` column instead, which rejects these naive values.
     """
     return datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None)
 
@@ -63,7 +67,7 @@ class TimestampedModel(SQLModel):
     # imports under the bare name: pydantic treats `nullable` as an unknown extra
     # kwarg, so it warns (PydanticDeprecatedSince20), never reaches the column
     # definition, and leaks `"nullable": false` into the generated OpenAPI schema.
-    created_at: datetime.datetime = SQLField(
+    created_at: NaiveDatetime = SQLField(
         default_factory=naive_utc_now,
         nullable=False,
     )
@@ -80,7 +84,7 @@ class TimestampedModel(SQLModel):
     # through `json_schema_extra`, and a callable there is not JSON-serializable,
     # which breaks OpenAPI generation. `default_factory` seeds it to ~`created_at`
     # on insert so there is no null to backfill.
-    updated_at: datetime.datetime = SQLField(
+    updated_at: NaiveDatetime = SQLField(
         default_factory=naive_utc_now,
         nullable=False,
     )
@@ -142,7 +146,7 @@ class SoftDeleteMixin(SQLModel):
     Garbage collection of old tombstones is explicitly deferred (2.1+).
     """
 
-    deleted_at: Optional[datetime.datetime] = SQLField(default=None, nullable=True)
+    deleted_at: Optional[NaiveDatetime] = SQLField(default=None, nullable=True)
 
 
 class SyncSequence(SQLModel, table=True):

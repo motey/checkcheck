@@ -7,13 +7,14 @@ for settings see [docs/configuration.md](../../docs/configuration.md).
 
 ## Dev environment
 
-The repository uses two virtualenvs (see the root helper scripts):
+All Python tooling runs on the pdm-managed `CheckCheck/backend/.venv`: the dev
+server, the test runners and the E2E backend. Bootstrap it with
+`source build_server_dev_env.sh` from the repo root.
 
-- `CheckCheck/backend/.venv` is the pdm-managed env that runs the dev server.
-  Bootstrap it with `./build_server_dev_env.sh` from the repo root.
-- the root `.venv` runs the test suite (pytest).
-
-Keep both in sync when dependencies change.
+Dependencies are declared loosely in `pyproject.toml` and pinned via `pdm.lock`
+plus the exported `requirements*.txt` (run `../../build_requirement_files.sh`);
+the full workflow is in
+[Updating dependencies](../../docs/development.md#updating-dependencies).
 
 ## Configuration
 
@@ -51,6 +52,9 @@ From the repo root:
 
 The Postgres run is the authoritative one. Pass a path or `-k` filter to narrow
 it, for example `./run_backend_tests_with_sqlite.sh tests/tests_auth.py`.
+The test config comes from the tracked `tests/test_defaults.env`; personal
+overrides go in a gitignored `tests/.env` or the environment (see
+[development.md](../../docs/development.md#backend)).
 
 ## Database migrations (Alembic)
 

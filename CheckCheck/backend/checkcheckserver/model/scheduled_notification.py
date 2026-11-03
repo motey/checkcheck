@@ -28,11 +28,11 @@ reminder the user removes is a real ``DELETE``, not a tombstone. It inherits
 See ``docs/plans/DATE_REMINDERS.md`` section 3.1.
 """
 
-import datetime
 import enum
 import uuid
 from typing import Optional
 
+from pydantic import NaiveDatetime
 from sqlalchemy import Index
 from sqlmodel import Field, String
 
@@ -120,7 +120,7 @@ class ScheduledNotification(TimestampedModel, table=True):
             "caught by the fire-time check instead."
         ),
     )
-    remind_at: datetime.datetime = Field(
+    remind_at: NaiveDatetime = Field(
         description=(
             "Naive UTC. The next (or only) time this fires. A recurring reminder "
             "rewrites it after every fire. Not indexed on its own: nothing ever "
@@ -154,7 +154,7 @@ class ScheduledNotification(TimestampedModel, table=True):
         sa_type=String,
         description="Lifecycle state (enum-as-string).",
     )
-    last_fired_at: Optional[datetime.datetime] = Field(
+    last_fired_at: Optional[NaiveDatetime] = Field(
         default=None,
         description="Naive UTC time it last fired; null until it first does.",
     )

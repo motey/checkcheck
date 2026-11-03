@@ -40,20 +40,18 @@ image). Read one before you run it; they are short.
 
 ## Getting a dev environment running
 
-### Two virtualenvs, on purpose
+### One virtualenv
 
-The backend uses two separate virtualenvs, and keeping them straight saves
-confusion:
+Everything Python runs on the pdm-managed
+[`CheckCheck/backend/.venv`](../CheckCheck/backend/): the dev server, the backend
+test runners, the E2E suite's backend and the `gen_*.sh` helpers. Bootstrap or
+repair it by sourcing [`build_server_dev_env.sh`](../build_server_dev_env.sh)
+from the repo root (source it, do not execute it, so the activation sticks in
+your shell). The test runners call `CheckCheck/backend/.venv/bin/python`
+directly, so they work without activating it.
 
-- [`CheckCheck/backend/.venv`](../CheckCheck/backend/) is the pdm-managed env
-  that runs the **dev server**. Bootstrap it by sourcing
-  [`build_server_dev_env.sh`](../build_server_dev_env.sh) from the repo root
-  (source it, do not execute it, so the activation sticks in your shell).
-- the root `.venv` (uv-managed) runs the **test suite** (pytest).
-
-Keep both in sync when you change dependencies. The
-[backend README](../CheckCheck/backend/README.md#dev-environment) has the
-framing.
+Older checkouts also had a uv-managed `.venv` in the repo root for pytest. Nothing
+uses it any more; delete it.
 
 ### The three secrets
 
@@ -292,6 +290,14 @@ there. Pass a path or `-k` filter to narrow either, for example
 `./run_backend_tests_with_sqlite.sh tests/tests_auth.py`. See the
 [backend README](../CheckCheck/backend/README.md#tests) for more.
 
+No setup is needed: the test server's config (throwaway secrets, port, log
+level) lives in the tracked `CheckCheck/backend/tests/test_defaults.env`. To
+change something for yourself, put it in `CheckCheck/backend/tests/.env`
+(gitignored), or set it as an environment variable for one run, for example
+`LOG_LEVEL=DEBUG ./run_backend_tests_with_sqlite.sh`. The environment wins
+over `tests/.env`, which wins over the defaults. CI uses the defaults as they
+are.
+
 ### End-to-end
 
 E2E uses Playwright: the suite builds the frontend into a static bundle, boots
@@ -313,6 +319,67 @@ for writing tests is
 
 Known-flake caveat: a few DnD/sharing/counts specs fail non-deterministically in
 parallel (a different disjoint set each run). Re-run before blaming your change.
+
+## Updating dependencies
+
+### Backend
+
+[`CheckCheck/backend/pyproject.toml`](../CheckCheck/backend/pyproject.toml)
+declares the dependencies **loosely**: no version, or a bound only where a
+comment next to the entry explains why (for example `fastapi<0.119`). The exact
+versions live in `pdm.lock`, and
+[`build_requirement_files.sh`](../build_requirement_files.sh) exports them into
+the pinned `requirements.txt` (what the Docker image installs),
+`requirements_dev.txt` and `requirements_test.txt`. Never hand-edit the lock or
+the requirements files; commit all four together with the `pyproject.toml`
+change.
+
+```bash
+./build_requirement_files.sh            # after adding/removing a dep: keeps every other pin
+./build_requirement_files.sh --upgrade  # update session: newest versions pyproject allows
+```
+
+Then install the result into the backend venv (see
+[One virtualenv](#one-virtualenv)) and run both backend test suites:
+
+```bash
+(cd CheckCheck/backend && PDM_IGNORE_ACTIVE_VENV=1 pdm install -G dev -G test)
+./run_backend_tests_with_sqlite.sh && ./run_backend_tests_with_postgres.sh
+```
+
+Things to know:
+
+- Use the plain form in feature work. `--upgrade` re-resolves the whole tree and
+  belongs in a dedicated update session, not hidden in a feature diff.
+- `pdm install --dev` fails with "Requested groups not in lockfile: docs". The
+  `docs` group (psyplus) is intentionally not locked; install it by hand with
+  `pip` when you need `gen_config_docs.sh`. Use the `-G dev -G test` form above.
+- `pdm install` does not remove a package you dropped from `pyproject.toml`;
+  `CheckCheck/backend/.venv/bin/python -m pip uninstall` it.
+- `cd CheckCheck/backend && pdm outdated` lists what is behind.
+- Before lifting a documented upper bound, read the comment next to it and
+  check that the reason is gone.
+
+### Frontend
+
+[`CheckCheck/frontend/package.json`](../CheckCheck/frontend/package.json) uses
+caret ranges, and `bun.lock` holds the exact versions. A few packages are pinned
+exactly (`@formkit/drag-and-drop`, `@nuxt/fonts`, `@nuxt/icon`) and the
+`overrides` block forces some transitive versions; check `git log -S` on the
+line before moving one of those. `bun outdated` shows both the newest in-range version ("Update") and the
+newest overall ("Latest"). `bun update` moves within the ranges; a major jump
+means editing the range in `package.json` and running `bun install`. After any
+change run `bun run postinstall`, `bunx vitest run` and the E2E suite
+(`./run_e2e_tests.sh`).
+
+### Other places with versions
+
+The Docker base images in the [`Dockerfile`](../Dockerfile) (`oven/bun`,
+`python:3.13`) and the action versions in
+[`.github/workflows/`](../.github/workflows/) are updated by hand in the same
+sessions. The Python minor version is pinned in three places that must agree:
+`requires-python` in `pyproject.toml`, the `Dockerfile` base image and the CI
+workflow.
 
 ## Database migrations
 
@@ -352,6 +419,17 @@ short version.
 - **A hard delete leaves no seq trace.** Revoke and label-detach compensate by
   touching a position row so the SSE poke advances. Any new hard-delete path
   needs the same treatment, or offline clients miss the change.
+- **Timestamp columns are `NaiveDatetime`, never a bare `datetime`.** Every
+  timestamp is stored as naive UTC (`naive_utc_now()` in `model/_base_model.py`).
+  Since sqlmodel 0.0.45 a bare `datetime` field becomes its tz-aware
+  `UTCDateTime` column (`timestamptz` on Postgres), which rejects naive values on
+  the first write and would also show up as a type change in an autogenerated
+  migration. Declare new columns as pydantic's `NaiveDatetime` (or
+  `Optional[NaiveDatetime]`). Pydantic then also rejects aware values for that
+  field, so request bodies that accept client timestamps keep their own models
+  and normalise to naive UTC first (see `routes_reminder.py`,
+  `routes_checklist_share.py`). Plain response models (`BaseModel`) can keep
+  `datetime`.
 - **Tests run `create_all`, not migrations.** So model definitions must be
   correct for a fresh Postgres DB on their own: naive-UTC datetimes and FK
   `ondelete=CASCADE` on the model, not only in a migration.

@@ -20,11 +20,11 @@ is stamped on insert like any other row, and never queried).
 See ``docs/plans/EMAIL_NOTIFICATIONS.md`` section 3.2.
 """
 
-import datetime
 import enum
 import uuid
 from typing import Optional
 
+from pydantic import NaiveDatetime
 from sqlalchemy import Index
 from sqlmodel import Column, Field, JSON, String
 
@@ -107,7 +107,7 @@ class NotificationOutbox(TimestampedModel, table=True):
         sa_type=String,
         description="Lifecycle state (enum-as-string).",
     )
-    not_before: datetime.datetime = Field(
+    not_before: NaiveDatetime = Field(
         default_factory=naive_utc_now,
         description=(
             "Naive UTC. The row is invisible to the dispatcher until this time, "

@@ -9,7 +9,7 @@ import json
 # Libs
 import enum
 import uuid
-from pydantic import BaseModel, ConfigDict, SecretStr
+from pydantic import BaseModel, ConfigDict, NaiveDatetime, SecretStr
 from sqlmodel import Field, Column, Enum, UniqueConstraint, CheckConstraint
 import secrets
 import datetime
@@ -167,7 +167,7 @@ class UserAuth(_UserAuthBase, TimestampedModel, table=True):
         ),
     )
     oidc_token_encrypted: Optional[str] = Field(default=None)
-    last_used_at: Optional[datetime.datetime] = Field(
+    last_used_at: Optional[NaiveDatetime] = Field(
         default=None,
         description="Timestamp of the last successful authentication using this credential.",
     )
