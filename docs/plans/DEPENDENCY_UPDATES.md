@@ -1,6 +1,6 @@
 # Plan: dependency update round (2026-11)
 
-**Status:** D1, D2 (2026-11-03), D3 and D4 (2026-11-04) done. D5 and D6 open. Work branch: `chore/dependency-updates` (off `origin/main` 01514e0).
+**Status:** D1, D2 (2026-11-03), D3, D4 and D5 (2026-11-04) done. D6 open. Work branch: `chore/dependency-updates` (off `origin/main` 01514e0).
 
 The process itself (loose `pyproject.toml`, `build_requirement_files.sh`, both
 venvs, bun ranges) is documented in
@@ -218,10 +218,57 @@ markdown-it 14 to 15. Exact pins behind: @formkit/drag-and-drop 0.6.1 (0.6.2),
   passed, 10 skipped; Postgres 625 passed, 9 skipped (invite passes 11 passed, 10
   skipped each).
 
-### D5: frontend test tooling majors
+### D5: frontend test tooling majors (done)
 
-- vitest 2 to 5 (config and fake-timer behaviour; the localSnapshot specs use fake
-  timers with an in-memory cursor), jsdom 29 to 30, @types/node 26.
+- vitest 2.1.9 to 5.1.0, @types/node 25.9.9 to 26.6.6. jsdom stays on 29.1.1
+  (see below).
+- Migration guides for 3.0, 4.0 and 5.0 read (5.0 shipped 2026-09-03) and the
+  specs checked for every pattern they flag: no unawaited `.resolves`/`.rejects`,
+  no `toThrow("")`, no `vi.mock`/`vi.hoisted` outside the top level, no `new`
+  on an arrow-function mock, no snapshots or `test.each` titles, no
+  `performance.now()`/`Temporal` in faked code paths. The behaviour changes
+  (fake timers now fake everything, `clearMocks` on by default, `restoreAllMocks`
+  only restoring `vi.spyOn` spies, DOM global assignments reaching the jsdom
+  window) needed no change: the suite passes with the same 417 tests. The config
+  needed nothing either (explicit `include`, no pool options, no workspace). CI's
+  `--reporter=json --outputFile=vitest-report.json` still writes the file the
+  badge step reads; only the reporters' defaults moved to `.vitest/`.
+- Typecheck: since vitest 4 an untyped `vi.fn()` is
+  `Mock<Procedure | Constructable>` (mocks can be constructors), which no longer
+  fits a typed callback parameter. Five new errors, all in
+  `debouncedCardFields.spec.ts`; the mock is typed now
+  (`vi.fn<WriteFn>()`). Afterwards the error list is identical to D4's (70,
+  compared with the same throwaway vue-tsc 3.3.14 against a worktree of the D4
+  commit). @types/node 26 adds no errors.
+- jsdom 30: every `@vitest-environment jsdom` spec (4 files) died at worker
+  start with "'addEventListener' called on an object that is not a valid
+  instance of EventTarget". Isolated in scratch projects: vitest 5 + jsdom 29
+  works on bun; vitest 5 + jsdom 30 fails on bun and passes on real Node 24
+  (throwaway `node:24` container). The cause is outside vitest: on bun, a plain
+  `new JSDOM(html, { runScripts })` window rejects its own `addEventListener`
+  whenever `runScripts` is set (the window then lives in a `vm` context; vitest
+  always sets it), and works without it. jsdom 30's only listed breaking change
+  is the engine floor `^22.22.2 || ^24.15.0 || >=26`, and bun 1.3.14 reports
+  Node 24.3.0, so it does not support our runtime anyway. Kept jsdom 29 (vitest
+  5 accepts any jsdom; jsdom 29 declares `>=24.0.0`) rather than patching
+  `runScripts` or adding a real Node to the local and CI toolchain for four spec
+  files. The rule is in development.md. Retry jsdom 30 when bun reports Node
+  `^24.15` or newer (`bun -e 'console.log(process.version)'`). Not reported
+  upstream.
+- Side effect on the build: vitest 2 had pulled `vite` 5.4.21 to the top level
+  while Nuxt's builder ran its nested vite 8.3.5, so every Vite plugin that
+  resolves `vite` from the top level (vite-plugin-pwa, @vitejs/plugin-vue,
+  @tailwindcss/vite, unhead, unplugin, fontless) imported vite 5 next to a vite 8
+  build; unhead even declares `vite >=6.4.2`. Now there is one vite (8.3.5), and
+  the old vite 5 tree (esbuild 0.21, rollup, vite-node 2) is gone from the lock.
+- `pathe` override: after this step only `@vite-pwa/nuxt` (1.1.1, latest) still
+  asks for `pathe@^1`, as D4 predicted. The override stays.
+- Build output checked as in D4: 14 Inter files in `/_fonts/`, all in the
+  service worker precache; the color-mode inline script is there.
+- Results: vitest 417 passed (23 files, same as before); E2E 148 passed, 2
+  skipped, no flakes; backend unchanged and green: SQLite 624 passed, 10
+  skipped; Postgres 625 passed, 9 skipped (invite passes 11 passed, 10 skipped
+  each).
 
 ### D6: frontend runtime majors
 

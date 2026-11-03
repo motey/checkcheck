@@ -373,7 +373,12 @@ list in `package.json`, so keep those three inside the ranges the installed
 otherwise `@nuxt/ui` silently runs on versions it does not support. The `pathe`
 override stays as long as anything still asks for `pathe@^1` (`@vite-pwa/nuxt`
 does): without it bun hoists `pathe` 1.x to the top level, and that once broke
-module loading when adding `@vite-pwa/nuxt` (1.x lacks `reverseResolveAlias`). `bun outdated` shows both the newest in-range version ("Update") and the
+module loading when adding `@vite-pwa/nuxt` (1.x lacks `reverseResolveAlias`).
+`jsdom` stays on 29.x for now: the unit suite runs on bun, not Node, and jsdom 30
+does not work there (every `@vitest-environment jsdom` spec dies at startup with
+"'addEventListener' called on an object that is not a valid instance of
+EventTarget"; jsdom 30 also requires Node `^24.15`, and bun reports 24.3). Retry
+when bun reports a newer Node version. `bun outdated` shows both the newest in-range version ("Update") and the
 newest overall ("Latest"). `bun update` moves within the ranges; a major jump
 means editing the range in `package.json` and running `bun install`. After any
 change run `bun run postinstall`, `bunx vitest run` and the E2E suite

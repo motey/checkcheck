@@ -13,15 +13,17 @@
 //
 // Fake timers make the debounce window exact; the E2E case in
 // `tests/e2e/card-editor.spec.ts` covers the same behaviour through the real UI.
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { useDebouncedCardFields } from "@/composables/useDebouncedCardFields";
+import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from "vitest";
+import { useDebouncedCardFields, type CardTextField } from "@/composables/useDebouncedCardFields";
+
+type WriteFn = (field: CardTextField, value: string) => void;
 
 describe("useDebouncedCardFields", () => {
-  let write: ReturnType<typeof vi.fn>;
+  let write: Mock<WriteFn>;
 
   beforeEach(() => {
     vi.useFakeTimers();
-    write = vi.fn();
+    write = vi.fn<WriteFn>();
   });
 
   afterEach(() => {

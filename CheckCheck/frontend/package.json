@@ -46,12 +46,12 @@
   "devDependencies": {
     "@playwright/test": "^1.64.1",
     "@types/markdown-it": "^14.2.0",
-    "@types/node": "^25.9.9",
+    "@types/node": "^26.6.6",
     "@vite-pwa/nuxt": "^1.1.1",
     "fake-indexeddb": "^6.2.7",
     "jsdom": "^29.1.1",
     "nuxt-open-fetch": "^0.13.9",
-    "vitest": "^2.1.9"
+    "vitest": "^5.1.0"
   },
   "overrides": {
     "pathe": "2.0.3"
