@@ -1,6 +1,6 @@
 # Plan: dependency update round (2026-11)
 
-**Status:** D1, D2 (2026-11-03) and D3 (2026-11-04) done. D4 to D6 open. Work branch: `chore/dependency-updates` (off `origin/main` 01514e0).
+**Status:** D1, D2 (2026-11-03), D3 and D4 (2026-11-04) done. D5 and D6 open. Work branch: `chore/dependency-updates` (off `origin/main` 01514e0).
 
 The process itself (loose `pyproject.toml`, `build_requirement_files.sh`, both
 venvs, bun ranges) is documented in
@@ -150,17 +150,73 @@ markdown-it 14 to 15. Exact pins behind: @formkit/drag-and-drop 0.6.1 (0.6.2),
   runs on plain HTTP), so the `httpx2` trust-store path is proven only by the
   container check above.
 
-### D4: frontend in-range updates
+### D4: frontend in-range updates (done)
 
-- `bun update` (stays inside the caret ranges): nuxt 4.6, @nuxt/ui 4.12, vue,
-  tailwindcss 4.3, @playwright/test 1.64 (then `bun run test:e2e:install` for the
-  matching Chromium), iconify, dompurify, idb, nuxt-open-fetch, fake-indexeddb.
-- Re-check whether the `overrides` block (pathe, caniuse-lite,
-  baseline-browser-mapping) is still needed.
-- Exact pins: @nuxt/icon 2.6.2 is likely safe; @formkit/drag-and-drop 0.6.2
-  needs the mobile long-press drag checked again (it was pinned for that).
-- CI: `actions/upload-artifact@v4`, `download-artifact@v4`, `setup-python@v5`
-  have newer majors; bump them here.
+- `bun update` inside the caret ranges: nuxt 4.2.1 to 4.6.4, @nuxt/ui 4.1.0 to
+  4.12.0, vue 3.5.24 to 3.5.44, vue-router 4.6.4, tailwindcss 4.3.4,
+  @playwright/test 1.60 to 1.64.1 (Chromium headless shell 156 installed),
+  dompurify 3.4.17, idb 8.0.4, markdown-it 14.3.3, colord 2.10, nuxt-open-fetch
+  0.13.9, fake-indexeddb 6.2.7, the iconify packages, @types/node 25.9.9. bun
+  raised the caret floors in `package.json` to the installed versions.
+- Overrides: `caniuse-lite` and `baseline-browser-mapping` removed. They had
+  turned into the opposite of their purpose: they held both packages below what
+  consumers now ask for (1.0.30001809 against `^1.0.30001819`, 2.11.13 against
+  `^2.11.33`). Without them each resolves to one current copy. `pathe` 2.0.3
+  stays: `@vite-pwa/nuxt` 1.1.1 (latest), `@nuxtjs/color-mode` 3 and vitest 2
+  still ask for `pathe@^1`, and without the override bun hoists 1.1.2 to the top
+  level, the setup that crashed module loading in WI-13. Once D5 and color-mode 4
+  are in, only `@vite-pwa/nuxt` keeps it.
+- Found: @nuxt/ui 4.12 declares `@nuxt/icon ^2.5.1`, `@nuxt/fonts ^0.14.0` and
+  `@nuxtjs/color-mode ^4.0.1`, but Nuxt loads only the copies we list ourselves
+  (checked in `.nuxt`), so ui would have run on icon 2.1.0, fonts 0.12.1 and
+  color-mode 3.5.2. Fonts was already outside ui's range before (ui 4.1 wanted
+  `^0.11.4`). Fixed by moving our own entries into ui's ranges: @nuxt/icon 2.6.2
+  and @nuxt/fonts 0.14.0 (still exact pins), @nuxtjs/color-mode `^4.1.0` (pulled
+  forward from D6). color-mode 4 only drops the `hid` option (removed from
+  `nuxt.config.ts`) and defaults `classSuffix` to `''`, which we already set. The
+  rule is now in development.md. @vueuse is not affected: ui imports its own
+  nested 14.x as a normal dependency.
+- @formkit/drag-and-drop 0.6.1 to 0.6.2: the diff is one bugfix in sort and
+  transfer (dragged values are removed by index instead of every equal value).
+  The pointer, touch and long-press paths are unchanged, so the mobile reason for
+  the pin still holds and the touch specs pass; on-device drag stays unverified
+  as before.
+- Nuxt 4.6 now scans `types/` for auto-imports, and unimport read the
+  `export { }` in `types/index.ts` as an export with an empty name. The generated
+  `.nuxt/types/imports.d.ts` then had a syntax error
+  (`const : typeof import(...)['']`), which hides every other type error. The
+  line was redundant (the file has top-level imports) and is gone, with a comment.
+- Typecheck (`vue-tsc --noEmit -p .nuxt/tsconfig.app.json`, with a throwaway
+  vue-tsc, the project does not ship one): 87 errors before, 70 after, none new.
+  The 17 that went away are `@click` handlers returning values and the
+  Playwright config overloads, both accepted by the newer types.
+- Nuxt 4.6 declares `node ^22.22.3 || ^24.15.0 || >=26` and prints "Current
+  version of Node.js (24.3.0) is unsupported" on every run. That is bun 1.3.14
+  identifying itself as Node 24.3.0; there is no real Node in the toolchain
+  (local, CI and the `oven/bun` image all run on bun), so it is cosmetic until
+  bun reports a newer Node version.
+- E2E: one flake in the full run, `archive.spec.ts` "delete forever": the board
+  drops the card optimistically, and the trace shows the test's GET went out
+  0.4 ms after the app's DELETE, while it was still in flight, so it read 200
+  instead of 410. A race in the test, not caused by the update (the new
+  versions only change the timing). The test now waits for the app's DELETE
+  response first; no other spec checks the backend right after an optimistic
+  removal. Verified with `--repeat-each=10 --retries=0`: 31 passed.
+- CI: actions/checkout 6 to 7, setup-python 5 to 7, upload-artifact 4 to 7,
+  download-artifact 4 to 8. Release notes read: the breaking parts are Node 24
+  runners (GitHub-hosted runners are fine), checkout blocking fork PRs under
+  `pull_request_target`/`workflow_run` (not used), setup-python dropping the
+  `pip-install` input (not used), download-artifact path changes for downloads
+  by ID and digest mismatches now failing (we download by name pattern, and a
+  mismatch should fail). Not verifiable locally; the next push shows it. The
+  docker/* actions and setup-bun were already on their current majors.
+- Build output checked: 14 self-hosted Inter files in `/_fonts/`, all in the
+  service worker precache; the color-mode inline script still uses
+  `nuxt-color-mode` and `__NUXT_COLOR_MODE__`.
+- Results: vitest 417 passed; E2E 147 passed, 2 skipped, 1 flaky (the archive
+  race above, fixed); backend unchanged and green: SQLite 624
+  passed, 10 skipped; Postgres 625 passed, 9 skipped (invite passes 11 passed, 10
+  skipped each).
 
 ### D5: frontend test tooling majors
 
@@ -170,7 +226,12 @@ markdown-it 14 to 15. Exact pins behind: @formkit/drag-and-drop 0.6.1 (0.6.2),
 ### D6: frontend runtime majors
 
 - One package per step, each with its own test run: @vueuse 13 to 15, pinia 4 +
-  @pinia/nuxt 1.0, @nuxtjs/color-mode 4 (check whether @nuxt/ui still expects
-  v3), @nuxt/fonts 1.x, markdown-it 15 (card notes and the inline item renderer),
-  vue-router 5 (only if nuxt 4.6 supports it; nuxt pins the router it needs).
+  @pinia/nuxt 1.0, @nuxt/fonts 1.x, markdown-it 15 (card notes and the inline
+  item renderer), vue-router 5 (only if nuxt 4.6 supports it; nuxt pins the
+  router it needs).
+- @nuxtjs/color-mode 4 already moved in D4 (@nuxt/ui 4.12 requires it).
+- @nuxt/fonts 1.x: @nuxt/ui 4.12 declares `^0.14.0`, so stay on 0.14 until a
+  @nuxt/ui release accepts 1.x (see the D4 note on module copies).
+- @vueuse: @nuxt/ui 4.12 brings its own `^14.4.0`. Going to 14 instead of 15
+  would let both share one copy; decide when doing the step.
 - Anything that turns out to be a rewrite moves into its own plan.

@@ -39,7 +39,7 @@ jobs:
             arch: arm64
     runs-on: ${{ matrix.runner }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Compute version and log level
         id: meta
@@ -88,7 +88,7 @@ jobs:
           touch "/tmp/digests/${digest#sha256:}"
 
       - name: Upload digest
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: digests-${{ matrix.arch }}
           path: /tmp/digests/*
@@ -99,7 +99,7 @@ jobs:
     needs: [build]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Compute tags
         id: meta
@@ -118,7 +118,7 @@ jobs:
           echo "tags=${TAGS}" >> "$GITHUB_OUTPUT"
 
       - name: Download digests
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           path: /tmp/digests
           pattern: digests-*

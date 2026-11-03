@@ -17,7 +17,10 @@ declare module "ofetch" {
     }
 }
 
-export { }
+// No `export { }` here: the imports above already make this file a module, and
+// since Nuxt 4.6 scans `types/` for auto-imports, where unimport reads
+// `export { }` as an export with an empty name and writes a broken
+// `.nuxt/types/imports.d.ts`.
 declare global {
     // Auth
     type AuthSchemeInfo = components["schemas"]["AuthSchemeInfo"]

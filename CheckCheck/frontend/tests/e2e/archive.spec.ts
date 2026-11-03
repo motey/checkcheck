@@ -141,10 +141,18 @@ test.describe("archive & permanent delete", () => {
     // Trash button in the archive view = permanent delete behind a confirm.
     const dialog = await openCard(page, name);
     await dialog.locator("[data-testid=card-delete-forever]").click();
+    // The board drops the card optimistically, before the DELETE has reached the
+    // server, so the backend check below must wait for the app's own request.
+    // Without this the GET can be served while the DELETE is still in flight
+    // and read the row as 200.
+    const deleted = page.waitForResponse(
+      (r) => r.request().method() === "DELETE" && r.url().endsWith(`/api/checklist/${cl.id}`),
+    );
     await page.locator("[data-testid=confirm-delete]").click();
 
     // Gone from the archive board.
     await expect(page.getByText(name, { exact: true })).not.toBeVisible({ timeout: 5_000 });
+    expect((await deleted).status()).toBe(204);
 
     // Gone from the backend. Since WI-2 a delete is a tombstone, so the row
     // reads as 410 Gone (terminal for the sync outbox), not 404 (never existed).

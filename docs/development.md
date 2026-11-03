@@ -366,7 +366,14 @@ Things to know:
 caret ranges, and `bun.lock` holds the exact versions. A few packages are pinned
 exactly (`@formkit/drag-and-drop`, `@nuxt/fonts`, `@nuxt/icon`) and the
 `overrides` block forces some transitive versions; check `git log -S` on the
-line before moving one of those. `bun outdated` shows both the newest in-range version ("Update") and the
+line before moving one of those. `@nuxt/ui` depends on `@nuxt/icon`,
+`@nuxt/fonts` and `@nuxtjs/color-mode` itself, but Nuxt loads only the copy we
+list in `package.json`, so keep those three inside the ranges the installed
+`@nuxt/ui` declares (`jq .dependencies node_modules/@nuxt/ui/package.json`);
+otherwise `@nuxt/ui` silently runs on versions it does not support. The `pathe`
+override stays as long as anything still asks for `pathe@^1` (`@vite-pwa/nuxt`
+does): without it bun hoists `pathe` 1.x to the top level, and that once broke
+module loading when adding `@vite-pwa/nuxt` (1.x lacks `reverseResolveAlias`). `bun outdated` shows both the newest in-range version ("Update") and the
 newest overall ("Latest"). `bun update` moves within the ranges; a major jump
 means editing the range in `package.json` and running `bun install`. After any
 change run `bun run postinstall`, `bunx vitest run` and the E2E suite
