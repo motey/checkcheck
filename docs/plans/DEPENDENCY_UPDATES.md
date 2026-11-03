@@ -1,6 +1,6 @@
 # Plan: dependency update round (2026-11)
 
-**Status:** D1 and D2 done (2026-11-03). D3 to D6 open. Work branch: `chore/dependency-updates` (off `origin/main` 01514e0).
+**Status:** D1, D2 (2026-11-03) and D3 (2026-11-04) done. D4 to D6 open. Work branch: `chore/dependency-updates` (off `origin/main` 01514e0).
 
 The process itself (loose `pyproject.toml`, `build_requirement_files.sh`, both
 venvs, bun ranges) is documented in
@@ -105,17 +105,50 @@ markdown-it 14 to 15. Exact pins behind: @formkit/drag-and-drop 0.6.1 (0.6.2),
   Checked in a copy of the tree with no `tests/.env` and no secrets in the env,
   and the precedence order checked directly.
 
-### D3: backend FastAPI 0.162 + Starlette 1.x
-- The `fastapi<0.119` pin exists because FastAPI 0.119 hashes `Annotated`
-  metadata during OpenAPI generation and sqlmodel's `FieldInfoMetadata` is an
-  unhashable (non-frozen) dataclass. Still true in sqlmodel 0.0.48 (checked
-  2026-11-03). First step: try the newest FastAPI in a throwaway venv and dump
-  the OpenAPI spec; FastAPI may have changed that code path since. If it still
-  crashes, look for the upstream issue or a local workaround before lifting.
-- Starlette 1.x is a major: check `StarletteOAuth2App` / Authlib's Starlette
-  integration, `SessionMiddleware`, `StaticFiles` and the SSE endpoint.
-- Diff the regenerated `CheckCheck/openapi.json`; a schema change there means a
-  frontend type change.
+### D3: backend FastAPI 0.162 + Starlette 1.x (done)
+
+- FastAPI 0.118.3 to 0.162.0, Starlette 0.48.0 to 1.10.0. New transitive
+  packages: `annotated-doc` and `opentelemetry-api` (FastAPI's own dependencies;
+  the API package only, no SDK or exporter, so it is a no-op).
+- The pin: FastAPI 0.119.0 to 0.156.x hash the `Annotated` metadata of every
+  field during OpenAPI generation and crash on sqlmodel's unhashable
+  `FieldInfoMetadata`. Bisected in a throwaway venv (sqlmodel 0.0.48): 0.156.0
+  still crashes, 0.157.0 is the first release that dumps the spec. pyproject now
+  says `fastapi>=0.157` with that reason; the `development.md` example followed.
+- OpenAPI diff: only `ValidationError` gains the optional `ctx` and `input`
+  properties (FastAPI now documents what pydantic already returned). The
+  frontend does not reference that schema; types regenerated with
+  `bun run postinstall`, no frontend change.
+- Starlette 1.x surface checked: `SessionMiddleware` (OIDC state cookie),
+  `CORSMiddleware`, the pure-ASGI no-store middleware, `StreamingResponse` for
+  the SSE stream, `FileResponse` for the SPA files. Nothing uses the APIs 1.0
+  removed (`on_event`, `@app.route`, the old `TemplateResponse(name, ctx)`
+  order), and the status constants are already the new names
+  (`HTTP_422_UNPROCESSABLE_CONTENT`; the old ones are deprecated aliases).
+  Router `lifespan_context` (SSE listener, notification dispatcher) is still
+  merged by `include_router` in 0.162. Authlib's Starlette client only uses
+  `URL`, `RedirectResponse` and `request.session`.
+- Found along the way: Authlib 1.9 runs its async OAuth/OIDC client on `httpx2`
+  and falls back to plain `httpx` with an `AuthlibDeprecationWarning`. Only the
+  dev-only `oidc-provider-mock` pulled `httpx2` in, so the tests ran the OIDC
+  client on `httpx2` while the production image (from `requirements.txt`) ran it
+  on the fallback. `httpx2` is now a declared runtime dependency (adds
+  `httpcore2` and `truststore` to `requirements.txt`; the backend venv already
+  had them, so the test runs below used the same set). Our own code (userinfo
+  fetch, webhooks, tests) stays on `httpx` 0.28.
+  Note for operators: on Linux `httpx2` verifies TLS against OpenSSL's system
+  CA paths (or `SSL_CERT_FILE`/`SSL_CERT_DIR`) instead of the certifi bundle.
+  Checked in a throwaway `python:3.13` container (the Dockerfile's base): the
+  Debian CA store is there (`/usr/lib/ssl/certs`, 297 entries). A deployment that
+  mounts a private CA can now point `SSL_CERT_FILE` at it.
+- Results: SQLite 624 passed, 10 skipped (invite pass 11 passed, 10 skipped);
+  Postgres 625 passed, 9 skipped (invite pass 11 passed, 10 skipped); E2E 148
+  passed, 2 skipped. With `PYTHONWARNINGS=default::DeprecationWarning` the server
+  log shows only the known sqlmodel `execute()` notices and the pre-existing
+  `CheckList.position` SAWarning; no FastAPI or Starlette deprecations.
+- Not verified locally: an OIDC login against a real HTTPS provider (the mock
+  runs on plain HTTP), so the `httpx2` trust-store path is proven only by the
+  container check above.
 
 ### D4: frontend in-range updates
 

@@ -326,7 +326,7 @@ parallel (a different disjoint set each run). Re-run before blaming your change.
 
 [`CheckCheck/backend/pyproject.toml`](../CheckCheck/backend/pyproject.toml)
 declares the dependencies **loosely**: no version, or a bound only where a
-comment next to the entry explains why (for example `fastapi<0.119`). The exact
+comment next to the entry explains why (for example `fastapi>=0.157`). The exact
 versions live in `pdm.lock`, and
 [`build_requirement_files.sh`](../build_requirement_files.sh) exports them into
 the pinned `requirements.txt` (what the Docker image installs),

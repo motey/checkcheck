@@ -13,13 +13,12 @@ classifiers = [
 ]
 dependencies = [
     "uvicorn",
-    # Pin <0.119: 0.119.0 added a set-comprehension over field annotations in
-    # get_definitions() that hashes Annotated metadata. SQLModel's
-    # FieldInfoMetadata (a non-frozen, unhashable dataclass) lands in that
-    # metadata, so openapi generation crashes with
-    # "TypeError: unhashable type: 'FieldInfoMetadata'". Lift once SQLModel
-    # ships a hashable FieldInfoMetadata.
-    "fastapi<0.119",
+    # >=0.157: 0.119.0 to 0.156.x hash the Annotated metadata of every field
+    # during OpenAPI generation, and SQLModel's FieldInfoMetadata (a non-frozen,
+    # unhashable dataclass) lands in that metadata, so the spec dump crashes with
+    # "TypeError: unhashable type: 'FieldInfoMetadata'". 0.157.0 is the first
+    # release that works again (checked 2026-11-03 with sqlmodel 0.0.48).
+    "fastapi>=0.157",
     "starlette",
     "python-jose[cryptography]",
     # pwdlib replaces the unmaintained passlib (last release 2020, incompatible
@@ -27,6 +26,12 @@ dependencies = [
     # use SHA-256 (see model/_hashing.py).
     "pwdlib[argon2]",
     "Authlib",
+    # Authlib (>=1.9) runs its async OAuth/OIDC client on httpx2 and only falls
+    # back to plain httpx with a deprecation warning. Declared explicitly because
+    # otherwise only the dev-only oidc-provider-mock pulls it in, and production
+    # would run the OIDC client on a different HTTP library than the tests.
+    "httpx2",
+    # Our own code (OIDC userinfo fetch, outgoing webhooks, tests) still uses httpx.
     "httpx",
     # >=0.0.48: every timestamp column is stored as naive UTC and declared as
     # pydantic's `NaiveDatetime`, which sqlmodel only maps to a plain
