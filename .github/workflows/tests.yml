@@ -27,11 +27,11 @@ jobs:
   pytest-postgres:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0 # setuptools_scm (checkcheckserver/__init__.py) needs git history
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.13"
 
@@ -41,26 +41,6 @@ jobs:
           python -m pip install --upgrade pip pdm
           pdm config venv.in_project true
           pdm install -G dev -G test
-
-      # The test harness reads CheckCheck/backend/tests/.env (gitignored, so it
-      # never reaches CI) for the two required secrets and the server port. The
-      # conftest pins CHECKCHECK_DOT_ENV_FILE to exactly this path, so we
-      # materialize a throwaway CI copy here. These are test-only values.
-      - name: Write test .env
-        run: |
-          cat > CheckCheck/backend/tests/.env <<'EOF'
-          LOG_LEVEL=INFO
-          DEBUG_SQL=False
-          AUTH_JWT_SECRET=ci-test-jwt-secret-0000000000000000000000000000000000000000000000
-          SERVER_SESSION_SECRET=ci-test-session-secret-000000000000000000000000000000000000000000
-          SERVER_BIND_PORT=8888
-          SERVER_PUBLIC_URL=http://localhost:8888
-          AUTH_BASIC_LOGIN_IS_ENABLED=true
-          AUTH_BASIC_USER_DB_REGISTER_ENABLED=false
-          AUTH_ACCESS_TOKEN_EXPIRES_MINUTES=1000
-          AUTH_OIDC_TOKEN_STORAGE_SECRET=ci-test-oidc-storage-secret-checkcheck
-          CHECKCHECK_TESTS_RESET_DB=True
-          EOF
 
       - name: Run backend test suite (PostgreSQL)
         working-directory: CheckCheck/backend
@@ -80,7 +60,7 @@ jobs:
           print(sum(int(s.get("tests", 0)) - int(s.get("skipped", 0)) for s in suites))
           PY
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: test-count-backend
           path: backend-count.txt
@@ -89,7 +69,7 @@ jobs:
   vitest:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - uses: oven-sh/setup-bun@v2
         with:
@@ -110,7 +90,7 @@ jobs:
         run: |
           python3 -c "import json;print(json.load(open('vitest-report.json'))['numPassedTests'])" > frontend-count.txt
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: test-count-frontend
           path: CheckCheck/frontend/frontend-count.txt
@@ -123,7 +103,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           pattern: test-count-*
           path: counts

@@ -6,7 +6,8 @@
 #
 # Prerequisites:
 #   - Docker installed and the daemon running
-#   - Backend venv active:  source build_server_dev_env.sh
+#   - Backend venv set up:  source build_server_dev_env.sh (once; this script
+#     uses CheckCheck/backend/.venv directly, no activation needed)
 #
 # Usage:
 #   ./run_backend_tests_with_postgres.sh                 # full suite
@@ -38,8 +39,17 @@ done
 
 # No path is passed: pytest falls back to testpaths=["tests"] from pyproject.toml.
 # A path/-k given as an argument therefore narrows the run to just that selection.
+# Always run on the pdm-managed backend venv (the same one the dev server and
+# the E2E suite use), whatever virtualenv happens to be active in the shell.
+PYTHON="$SCRIPT_DIR/CheckCheck/backend/.venv/bin/python"
+if ! "$PYTHON" -c "" &>/dev/null; then
+    echo "❌ Backend venv not usable at $PYTHON." >&2
+    echo "   Set it up from the repo root with: source build_server_dev_env.sh" >&2
+    exit 1
+fi
+
 cd "$SCRIPT_DIR/CheckCheck/backend"
-python -m pytest "${PYTEST_ARGS[@]}"
+"$PYTHON" -m pytest "${PYTEST_ARGS[@]}"
 
 # Second pass — the Phase 8 invite/accept flow is gated by a server-side config
 # flag, so it needs the test server booted with SHARING_REQUIRE_INVITE_ACCEPT on.
@@ -49,7 +59,7 @@ python -m pytest "${PYTEST_ARGS[@]}"
 if [ "$HAS_SELECTION" -eq 0 ]; then
     echo "=== invite-flow pass (SHARING_REQUIRE_INVITE_ACCEPT=1) ==="
     CHECKCHECK_TEST_SHARING_REQUIRE_INVITE_ACCEPT=1 \
-        python -m pytest --db=postgres \
+        "$PYTHON" -m pytest --db=postgres \
             tests/tests_sharing_invites.py \
             tests/tests_sharing_groups.py \
             tests/tests_shared_position_orphan.py

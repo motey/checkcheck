@@ -11,12 +11,12 @@ This replaces the broken ``CheckListExternalShare`` scaffold (which was never
 wired into the schema).
 """
 
-import datetime
 import re
 import secrets
 import uuid
 from typing import Iterable
 
+from pydantic import NaiveDatetime
 from sqlmodel import Field, String
 
 from checkcheckserver.model._base_model import TimestampedModel
@@ -86,7 +86,7 @@ class CheckListPublicShareCreate(TimestampedModel, table=False):
         default=True,
         description="Soft on/off switch — disable a link without deleting it.",
     )
-    expires_at: datetime.datetime | None = Field(
+    expires_at: NaiveDatetime | None = Field(
         default=None,
         description="Naive UTC expiry. Null = never expires.",
     )
@@ -97,7 +97,7 @@ class CheckListPublicShareCreate(TimestampedModel, table=False):
             "passphrase (the default). Never store or log the plaintext."
         ),
     )
-    first_opened_at: datetime.datetime | None = Field(
+    first_opened_at: NaiveDatetime | None = Field(
         default=None,
         description=(
             "Naive UTC time of the first successful anonymous resolve of this link. "

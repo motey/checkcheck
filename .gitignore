@@ -391,6 +391,8 @@ export.csv
 export_cache/
 CheckCheck/backend/tests/testdb.sqlite
 *.env
+# Throwaway test-server defaults, tracked on purpose (see the file's header).
+!CheckCheck/backend/tests/test_defaults.env
 *.sqlite
 
 # Test reports (CI test-count badge, and local runs of the same commands)

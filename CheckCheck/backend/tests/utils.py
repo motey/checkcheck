@@ -371,19 +371,6 @@ def import_test_modules(from_dir: pathlib.Path) -> List[types.ModuleType]:
 # ── Test data helpers ─────────────────────────────────────────────────────────
 
 
-def get_dot_env_file_variable(filepath: str, key: str, default: Any = None) -> str | None:
-    if not os.path.exists(filepath):
-        return default
-    with open(filepath) as f:
-        for line in f:
-            line = line.strip()
-            if line and not line.startswith("#") and "=" in line:
-                var_key, var_value = line.split("=", 1)
-                if var_key.strip() == key:
-                    return var_value.strip() or default
-    return default
-
-
 def create_test_user(user_name: str, password: str, email: str) -> Dict:
     """Create a user via the admin API, set their password, and return the user dict."""
     user_raw = req(

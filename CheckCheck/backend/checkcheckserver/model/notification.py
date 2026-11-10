@@ -10,11 +10,11 @@ Email/SMTP delivery is intentionally **out of scope** for this phase — only th
 in-app feed plus a live SSE nudge (``upd_prop="notification"``) is built here.
 """
 
-import datetime
 import enum
 import uuid
 from typing import Optional
 
+from pydantic import NaiveDatetime
 from sqlmodel import Field, String, Column, JSON
 
 from checkcheckserver.model._base_model import TimestampedModel
@@ -63,7 +63,7 @@ class NotificationCreate(TimestampedModel, table=False):
             "name). Never holds secrets (no tokens/passphrases)."
         ),
     )
-    read_at: Optional[datetime.datetime] = Field(
+    read_at: Optional[NaiveDatetime] = Field(
         default=None,
         description="Naive UTC time the user marked it read; null = unread.",
     )

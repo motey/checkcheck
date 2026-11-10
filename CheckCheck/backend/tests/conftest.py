@@ -4,7 +4,8 @@ Pytest harness for the CheckCheck backend integration tests.
 The tests talk to a *real* running server over HTTP (see ``utils.req``), so this
 conftest is responsible for the whole session lifecycle:
 
-* set the env vars the server reads (test ``.env``, DB URL, admin user, provisioning)
+* set the env vars the server reads (``test_defaults.env`` plus an optional
+  local ``tests/.env``, DB URL, admin user, provisioning)
 * spin up the database — a fresh SQLite file (default) or a throwaway Docker
   Postgres container (``--db=postgres``)
 * boot ``checkcheckserver/main.py`` as a subprocess and wait until ``/api/health``
@@ -27,6 +28,7 @@ import time
 import threading
 import subprocess
 import logging
+from collections import deque
 from pathlib import Path
 
 import pytest
@@ -41,7 +43,8 @@ sys.path.insert(0, str(TESTS_DIR))  # so test modules can import utils/statics
 
 from statics import (
     DB_PATH,
-    DOT_ENV_FILE_PATH,
+    TEST_DEFAULTS_ENV_FILE_PATH,
+    LOCAL_ENV_FILE_PATH,
     ADMIN_USER_EMAIL,
     ADMIN_USER_PW,
     ADMIN_USER_NAME,
@@ -57,10 +60,33 @@ PROVISIONING_DATA_PATH = TESTS_DIR / "provisioning_data" / "test_users.yaml"
 CHECKCHECK_MAIN = BACKEND_DIR / "checkcheckserver" / "main.py"
 
 
+def _load_test_env_files():
+    """Put the file-based test config into ``os.environ`` without overriding it.
+
+    Precedence, highest first: real environment variables, then the optional
+    gitignored ``tests/.env`` (personal overrides), then the tracked
+    ``tests/test_defaults.env``. Going through the environment rather than
+    ``CHECKCHECK_DOT_ENV_FILE`` is what allows two files, and the server
+    subprocess inherits the result.
+    """
+    from dotenv import dotenv_values
+
+    for path in (LOCAL_ENV_FILE_PATH, TEST_DEFAULTS_ENV_FILE_PATH):
+        if not os.path.exists(path):
+            continue
+        for key, value in dotenv_values(path).items():
+            if value is not None:
+                os.environ.setdefault(key, value)
+
+
 def set_config_for_test_env():
     """Inject the env vars the server needs — must run before any test module
     (and ``utils``, which instantiates ``Config()``) is imported."""
-    os.environ["CHECKCHECK_DOT_ENV_FILE"] = DOT_ENV_FILE_PATH
+    _load_test_env_files()
+    # Point the server's .env lookup at the tracked defaults (already loaded
+    # above, so this adds nothing) so it can never fall back to a developer's
+    # checkcheckserver/.env and pick up their dev config.
+    os.environ["CHECKCHECK_DOT_ENV_FILE"] = TEST_DEFAULTS_ENV_FILE_PATH
     os.environ.setdefault("SQL_DATABASE_URL", f"sqlite+aiosqlite:///{DB_PATH}")
     os.environ["ADMIN_USER_NAME"] = ADMIN_USER_NAME
     os.environ["ADMIN_USER_PW"] = ADMIN_USER_PW
@@ -311,14 +337,14 @@ def database(request):
     if db == "postgres":
         url = _setup_postgres()
     else:
-        from utils import get_dot_env_file_variable
-
-        reset = os.getenv(
-            "CHECKCHECK_TESTS_RESET_DB",
-            get_dot_env_file_variable(
-                DOT_ENV_FILE_PATH, "CHECKCHECK_TESTS_RESET_DB", default="True"
-            ),
-        ).lower() in ("true", "1", "t", "y", "yes")
+        # Set by test_defaults.env, overridable through tests/.env or the env.
+        reset = os.getenv("CHECKCHECK_TESTS_RESET_DB", "True").lower() in (
+            "true",
+            "1",
+            "t",
+            "y",
+            "yes",
+        )
         if reset:
             Path(DB_PATH).unlink(missing_ok=True)
             logger.info("Deleted SQLite DB at %s", DB_PATH)
@@ -380,10 +406,18 @@ def mail_capture():
         reset_email_transport()
 
 
+# The most recent server output lines. Every line is also logged at DEBUG, which
+# a normal run does not show; this buffer is what a startup failure prints.
+_SERVER_OUTPUT_TAIL_LINES = 80
+_server_output_tail: deque[str] = deque(maxlen=_SERVER_OUTPUT_TAIL_LINES)
+_server_logger_thread: threading.Thread | None = None
+
+
 def _start_server() -> subprocess.Popen:
     """Boot the backend exactly as run_dev_backend_server_with_oidc.sh does:
     ``python ./checkcheckserver/main.py`` from the backend dir, so __main__ and
     the CWD are set up the way the provisioner expects."""
+    global _server_logger_thread
     proc = subprocess.Popen(
         [sys.executable, str(CHECKCHECK_MAIN)],
         env=dict(os.environ),
@@ -396,10 +430,42 @@ def _start_server() -> subprocess.Popen:
         for raw in proc.stdout:
             line = raw.decode(errors="replace").rstrip()
             if line:
+                _server_output_tail.append(line)
                 logger.debug("[server] %s", line)
 
-    threading.Thread(target=_stream, daemon=True, name="server-logger").start()
+    _server_logger_thread = threading.Thread(
+        target=_stream, daemon=True, name="server-logger"
+    )
+    _server_logger_thread.start()
     return proc
+
+
+def _abort_server_startup(server_proc: subprocess.Popen, reason: str):
+    """Stop everything startup has begun and end the session with the server's
+    last output in the message.
+
+    This runs before ``live_server`` reaches its ``yield``, so the fixture's own
+    teardown never runs. Without stopping the OIDC mock here, its non-daemon
+    werkzeug thread keeps pytest alive forever after ``pytest.exit``.
+    """
+    if server_proc.poll() is None:
+        server_proc.terminate()
+        try:
+            server_proc.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            server_proc.kill()
+            server_proc.wait()
+    # Let the reader drain what the dead process wrote last (the traceback).
+    if _server_logger_thread is not None:
+        _server_logger_thread.join(timeout=5)
+    _stop_oidc_mock()
+    tail = "\n".join(_server_output_tail) or "(the server wrote no output)"
+    logger.error("%s Last server output:\n%s", reason, tail)
+    pytest.exit(
+        f"{reason}\n--- last {_SERVER_OUTPUT_TAIL_LINES} lines of server output ---\n"
+        f"{tail}",
+        returncode=3,
+    )
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -425,18 +491,15 @@ def live_server(database):
 
         # Detect an early crash so we surface the traceback instead of timing out.
         if server_proc.poll() is not None:
-            pytest.exit(
-                f"Server process exited unexpectedly with code {server_proc.returncode} "
-                f"(see [server] log lines above for the traceback).",
-                returncode=3,
+            _abort_server_startup(
+                server_proc,
+                f"Server process exited unexpectedly with code {server_proc.returncode}.",
             )
 
         if now > deadline:
-            server_proc.terminate()
-            pytest.exit(
-                f"Server did not become healthy within {timeout_sec}s — aborting. "
-                f"Check [server] log lines above for startup errors.",
-                returncode=3,
+            _abort_server_startup(
+                server_proc,
+                f"Server did not become healthy within {timeout_sec}s, aborting.",
             )
 
         if now - last_log >= 10:
@@ -454,11 +517,14 @@ def live_server(database):
         time.sleep(1)
 
     logger.info("Server is up — logging in as admin '%s'.", ADMIN_USER_NAME)
-    authorize_for_access_token(
-        username=ADMIN_USER_NAME,
-        pw=ADMIN_USER_PW,
-        set_as_global_default_login=True,
-    )
+    try:
+        authorize_for_access_token(
+            username=ADMIN_USER_NAME,
+            pw=ADMIN_USER_PW,
+            set_as_global_default_login=True,
+        )
+    except Exception as exc:
+        _abort_server_startup(server_proc, f"Admin login after startup failed: {exc!r}.")
 
     logger.info("Server ready — starting test run.")
 

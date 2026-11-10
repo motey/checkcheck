@@ -1,7 +1,10 @@
 from pathlib import Path
 
 DB_PATH = f"{Path(__file__).parent}/testdb.sqlite"
-DOT_ENV_FILE_PATH = f"{Path(__file__).parent}/.env"
+# Test server config: tracked defaults plus an optional, gitignored local
+# override file. conftest.set_config_for_test_env() explains the precedence.
+TEST_DEFAULTS_ENV_FILE_PATH = f"{Path(__file__).parent}/test_defaults.env"
+LOCAL_ENV_FILE_PATH = f"{Path(__file__).parent}/.env"
 
 ADMIN_USER_NAME = "admin3"
 ADMIN_USER_PW = "password123"

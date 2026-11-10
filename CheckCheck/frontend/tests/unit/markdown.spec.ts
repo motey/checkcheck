@@ -45,6 +45,14 @@ describe("renderMarkdown — supported subset", () => {
     expect(renderMarkdown("visit https://example.com")).toContain('href="https://example.com"');
   });
 
+  it("links only URLs with a scheme, not bare domains or file names", () => {
+    // markdown-it 15 (linkify-it 6) turned fuzzy links off. Before, `readme.md`
+    // became a link to http://readme.md; now these all stay plain text.
+    for (const text of ["www.example.com", "example.com/path", "see readme.md", "edit file.py"]) {
+      expect(renderMarkdown(text)).not.toContain("<a");
+    }
+  });
+
   it("gives every link target=_blank and a safe rel", () => {
     const html = renderMarkdown("[x](https://example.com)");
     expect(html).toContain('target="_blank"');

@@ -10,6 +10,7 @@ from typing import (
 )
 from pydantic import (
     EmailStr,
+    NaiveDatetime,
     StringConstraints,
     model_validator,
     field_validator,
@@ -21,7 +22,6 @@ from typing import Optional
 from sqlmodel.ext.asyncio.session import AsyncSession
 from sqlmodel import Field, select, delete, Column, JSON, SQLModel
 
-import datetime
 import uuid
 from uuid import UUID
 
@@ -104,7 +104,7 @@ class _UserOidcLogin(SQLModel, table=False):
         max_length=128,
         description="Slug of the OIDC provider of the user's last OIDC login. Empty for local users.",
     )
-    last_oidc_login_at: Optional[datetime.datetime] = Field(
+    last_oidc_login_at: Optional[NaiveDatetime] = Field(
         default=None,
         description="Time (UTC) of the user's last OIDC login. Empty for local users.",
     )

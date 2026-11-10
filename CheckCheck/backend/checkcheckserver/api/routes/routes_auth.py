@@ -388,7 +388,7 @@ async def auth_oidc_callback(
             user_create = UserCreate.from_oidc_userinfo(userinfo)
         except ValidationError as e:
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail=f"Can not validate user data: {e}",
             )
         user: User = await user_crud.create(user_create)
