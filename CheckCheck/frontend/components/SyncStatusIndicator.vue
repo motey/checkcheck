@@ -64,7 +64,7 @@
 </template>
 
 <script setup lang="ts">
-import { useNow } from "@vueuse/core";
+import { useIntervalFn, useNow } from "@vueuse/core";
 import { isLocalFirstEnabled } from "@/utils/localFirst";
 import { useSyncStatus } from "@/composables/useSyncStatus";
 
@@ -83,8 +83,9 @@ const lastSyncedAt = computed(() => status?.lastSyncedAt.value ?? null);
 const streamLive = computed(() => status?.streamLive.value ?? false);
 
 // Re-render relative time on a coarse tick so "3 min ago" stays honest while the
-// popover is open (cheap; a single shared timer).
-const now = useNow({ interval: 30_000 });
+// popover is open (cheap; a single shared timer). The scheduler must be explicit:
+// without one, useNow ticks on every animation frame.
+const now = useNow({ scheduler: (cb) => useIntervalFn(cb, 30_000) });
 
 const pendingBadge = computed(() => (pendingCount.value > 99 ? "99+" : String(pendingCount.value)));
 

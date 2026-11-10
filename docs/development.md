@@ -370,7 +370,15 @@ line before moving one of those. `@nuxt/ui` depends on `@nuxt/icon`,
 `@nuxt/fonts` and `@nuxtjs/color-mode` itself, but Nuxt loads only the copy we
 list in `package.json`, so keep those three inside the ranges the installed
 `@nuxt/ui` declares (`jq .dependencies node_modules/@nuxt/ui/package.json`);
-otherwise `@nuxt/ui` silently runs on versions it does not support. The `pathe`
+otherwise `@nuxt/ui` silently runs on versions it does not support. The same
+holds for `vue-router` and Nuxt: Nuxt puts `vue-router` (and `vue`) into Vite's
+`resolve.dedupe`, so its own runtime imports resolve to our root copy, not to a
+copy bun nests under `nuxt/`. Keep `vue-router` in the range
+`jq .dependencies node_modules/nuxt/package.json` shows. Other nested copies
+(for example `@nuxt/ui`'s own `@vueuse/core`) are not deduped and are fine.
+After an update that changes what is nested, run
+`rm -rf node_modules && bun install --frozen-lockfile`: bun can leave a stale
+nested folder behind that the lock no longer mentions. The `pathe`
 override stays as long as anything still asks for `pathe@^1` (`@vite-pwa/nuxt`
 does): without it bun hoists `pathe` 1.x to the top level, and that once broke
 module loading when adding `@vite-pwa/nuxt` (1.x lacks `reverseResolveAlias`).

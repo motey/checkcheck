@@ -3,6 +3,16 @@
 All notable changes to CheckCheck are recorded here. The format is loosely based
 on [Keep a Changelog](https://keepachangelog.com/); dates are ISO-8601.
 
+## [Unreleased]
+
+### Changed
+
+- **Links in card notes need a scheme.** Only addresses that start with
+  `https://` (or another scheme, or an email address) turn into links on their
+  own. A bare `www.example.com` or `example.com/path` now stays plain text, and so
+  do file names like `readme.md`, which used to become broken links. Write the
+  full address, or use `[text](https://...)`, to get a link.
+
 ## [1.0.0] - 2026-09-19
 
 The first stable release. This entry collects everything since the project

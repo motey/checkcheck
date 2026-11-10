@@ -1,6 +1,6 @@
 # Plan: dependency update round (2026-11)
 
-**Status:** D1, D2 (2026-11-03), D3, D4 and D5 (2026-11-04) done. D6 open. Work branch: `chore/dependency-updates` (off `origin/main` 01514e0).
+**Status:** D1, D2 (2026-11-03), D3, D4 and D5 (2026-11-04) done. D6 (2026-11-10) done. Work branch: `chore/dependency-updates` (off `origin/main` 01514e0).
 
 The process itself (loose `pyproject.toml`, `build_requirement_files.sh`, both
 venvs, bun ranges) is documented in
@@ -270,15 +270,104 @@ markdown-it 14 to 15. Exact pins behind: @formkit/drag-and-drop 0.6.1 (0.6.2),
   skipped; Postgres 625 passed, 9 skipped (invite passes 11 passed, 10 skipped
   each).
 
-### D6: frontend runtime majors
+### D6: frontend runtime majors (done)
 
-- One package per step, each with its own test run: @vueuse 13 to 15, pinia 4 +
-  @pinia/nuxt 1.0, @nuxt/fonts 1.x, markdown-it 15 (card notes and the inline
-  item renderer), vue-router 5 (only if nuxt 4.6 supports it; nuxt pins the
-  router it needs).
-- @nuxtjs/color-mode 4 already moved in D4 (@nuxt/ui 4.12 requires it).
-- @nuxt/fonts 1.x: @nuxt/ui 4.12 declares `^0.14.0`, so stay on 0.14 until a
-  @nuxt/ui release accepts 1.x (see the D4 note on module copies).
-- @vueuse: @nuxt/ui 4.12 brings its own `^14.4.0`. Going to 14 instead of 15
-  would let both share one copy; decide when doing the step.
-- Anything that turns out to be a rewrite moves into its own plan.
+One package per step, each with vitest, the typecheck comparison and the full
+E2E run. Typecheck baseline on the D5 commit: 70 errors (same throwaway vue-tsc
+3.3.14 + typescript 5.9.3, run with `bun .../vue-tsc.js`; there is no `node`
+binary, so the `.bin/vue-tsc` shim fails with "env: node").
+
+Not moving: @nuxt/fonts stays on 0.14 (the newest @nuxt/ui, 4.12, still declares
+`^0.14.0`, see the D4 note on module copies); jsdom stays on 29 (D5);
+@nuxtjs/color-mode 4 already moved in D4.
+
+#### Step 1: vue-router 4.6.4 to 5.4.0 (done)
+
+- Not optional, as the plan had assumed: Nuxt 4.6.4 depends on
+  `vue-router ^5.4.0` (Nuxt 4.2 wanted `^4.6.3`). Since D4 bun had installed
+  Nuxt's 5.4.0 nested under `nuxt/node_modules`, but Nuxt adds `vue-router` to
+  Vite's `resolve.dedupe`, which resolves every import, Nuxt's own runtime
+  included, to the project root copy. So D4 and D5 shipped Nuxt 4.6 running on
+  our router 4.6.4, the same "Nuxt loads our copy" trap as the D4 modules. The
+  D4/D5 E2E runs passed on it anyway.
+- Migration guide: no breaking changes without unplugin-vue-router (we do not
+  use it directly); only the IIFE build lost `@vue/devtools-api` (not used).
+- After the bump the lock has one `vue-router` entry. A stale nested folder
+  stayed in `node_modules` until `rm -rf node_modules && bun install
+  --frozen-lockfile`; worth doing after any step that changes nesting.
+- Results: vitest 417 passed; typecheck error list identical to the baseline;
+  E2E 148 passed, 2 skipped, no flakes.
+
+#### Step 2: pinia 3.0.4 to 4.1.0, @pinia/nuxt 0.11.3 to 1.0.3 (done)
+
+- Release notes: pinia 4 is ESM only and makes `@vue/devtools-api` a required
+  peer (`^8.2.1`). bun installs required peers itself and the lock records it,
+  so it is not listed in `package.json`. Side effect: the old devtools-api 7.7.8
+  (pinia 3's) is gone; one 8.2.1 remains, shared with vue-router 5.
+  @pinia/nuxt 1.0.0 has no changes of its own; 1.0.3 changes how the default
+  `storesDirs` resolve per layer. We rely on store auto-imports (four components
+  call stores without importing them, and our `stores/` is at the root, not
+  `app/stores/`), so checked: `.nuxt/types/imports.d.ts` still lists all 12
+  store entries.
+- Results: vitest 417 passed; typecheck identical to the baseline; E2E 148
+  passed, 2 skipped, no flakes.
+
+#### Step 3: @vueuse/core and @vueuse/components 13.9 to 15.0 (done)
+
+- Decided (maintainer, 2026-11-04): 15, not 14. @nuxt/ui keeps its own nested
+  14.4 as a normal dependency, which is fine (no state is shared between our
+  composables and ui's; in the bundle only the few functions each side uses are
+  duplicated).
+- Breaking changes checked against our usage (`createSharedComposable`,
+  `useDebounceFn` incl. `maxWait`, `watchDebounced`, `useMediaQuery`,
+  `usePreferredReducedMotion`, `useNow`, `vElementVisibility`; `ssr: false`).
+  One hit: 15 removes the deprecated `interval`/`immediate` options of `useNow`,
+  and its default scheduler is `useRafFn`. `SyncStatusIndicator.vue` calls
+  `useNow({ interval: 30_000 })`, so in 15 the option would be silently ignored
+  and the "last synced" label would re-render every animation frame instead of
+  every 30 s (no error at runtime; vue-tsc flags the unknown property). Fix:
+  `useNow({ scheduler: (cb) => useIntervalFn(cb, 30_000) })`, which 14 already
+  supports. Nothing else applies (`templateRef`, `useThrottleFn`,
+  `useEventSource`, `useIDBKeyval`, `computedAsync` unused).
+- Done as planned. Checked first that nothing puts `@vueuse/core` into Vite's
+  `resolve.dedupe` (only `vue` and `vue-router` are), so @nuxt/ui really runs on
+  its own 14.4 and not on our 15, unlike the vue-router case in step 1.
+- Results: vitest 417 passed; typecheck identical to the baseline; E2E 148
+  passed, 2 skipped, no flakes.
+
+#### Step 4: markdown-it 14.3.3 to 15.0.3 (done)
+
+- Breaking changes: linkify-it 6 (fuzzy links off, auth-part check off, Unicode
+  punctuation ends a link), `markdown-it/lib/*` subpath imports removed (not
+  used), `StateBlock#ddIndent` removed (no plugins used).
+- Measured with both versions side by side on our options (`html: false,
+  linkify: true, breaks: true`): in card notes `www.example.com` and
+  `example.com/path` are no longer linked, and neither are the false positives
+  14 produced (`readme.md` became a link to `http://readme.md`, `file.py` to
+  `http://file.py`). `https://user:pw@host` now links only `https://user`;
+  bracketed IPv6 URLs now link. Scheme links, `[text](url)`, emails and the
+  punctuation cases tested are unchanged. Item text is not affected: it only
+  takes the parser path for text containing `http(s)://`.
+- Decided (maintainer, 2026-11-04): accept the new default, no `fuzzyLink`
+  override. Update the comment in `utils/markdown.ts` ("bare URLs become links"
+  means scheme URLs now), add a unit test pinning that `www.example.com` and
+  `readme.md` stay plain text, and put the change in the changelog.
+- markdown-it 15 ships its own types (`dist/markdown-it.d.mts`), so
+  `@types/markdown-it` is removed (it pulled in `@types/linkify-it` 5 and
+  `@types/mdurl`, which described the old versions).
+- Done as decided: comment updated, unit test "links only URLs with a scheme"
+  in `tests/unit/markdown.spec.ts`, changelog entry under `[Unreleased]`. The
+  Markdown cheat-sheet only shows `[link](https://...)`, so it needs no change.
+- Results: vitest 418 passed (one new test); typecheck identical to the
+  baseline; E2E 148 passed, 2 skipped, no flakes.
+
+#### Wrap-up
+
+- Build output checked as in D4/D5: 14 Inter files in `/_fonts/`, all in the
+  service worker precache; the color-mode inline script is there.
+- Backend unchanged and green: SQLite 624 passed, 10 skipped; Postgres 625
+  passed, 9 skipped (invite passes 11 passed, 10 skipped each).
+- development.md: the Vite dedupe rule for `vue-router` (keep it in Nuxt's
+  range) and the clean reinstall after nesting changes, both from step 1.
+- `CheckCheck/openapi.json` had only a regenerated version stamp in the working
+  tree (`0.5.1.dev9` to `1.0.1.dev4`, no API change); reverted, not committed.

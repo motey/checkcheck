@@ -17,7 +17,7 @@ import { highlightText } from "@/utils/highlight";
 // Constructed once at module scope, not per call.
 const md = new MarkdownIt({
   html: false, // raw HTML in the source is escaped, not rendered
-  linkify: true, // bare URLs become links
+  linkify: true, // bare URLs with a scheme (https://...) become links; bare domains like www.example.com do not
   breaks: true, // a single newline becomes <br>, matching the old whitespace-pre-wrap feel
 });
 
