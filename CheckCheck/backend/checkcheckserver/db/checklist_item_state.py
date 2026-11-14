@@ -111,8 +111,18 @@ class CheckListItemStateCRUD(
         return all_states
 
     async def uncheck_all_items(self, checklist_id: uuid.UUID) -> int:
-        """Bulk "uncheck all": flip every checked, live item of this checklist to
-        unchecked in a single transaction.
+        """Bulk "uncheck all". See ``set_all_items_checked``."""
+        return await self.set_all_items_checked(checklist_id, checked=False)
+
+    async def check_all_items(self, checklist_id: uuid.UUID) -> int:
+        """Bulk "check all". See ``set_all_items_checked``."""
+        return await self.set_all_items_checked(checklist_id, checked=True)
+
+    async def set_all_items_checked(
+        self, checklist_id: uuid.UUID, checked: bool
+    ) -> int:
+        """Set the checked state of every live item of this checklist that is not
+        already in that state, in a single transaction.
 
         MUST mutate ORM objects in a loop (not a Core ``UPDATE ... SET``): the
         global ``server_seq`` cursor is stamped by the ``before_update`` mapper
@@ -120,7 +130,7 @@ class CheckListItemStateCRUD(
         for a bulk statement. A Core update would flip the values but leave
         ``server_seq`` stale, so the change would never surface in the delta feed
         and offline collaborators would never converge (see the bulk-op plan
-        §1.2). Idempotent: a replay finds nothing checked and flips 0 rows.
+        §1.2). Idempotent: a replay finds nothing left to flip.
 
         Returns the number of rows flipped.
         """
@@ -133,12 +143,12 @@ class CheckListItemStateCRUD(
             )
             .where(CheckListItem.checklist_id == checklist_id)
             .where(col(CheckListItem.deleted_at).is_(None))
-            .where(CheckListItemState.checked == True)  # noqa: E712
+            .where(CheckListItemState.checked == (not checked))
         )
         result = await self.session.exec(query)
         states = result.all()
         for state in states:
-            state.checked = False
+            state.checked = checked
             self.session.add(state)
         if states:
             # One commit for the whole batch: a single transaction, and the

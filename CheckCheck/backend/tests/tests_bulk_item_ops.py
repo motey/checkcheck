@@ -2,6 +2,9 @@
 
 * ``POST /api/checklist/{id}/items/uncheck-all``   (requires ``check``)
 * ``POST /api/checklist/{id}/items/delete-checked`` (requires ``edit``)
+* ``POST /api/checklist/{id}/items/check-all``      (requires ``check``)
+* ``POST /api/checklist/{id}/items/sort-by-name``   (requires ``edit``)
+* ``POST /api/checklist/{id}/items/remove-duplicates`` (requires ``edit``)
 
 Both must surface through the delta feed (``GET /api/changes``) so offline
 collaborators converge — which is only true if the CRUD mutates ORM objects (so
@@ -222,3 +225,197 @@ def test_delete_checked_requires_edit_permission():
     )
 
     req(f"api/checklist/{cl_id}", "delete")
+
+
+def _assert_permission_gate(path: str, user_name: str, denied: str, allowed: str):
+    token = _make_user_token(user_name)
+    user_id = _user_id(token)
+    cl_id = req("api/checklist", "post", b={"name": f"perms {path}"})["id"]
+    _new_item(cl_id, "b")
+    _new_item(cl_id, "a")
+    _new_item(cl_id, "a")
+    _share(cl_id, user_id, denied)
+    req(
+        f"api/checklist/{cl_id}/items/{path}",
+        "post",
+        access_token=token,
+        expected_http_code=403,
+    )
+    _share(cl_id, user_id, allowed)
+    req(
+        f"api/checklist/{cl_id}/items/{path}",
+        "post",
+        access_token=token,
+        expected_http_code=200,
+    )
+    req(f"api/checklist/{cl_id}", "delete")
+
+
+def _texts_in_order(cl_id: str) -> List[str]:
+    return [i["text"] for i in req(f"api/checklist/{cl_id}/item")["items"]]
+
+
+# ── check-all ─────────────────────────────────────────────────────────────────
+
+
+def test_check_all_flips_only_unchecked_items():
+    cl_id = req("api/checklist", "post", b={"name": "bulk check"})["id"]
+    a = _new_item(cl_id, "a", checked=False)
+    b = _new_item(cl_id, "b", checked=True)
+    c = _new_item(cl_id, "c", checked=False)
+
+    res = req(f"api/checklist/{cl_id}/items/check-all", "post")
+    assert res["affected"] == 2
+    assert res["item_count"] == 3
+    assert res["item_checked_count"] == 3
+    assert res["item_unchecked_count"] == 0
+    for item_id in (a, b, c):
+        assert req(f"api/checklist/{cl_id}/item/{item_id}/state")["checked"] is True
+
+    # Replay: nothing left to check.
+    assert req(f"api/checklist/{cl_id}/items/check-all", "post")["affected"] == 0
+
+    req(f"api/checklist/{cl_id}", "delete")
+
+
+def test_check_all_advances_server_seq():
+    cl_id = req("api/checklist", "post", b={"name": "check seq"})["id"]
+    a = _new_item(cl_id, "a")
+    before = _cursor()
+    req(f"api/checklist/{cl_id}/items/check-all", "post")
+    found = [it for it in _changes(since=before)["items"] if it["id"] == a]
+    assert found and found[0]["state"]["checked"] is True
+
+    req(f"api/checklist/{cl_id}", "delete")
+
+
+def test_check_all_requires_check_permission():
+    _assert_permission_gate("check-all", "bulk-check-viewer", "view", "check")
+
+
+# ── sort-by-name ──────────────────────────────────────────────────────────────
+
+
+def test_sort_by_name_orders_naturally_ignoring_case_and_accents():
+    cl_id = req("api/checklist", "post", b={"name": "sort"})["id"]
+    for text, checked in [
+        ("zucchini", False),
+        ("", False),
+        ("Item 10", True),
+        ("Äpfel", False),
+        ("banana", True),
+        ("item 2", False),
+        ("apple", False),
+    ]:
+        _new_item(cl_id, text, checked=checked)
+
+    res = req(f"api/checklist/{cl_id}/items/sort-by-name", "post")
+    assert res["affected"] > 0
+    assert res["item_count"] == 7
+    # Checked and unchecked are sorted together; the empty item goes last.
+    # "Äpfel" folds to "apfel", which sorts before "apple".
+    assert _texts_in_order(cl_id) == [
+        "Äpfel",
+        "apple",
+        "banana",
+        "item 2",
+        "Item 10",
+        "zucchini",
+        "",
+    ]
+    items = req(f"api/checklist/{cl_id}/item")["items"]
+    assert [i["position"]["index"] for i in items] == [1, 2, 3, 4, 5, 6, 7]
+
+    # Replay over a sorted card writes nothing.
+    assert req(f"api/checklist/{cl_id}/items/sort-by-name", "post")["affected"] == 0
+
+    req(f"api/checklist/{cl_id}", "delete")
+
+
+def test_sort_by_name_keeps_relative_order_of_equal_texts():
+    cl_id = req("api/checklist", "post", b={"name": "sort ties"})["id"]
+    first = _new_item(cl_id, "milk")
+    _new_item(cl_id, "bread")
+    second = _new_item(cl_id, "milk")
+
+    req(f"api/checklist/{cl_id}/items/sort-by-name", "post")
+    ids = [i["id"] for i in req(f"api/checklist/{cl_id}/item")["items"]]
+    assert ids[1:] == [first, second]
+
+    req(f"api/checklist/{cl_id}", "delete")
+
+
+def test_sort_by_name_advances_server_seq_and_allows_reorder():
+    cl_id = req("api/checklist", "post", b={"name": "sort seq"})["id"]
+    b = _new_item(cl_id, "b")
+    a = _new_item(cl_id, "a")
+
+    before = _cursor()
+    req(f"api/checklist/{cl_id}/items/sort-by-name", "post")
+    positions = {
+        it["id"]: it["position"]["index"] for it in _changes(since=before)["items"]
+    }
+    assert positions.get(a) == 1 and positions.get(b) == 2
+
+    # Manual reordering keeps working afterwards.
+    req(f"api/checklist/{cl_id}/item/{a}/move/under/{b}", "put")
+    assert _texts_in_order(cl_id) == ["b", "a"]
+
+    req(f"api/checklist/{cl_id}", "delete")
+
+
+def test_sort_by_name_requires_edit_permission():
+    _assert_permission_gate("sort-by-name", "bulk-sort-checker", "check", "edit")
+
+
+# ── remove-duplicates ─────────────────────────────────────────────────────────
+
+
+def test_remove_duplicates_prefers_unchecked_then_topmost():
+    cl_id = req("api/checklist", "post", b={"name": "dedup"})["id"]
+    milk_checked = _new_item(cl_id, "Milk", checked=True)
+    milk_unchecked = _new_item(cl_id, "  milk ", checked=False)
+    milk_unchecked_2 = _new_item(cl_id, "MILK", checked=False)
+    eggs_top = _new_item(cl_id, "eggs", checked=True)
+    eggs_other = _new_item(cl_id, "Eggs", checked=True)
+    bread = _new_item(cl_id, "whole  bread")
+    bread_dup = _new_item(cl_id, "Whole bread")
+    empty_1 = _new_item(cl_id, "")
+    empty_2 = _new_item(cl_id, "")
+    single = _new_item(cl_id, "butter")
+
+    res = req(f"api/checklist/{cl_id}/items/remove-duplicates", "post")
+    assert res["affected"] == 4
+    assert res["item_count"] == 6
+
+    remaining = [i["id"] for i in req(f"api/checklist/{cl_id}/item")["items"]]
+    # Empty items are never duplicates of each other.
+    assert sorted(remaining) == sorted(
+        [milk_unchecked, eggs_top, bread, empty_1, empty_2, single]
+    )
+    for gone in (milk_checked, milk_unchecked_2, eggs_other, bread_dup):
+        assert gone not in remaining
+
+    # Replay: nothing left to remove.
+    assert (
+        req(f"api/checklist/{cl_id}/items/remove-duplicates", "post")["affected"] == 0
+    )
+
+    req(f"api/checklist/{cl_id}", "delete")
+
+
+def test_remove_duplicates_advances_server_seq():
+    cl_id = req("api/checklist", "post", b={"name": "dedup seq"})["id"]
+    _new_item(cl_id, "a")
+    dup = _new_item(cl_id, "A")
+    before = _cursor()
+    req(f"api/checklist/{cl_id}/items/remove-duplicates", "post")
+    assert dup in _changes(since=before)["item_tombstones"]
+
+    req(f"api/checklist/{cl_id}", "delete")
+
+
+def test_remove_duplicates_requires_edit_permission():
+    _assert_permission_gate(
+        "remove-duplicates", "bulk-dedup-checker", "check", "edit"
+    )

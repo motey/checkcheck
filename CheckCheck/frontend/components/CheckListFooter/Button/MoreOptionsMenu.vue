@@ -46,6 +46,40 @@
     :loading="moving"
     @confirm="moveChecked()"
   />
+
+  <!-- "Remove duplicates" confirm: it tombstones rows, like delete checked. -->
+  <UModal
+    v-model:open="bulk.confirmDedupOpen.value"
+    title="Remove duplicate items?"
+    :ui="{ content: 'max-w-sm w-[calc(100vw-1rem)] sm:w-full rounded-2xl ring ring-default' }"
+  >
+    <template #content>
+      <div class="p-4 sm:p-6 flex flex-col gap-4">
+        <div class="flex flex-col gap-1">
+          <h2 class="text-lg font-semibold">Remove duplicate items?</h2>
+          <p class="text-sm text-muted" data-testid="remove-duplicates-summary">
+            <template v-if="bulk.dedupCount.value !== null">
+              {{ bulk.dedupCount.value }} duplicate {{ bulk.dedupCount.value === 1 ? "item" : "items" }} will be deleted.
+            </template>
+            Items with the same text (ignoring case and spaces) are merged into one. An unchecked copy is kept if
+            there is one, otherwise the topmost. This can't be undone.
+          </p>
+        </div>
+        <div class="flex justify-end gap-2">
+          <UButton color="neutral" variant="ghost" label="Cancel" @click.stop="bulk.confirmDedupOpen.value = false" />
+          <UButton
+            color="error"
+            label="Remove duplicates"
+            data-testid="confirm-remove-duplicates"
+            :loading="bulk.deduping.value"
+            @click.stop="bulk.removeDuplicates()"
+          />
+        </div>
+      </div>
+    </template>
+  </UModal>
+
+  <CheckListFooterAddItemsFromTextModal v-model:open="addFromTextOpen" :checkListId="checkListId" />
 </template>
 
 <script setup lang="ts">
@@ -56,6 +90,7 @@ import { useCheckListsStore } from "@/stores/checklist";
 import { useCheckListsItemStore } from "@/stores/checklist_item";
 import { usePermissions } from "@/composables/usePermissions";
 import { useReminderPanel } from "@/composables/useReminderPanel";
+import { useItemBulkActions } from "@/composables/useItemBulkActions";
 
 const checkListsStore = useCheckListsStore();
 const checkListItemStore = useCheckListsItemStore();
@@ -78,6 +113,10 @@ const canEdit = computed(() => can(checkList.value, "edit"));
 
 const confirmDeleteOpen = ref(false);
 const deleting = ref(false);
+const addFromTextOpen = ref(false);
+
+// Check all, sort by name, remove duplicates, copy as text.
+const bulk = useItemBulkActions(() => props.checkListId);
 
 // Only the open card carries a reminder panel (R4), so this is null on the
 // board preview's hover toolbar and the entry is left out there: it would have
@@ -149,6 +188,15 @@ const items = computed(
           ]
         : []),
       {
+        label: "Check all items",
+        icon: "i-lucide-check-check",
+        disabled: !canCheck.value || bulk.uncheckedCount.value === 0,
+        "data-testid": "card-check-all",
+        onSelect() {
+          bulk.checkAll();
+        },
+      },
+      {
         label: "Uncheck all items",
         icon: "i-lucide-list-x",
         disabled: !canCheck.value || checkedCount.value === 0,
@@ -165,6 +213,43 @@ const items = computed(
         "data-testid": "card-delete-checked",
         onSelect() {
           confirmDeleteOpen.value = true;
+        },
+      },
+      { type: "separator" as const },
+      {
+        label: "Add items from text",
+        icon: "i-lucide-list-plus",
+        disabled: !canEdit.value,
+        "data-testid": "card-add-items-from-text",
+        onSelect() {
+          addFromTextOpen.value = true;
+        },
+      },
+      {
+        label: "Sort items by name",
+        icon: "i-lucide-arrow-down-a-z",
+        disabled: !canEdit.value || bulk.totalCount.value < 2,
+        "data-testid": "card-sort-by-name",
+        onSelect() {
+          bulk.sortByName();
+        },
+      },
+      {
+        label: "Remove duplicates",
+        icon: "i-lucide-copy-minus",
+        disabled: !canEdit.value || bulk.totalCount.value < 2,
+        "data-testid": "card-remove-duplicates",
+        onSelect() {
+          bulk.askRemoveDuplicates();
+        },
+      },
+      {
+        label: "Copy list as text",
+        icon: "i-lucide-clipboard-copy",
+        disabled: bulk.totalCount.value === 0,
+        "data-testid": "card-copy-as-text",
+        onSelect() {
+          bulk.copyAsText();
         },
       },
     ] satisfies DropdownMenuItem[]

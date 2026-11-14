@@ -137,6 +137,22 @@ class BulkItemOpResult(BaseModel):
     )
 
 
+async def bulk_item_op_result(
+    checklist_item_crud: CheckListItemCRUD, checklist_id: uuid.UUID, affected: int
+) -> BulkItemOpResult:
+    """The response of every bulk item endpoint: affected rows plus fresh counts."""
+    return BulkItemOpResult(
+        affected=affected,
+        item_count=await checklist_item_crud.count(checklist_id),
+        item_checked_count=await checklist_item_crud.count(
+            checklist_id, checked=True
+        ),
+        item_unchecked_count=await checklist_item_crud.count(
+            checklist_id, checked=False
+        ),
+    )
+
+
 @fast_api_checklist_item_router.get(
     "/item",
     response_model=Dict[uuid.UUID, CheckListsItemPreview],
@@ -456,13 +472,62 @@ async def delete_checked_items(
         await sync_crud.create(SyncNotification(
             cl_id=checklist_id, cli_id=None, upd_prop="item_deleted"
         ))
-    return BulkItemOpResult(
-        affected=affected,
-        item_count=await checklist_item_crud.count(checklist_id),
-        item_checked_count=await checklist_item_crud.count(
-            checklist_id, checked=True
-        ),
-        item_unchecked_count=await checklist_item_crud.count(
-            checklist_id, checked=False
-        ),
+    return await bulk_item_op_result(checklist_item_crud, checklist_id, affected)
+
+
+@fast_api_checklist_item_router.post(
+    "/checklist/{checklist_id}/items/remove-duplicates",
+    response_model=BulkItemOpResult,
+    description=(
+        "Soft-delete duplicate items of a checklist in a single operation. Items "
+        "are duplicates when their text matches ignoring case and whitespace. Per "
+        "group the topmost unchecked copy stays, otherwise the topmost copy. "
+        "Requires 'edit'. Offline-safe (one outbox op); idempotent on replay."
+    ),
+)
+async def remove_duplicate_items(
+    checklist_access: UserChecklistAccess = Security(
+        require_checklist_permission(ChecklistAccessLevel.edit)
+    ),
+    checklist_item_crud: CheckListItemCRUD = Depends(CheckListItemCRUD.get_crud),
+    sync_crud: SyncNotifiationCRUD = Depends(SyncNotifiationCRUD.get_crud),
+) -> BulkItemOpResult:
+    checklist_id = checklist_access.checklist.id
+    affected = await checklist_item_crud.remove_duplicate_items(
+        checklist_id=checklist_id
     )
+    if affected:
+        # One card-level poke for the whole batch (cli_id None).
+        await sync_crud.create(SyncNotification(
+            cl_id=checklist_id, cli_id=None, upd_prop="item_deleted"
+        ))
+    return await bulk_item_op_result(checklist_item_crud, checklist_id, affected)
+
+
+@fast_api_checklist_item_router.post(
+    "/checklist/{checklist_id}/items/sort-by-name",
+    response_model=BulkItemOpResult,
+    description=(
+        "Sort all items of a checklist (checked and unchecked) A to Z once by "
+        "rewriting their positions to 1, 2, 3, ... Natural order, ignoring case, "
+        "accents and whitespace; empty items go last. Manual reordering keeps "
+        "working afterwards. Requires 'edit'. Offline-safe (one outbox op); "
+        "idempotent on replay."
+    ),
+)
+async def sort_items_by_name(
+    checklist_access: UserChecklistAccess = Security(
+        require_checklist_permission(ChecklistAccessLevel.edit)
+    ),
+    checklist_item_crud: CheckListItemCRUD = Depends(CheckListItemCRUD.get_crud),
+    sync_crud: SyncNotifiationCRUD = Depends(SyncNotifiationCRUD.get_crud),
+) -> BulkItemOpResult:
+    checklist_id = checklist_access.checklist.id
+    affected = await checklist_item_crud.sort_items_by_name(checklist_id=checklist_id)
+    if affected:
+        # One card-level poke for the whole batch (cli_id None); the legacy
+        # client refetches the card on any item_position event.
+        await sync_crud.create(SyncNotification(
+            cl_id=checklist_id, cli_id=None, upd_prop="item_position"
+        ))
+    return await bulk_item_op_result(checklist_item_crud, checklist_id, affected)

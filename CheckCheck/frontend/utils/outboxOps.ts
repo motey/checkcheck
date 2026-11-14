@@ -14,14 +14,17 @@
 // stores/checklist_item.ts calls the endpoints on the legacy path.
 
 import { Decimal } from "decimal.js";
-import type { OutboxOpInput } from "@/utils/outbox";
+import type { OutboxOpInput, OutboxOpKind } from "@/utils/outbox";
 
 const ITEM_COLLECTION_PATH = "/api/checklist/{checklist_id}/item";
 const ITEM_PATH = "/api/checklist/{checklist_id}/item/{checklist_item_id}";
 const ITEM_STATE_PATH = "/api/checklist/{checklist_id}/item/{checklist_item_id}/state";
 const ITEM_POSITION_PATH = "/api/checklist/{checklist_id}/item/{checklist_item_id}/position";
 const ITEMS_UNCHECK_ALL_PATH = "/api/checklist/{checklist_id}/items/uncheck-all";
+const ITEMS_CHECK_ALL_PATH = "/api/checklist/{checklist_id}/items/check-all";
 const ITEMS_DELETE_CHECKED_PATH = "/api/checklist/{checklist_id}/items/delete-checked";
+const ITEMS_SORT_BY_NAME_PATH = "/api/checklist/{checklist_id}/items/sort-by-name";
+const ITEMS_REMOVE_DUPLICATES_PATH = "/api/checklist/{checklist_id}/items/remove-duplicates";
 
 const CHECKLIST_COLLECTION_PATH = "/api/checklist";
 const CHECKLIST_PATH = "/api/checklist/{checklist_id}";
@@ -210,8 +213,8 @@ export function itemPositionOp(
 
 // ── Bulk item-operation builders ─────────────────────────────────────────────
 //
-// Card-level bulk operations — "uncheck all items" and "delete checked items" —
-// each modelled as ONE outbox op replayed against a dedicated server endpoint
+// Card-level bulk operations (check / uncheck all, delete checked, sort by name,
+// remove duplicates), each modelled as ONE outbox op replayed against a dedicated server endpoint
 // (the server operates on its current item set, so the client never has to hold
 // all items). `entityType: "item"` reuses the existing item plumbing with no
 // engine edits:
@@ -225,22 +228,32 @@ export function itemPositionOp(
 // `entityId` is the CARD id (not an item id): the op targets the whole card, and
 // partitionResync's `existsAfterResync(entityId)` then holds while the card lives.
 
+/** One card-level bulk op: `POST {path}` for the card, no body. */
+function bulkItemsOp(checkListId: string, kind: OutboxOpKind, path: string): OutboxOpInput {
+  return {
+    entityType: "item",
+    entityId: checkListId,
+    kind,
+    request: {
+      method: "post",
+      path,
+      pathParams: { checklist_id: checkListId },
+    },
+  };
+}
+
 /**
  * `POST /api/checklist/{id}/items/uncheck-all` — uncheck every checked item of the
  * card in one server-side operation. Idempotent on replay (nothing left to
  * uncheck). Append-only in the outbox (see `OutboxOpKind`).
  */
 export function itemsUncheckAllOp(checkListId: string): OutboxOpInput {
-  return {
-    entityType: "item",
-    entityId: checkListId,
-    kind: "bulk_uncheck",
-    request: {
-      method: "post",
-      path: ITEMS_UNCHECK_ALL_PATH,
-      pathParams: { checklist_id: checkListId },
-    },
-  };
+  return bulkItemsOp(checkListId, "bulk_uncheck", ITEMS_UNCHECK_ALL_PATH);
+}
+
+/** `POST /api/checklist/{id}/items/check-all`: the counterpart of uncheck-all. */
+export function itemsCheckAllOp(checkListId: string): OutboxOpInput {
+  return bulkItemsOp(checkListId, "bulk_check", ITEMS_CHECK_ALL_PATH);
 }
 
 /**
@@ -250,16 +263,25 @@ export function itemsUncheckAllOp(checkListId: string): OutboxOpInput {
  * semantics). Append-only in the outbox (see `OutboxOpKind`).
  */
 export function itemsDeleteCheckedOp(checkListId: string): OutboxOpInput {
-  return {
-    entityType: "item",
-    entityId: checkListId,
-    kind: "bulk_delete_checked",
-    request: {
-      method: "post",
-      path: ITEMS_DELETE_CHECKED_PATH,
-      pathParams: { checklist_id: checkListId },
-    },
-  };
+  return bulkItemsOp(checkListId, "bulk_delete_checked", ITEMS_DELETE_CHECKED_PATH);
+}
+
+/**
+ * `POST /api/checklist/{id}/items/sort-by-name`: rewrite every item's position to
+ * A to Z order (`rank + 1`, rule in utils/itemBulk.ts). Sorts whatever the server
+ * holds at replay time; a replay over a sorted card is a no-op.
+ */
+export function itemsSortByNameOp(checkListId: string): OutboxOpInput {
+  return bulkItemsOp(checkListId, "bulk_sort_by_name", ITEMS_SORT_BY_NAME_PATH);
+}
+
+/**
+ * `POST /api/checklist/{id}/items/remove-duplicates`: soft-delete duplicate items
+ * (rule in utils/itemBulk.ts). Removes whatever is duplicated at replay time; a
+ * replay finds nothing left to remove.
+ */
+export function itemsRemoveDuplicatesOp(checkListId: string): OutboxOpInput {
+  return bulkItemsOp(checkListId, "bulk_remove_duplicates", ITEMS_REMOVE_DUPLICATES_PATH);
 }
 
 // ── Checklist outbox-op builders (WI-9) ──────────────────────────────────────

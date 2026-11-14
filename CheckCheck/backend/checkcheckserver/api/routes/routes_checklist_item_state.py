@@ -60,7 +60,10 @@ from checkcheckserver.model.checklist_item import (
     CheckListItemRead,
 )
 
-from checkcheckserver.api.routes.routes_checklist_item import BulkItemOpResult
+from checkcheckserver.api.routes.routes_checklist_item import (
+    BulkItemOpResult,
+    bulk_item_op_result,
+)
 
 from checkcheckserver.config import Config
 from checkcheckserver.api.auth.security import (
@@ -161,9 +164,45 @@ async def uncheck_all_items(
     checklist_item_crud: CheckListItemCRUD = Depends(CheckListItemCRUD.get_crud),
     sync_crud: SyncNotifiationCRUD = Depends(SyncNotifiationCRUD.get_crud),
 ) -> BulkItemOpResult:
+    return await _set_all_items_checked(
+        False, checklist_access, checklist_item_state_crud, checklist_item_crud, sync_crud
+    )
+
+
+@fast_api_checklist_item_state_router.post(
+    "/checklist/{checklist_id}/items/check-all",
+    response_model=BulkItemOpResult,
+    description=(
+        "Check every currently-unchecked item of a checklist in a single "
+        "operation. Requires 'check'. Offline-safe (one outbox op) and trivially "
+        "idempotent on replay."
+    ),
+)
+async def check_all_items(
+    checklist_access: UserChecklistAccess = Security(
+        require_checklist_permission(ChecklistAccessLevel.check)
+    ),
+    checklist_item_state_crud: CheckListItemStateCRUD = Depends(
+        CheckListItemStateCRUD.get_crud
+    ),
+    checklist_item_crud: CheckListItemCRUD = Depends(CheckListItemCRUD.get_crud),
+    sync_crud: SyncNotifiationCRUD = Depends(SyncNotifiationCRUD.get_crud),
+) -> BulkItemOpResult:
+    return await _set_all_items_checked(
+        True, checklist_access, checklist_item_state_crud, checklist_item_crud, sync_crud
+    )
+
+
+async def _set_all_items_checked(
+    checked: bool,
+    checklist_access: UserChecklistAccess,
+    checklist_item_state_crud: CheckListItemStateCRUD,
+    checklist_item_crud: CheckListItemCRUD,
+    sync_crud: SyncNotifiationCRUD,
+) -> BulkItemOpResult:
     checklist_id = checklist_access.checklist.id
-    affected = await checklist_item_state_crud.uncheck_all_items(
-        checklist_id=checklist_id
+    affected = await checklist_item_state_crud.set_all_items_checked(
+        checklist_id=checklist_id, checked=checked
     )
     if affected:
         # One poke for the whole batch; the auto-appended `changes_available`
@@ -172,13 +211,4 @@ async def uncheck_all_items(
         await sync_crud.create(SyncNotification(
             cl_id=checklist_id, cli_id=None, upd_prop="item_state"
         ))
-    return BulkItemOpResult(
-        affected=affected,
-        item_count=await checklist_item_crud.count(checklist_id),
-        item_checked_count=await checklist_item_crud.count(
-            checklist_id, checked=True
-        ),
-        item_unchecked_count=await checklist_item_crud.count(
-            checklist_id, checked=False
-        ),
-    )
+    return await bulk_item_op_result(checklist_item_crud, checklist_id, affected)
