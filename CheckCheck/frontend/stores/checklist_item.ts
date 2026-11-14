@@ -260,6 +260,22 @@ export const useCheckListsItemStore = defineStore("checkListitem", {
           this.checklistWasFullLoadedOnce[checkListId] = false;
         }
       }
+      // The server leaves a card out of this map when it has no items (and when
+      // the caller lost access to it, which the delta feed reports on its own).
+      // Record "no items" for those, so the card's count is known rather than
+      // missing: a note-only card is laid out as one (issue #22) only once its
+      // count is known. A fully loaded list keeps its own array as the truth.
+      for (const checkListId of checklist_ids) {
+        if (checkListId in resChecklistPage) continue;
+        if (this.checklistWasFullLoadedOnce[checkListId]) continue;
+        if (force || !(checkListId in this.checkListsItems)) {
+          this.checkListsItems[checkListId] = [];
+        }
+        this.total_backend_count_per_checklist[checkListId] = 0;
+        this.total_backend_count_unchecked_per_checklist[checkListId] = 0;
+        this.total_backend_count_checked_per_checklist[checkListId] = 0;
+        this.checklistWasFullLoadedOnce[checkListId] = false;
+      }
       this._sortAll();
     },
     async updatePosition(
