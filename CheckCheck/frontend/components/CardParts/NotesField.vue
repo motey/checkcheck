@@ -34,17 +34,52 @@
     @focus="emit('focus')"
     @blur="onNotesBlur"
   />
-  <!-- Unobtrusive hint + Markdown cheat-sheet popup (editable notes only). -->
-  <div v-if="canEdit" class="flex-none mt-0.5 text-xs text-dimmed">
-    Markdown supported ·
-    <UPopover mode="click" :content="{ side: 'top', align: 'start' }">
-      <button type="button" class="underline hover:text-muted cursor-pointer" data-testid="markdown-help-trigger">
-        Formatting help
-      </button>
-      <template #content>
-        <MarkdownHelp />
-      </template>
-    </UPopover>
+  <!-- Hint row: the Markdown hint + cheat-sheet popup (editable notes only) on
+       the left, the copy buttons (any non-empty notes) on the right. A view-only
+       reader gets the row with just the copy buttons. -->
+  <div v-if="canEdit || hasNotes" class="flex-none mt-0.5 flex items-center gap-2 text-xs text-dimmed">
+    <div v-if="canEdit" class="min-w-0">
+      Markdown supported ·
+      <UPopover mode="click" :content="{ side: 'top', align: 'start' }">
+        <button type="button" class="underline hover:text-muted cursor-pointer" data-testid="markdown-help-trigger">
+          Formatting help
+        </button>
+        <template #content>
+          <MarkdownHelp />
+        </template>
+      </UPopover>
+    </div>
+    <!-- mousedown.prevent: a click here while the textarea is focused must not
+         blur it. The blur would swap to the rendered view, whose height differs,
+         and move the button away before the click lands. -->
+    <div v-if="hasNotes" class="ml-auto flex items-center gap-0.5" data-testid="notes-copy-actions">
+      <UTooltip text="Copy notes">
+        <UButton
+          size="xs"
+          variant="ghost"
+          color="neutral"
+          icon="i-lucide-clipboard-copy"
+          aria-label="Copy notes"
+          class="p-0.5 -my-0.5 text-dimmed hover:text-muted"
+          data-testid="notes-copy-text"
+          @mousedown.prevent
+          @click="copyNotes('text')"
+        />
+      </UTooltip>
+      <UTooltip v-if="usesMarkdown" text="Copy as Markdown">
+        <UButton
+          size="xs"
+          variant="ghost"
+          color="neutral"
+          icon="i-lucide-file-code"
+          aria-label="Copy notes as Markdown"
+          class="p-0.5 -my-0.5 text-dimmed hover:text-muted"
+          data-testid="notes-copy-markdown"
+          @mousedown.prevent
+          @click="copyNotes('markdown')"
+        />
+      </UTooltip>
+    </div>
   </div>
 </template>
 
@@ -54,9 +89,15 @@
 // a raw textarea on focus, and emits. The surface owns the write: the authed card
 // debounces into the store and holds the WI-10 editGuard marks in its focus/blur
 // handlers; the public viewer debounces into an anonymous PATCH.
-import { ref } from "vue";
+//
+// Copy buttons (issue #31): "Copy notes" puts readable plain text plus the
+// rendered HTML on the clipboard (a plain field pastes the text, a rich editor
+// the formatting); "Copy as Markdown" puts the stored source, plain text only,
+// and only shows when the notes use Markdown. Client only, works offline.
+import { computed, ref } from "vue";
 import type { PropType } from "vue";
-import { renderMarkdown } from "@/utils/markdown";
+import { markdownToPlainText, notesUseMarkdown, renderMarkdown } from "@/utils/markdown";
+import { copyTextToClipboard } from "@/utils/clipboard";
 
 const props = defineProps({
   modelValue: { type: String, default: "" },
@@ -85,6 +126,23 @@ function enterNotesEdit() {
 function onNotesBlur() {
   emit("blur");
   editingNotes.value = false;
+}
+
+// The live value, so text typed but not yet saved is copied too.
+const hasNotes = computed(() => !!props.modelValue?.trim());
+const usesMarkdown = computed(() => notesUseMarkdown(props.modelValue));
+
+const toast = useToast();
+async function copyNotes(as: "text" | "markdown") {
+  const source = props.modelValue ?? "";
+  try {
+    if (as === "markdown") await copyTextToClipboard(source);
+    else await copyTextToClipboard(markdownToPlainText(source), { html: renderMarkdown(source) });
+  } catch {
+    toast.add({ title: "Could not copy the notes", description: "The clipboard is not available here.", color: "error" });
+    return;
+  }
+  toast.add({ title: as === "markdown" ? "Notes copied as Markdown" : "Notes copied", color: "primary" });
 }
 </script>
 

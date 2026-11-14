@@ -200,3 +200,154 @@ export function renderMarkdownInline(
   if (!needle) return html;
   return highlightHtml(html, needle);
 }
+
+// ── Plain-text export of the card notes (copy to clipboard, issue #31) ──────
+//
+// "Copy notes" puts readable plain text on the clipboard, not the Markdown
+// source: markers gone, structure kept. We render with the same markdown-it
+// instance and sanitize step as `renderMarkdown` (so the text matches what the
+// card shows) and serialize the resulting DOM back to text.
+
+const BLOCK_TAGS = new Set(["P", "H1", "H2", "H3", "H4", "H5", "H6", "UL", "OL", "PRE", "BLOCKQUOTE", "HR"]);
+
+// A link reads as "label (url)". A link whose label already is its target (a
+// linkified bare URL, an autolink, a linkified e-mail address) stays just that.
+function linkText(a: Element): string {
+  const label = childrenText(a);
+  const href = a.getAttribute("href");
+  if (!href) return label;
+  const target = href.startsWith("mailto:") ? href.slice("mailto:".length) : href;
+  if (label.trim() === "") return target;
+  if (label === href || label === target) return label;
+  return `${label} (${href})`;
+}
+
+function inlineText(node: Node): string {
+  // Text node. With `breaks: true` markdown-it emits every line break as
+  // "<br>\n", so a newline in inline text is only source formatting (the <br>
+  // already counts); dropping it avoids doubled line breaks.
+  if (node.nodeType === 3) return (node.nodeValue ?? "").replace(/\n/g, "");
+  if (node.nodeType !== 1) return "";
+  const el = node as Element;
+  if (el.tagName === "BR") return "\n";
+  if (el.tagName === "A") return linkText(el);
+  return childrenText(el);
+}
+
+function childrenText(el: Element): string {
+  let out = "";
+  for (const child of Array.from(el.childNodes)) out += inlineText(child);
+  return out;
+}
+
+type TextBlock = { text: string; list: boolean };
+
+function blocksOf(parent: Element, depth: number): TextBlock[] {
+  const out: TextBlock[] = [];
+  let pending = "";
+  const flush = () => {
+    const text = pending.trim();
+    if (text) out.push({ text, list: false });
+    pending = "";
+  };
+  for (const child of Array.from(parent.childNodes)) {
+    const el = child.nodeType === 1 ? (child as Element) : null;
+    if (!el || !BLOCK_TAGS.has(el.tagName)) {
+      pending += inlineText(child);
+      continue;
+    }
+    flush();
+    switch (el.tagName) {
+      case "UL":
+      case "OL":
+        out.push({ text: listText(el, depth), list: true });
+        break;
+      case "PRE":
+        out.push({ text: (el.textContent ?? "").replace(/\n$/, ""), list: false });
+        break;
+      case "HR":
+        out.push({ text: "---", list: false });
+        break;
+      case "BLOCKQUOTE": {
+        const inner = blocksOf(el, 0).map((b) => b.text).join("\n\n");
+        const quoted = inner.split("\n").map((line) => (line ? `> ${line}` : ">")).join("\n");
+        out.push({ text: quoted, list: false });
+        break;
+      }
+      default: {
+        const text = inlineText(el).trim();
+        if (text) out.push({ text, list: false });
+      }
+    }
+  }
+  flush();
+  return out;
+}
+
+// One line per item, "- " or "1. ", nested lists indented two spaces per level.
+// Continuation lines of an item (line breaks, loose-list paragraphs) line up
+// under its text.
+function listText(list: Element, depth: number): string {
+  const ordered = list.tagName === "OL";
+  const pad = "  ".repeat(depth);
+  let n = 1;
+  const lines: string[] = [];
+  for (const li of Array.from(list.children)) {
+    if (li.tagName !== "LI") continue;
+    const marker = ordered ? `${n++}. ` : "- ";
+    const hang = pad + " ".repeat(marker.length);
+    const parts = blocksOf(li, depth + 1);
+    if (parts.length === 0 || parts[0]!.list) lines.push((pad + marker).trimEnd());
+    parts.forEach((part, i) => {
+      if (part.list) {
+        lines.push(part.text); // already indented by its own depth
+        return;
+      }
+      const partLines = part.text.split("\n");
+      partLines.forEach((line, j) => {
+        if (i === 0 && j === 0) lines.push(pad + marker + line);
+        else lines.push(line ? hang + line : "");
+      });
+    });
+  }
+  return lines.join("\n");
+}
+
+/**
+ * The card notes as readable plain text: Markdown markers removed, paragraphs
+ * and headings separated by a blank line, list items as `- ` / `1. ` (nested
+ * lists indented), links as `label (url)`, code kept verbatim, quotes prefixed
+ * with `> `. Used by "Copy notes".
+ */
+export function markdownToPlainText(source: string | null | undefined): string {
+  if (!source) return "";
+  const html = renderMarkdown(source);
+  const doc = new DOMParser().parseFromString(html, "text/html");
+  return blocksOf(doc.body, 0)
+    .map((b) => b.text)
+    .join("\n\n")
+    .trim();
+}
+
+// The source as the plain-text export would write it if no Markdown were in
+// play: unified line endings, no trailing spaces, at most one blank line.
+function normalizeSource(source: string): string {
+  return source
+    .replace(/\r\n?/g, "\n")
+    .split("\n")
+    .map((line) => line.trimEnd())
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+/**
+ * Whether the notes use Markdown in a way that changes the text: true when the
+ * plain-text export differs from the stored source. A plain "- a" list or a
+ * bare URL reads the same either way and counts as no Markdown, so "Copy as
+ * Markdown" is only offered when it would copy something different.
+ */
+export function notesUseMarkdown(source: string | null | undefined): boolean {
+  if (!source || !source.trim()) return false;
+  return markdownToPlainText(source) !== normalizeSource(source);
+}

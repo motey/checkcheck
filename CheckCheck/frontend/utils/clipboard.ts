@@ -7,13 +7,23 @@
  * Falls back to `writeText`, then to the legacy `execCommand("copy")`, which also
  * works on a plain-http deployment where `navigator.clipboard` does not exist.
  * Throws when every route fails.
+ *
+ * `opts.html` adds a `text/html` flavor to the same clipboard item: a rich
+ * editor (mail, Word) pastes the formatting, a plain field still pastes `text`.
+ * Only the `ClipboardItem` route can carry it; the fallbacks copy `text` alone.
  */
-export async function copyTextToClipboard(text: string | Promise<string>): Promise<void> {
+export async function copyTextToClipboard(
+  text: string | Promise<string>,
+  opts?: { html?: string },
+): Promise<void> {
   const clip = typeof navigator !== "undefined" ? navigator.clipboard : undefined;
-  if (typeof text !== "string" && clip?.write && typeof ClipboardItem !== "undefined") {
+  const html = opts?.html;
+  if ((typeof text !== "string" || html) && clip?.write && typeof ClipboardItem !== "undefined") {
     try {
       const blob = Promise.resolve(text).then((t) => new Blob([t], { type: "text/plain" }));
-      await clip.write([new ClipboardItem({ "text/plain": blob })]);
+      const flavors: Record<string, Promise<Blob>> = { "text/plain": blob };
+      if (html) flavors["text/html"] = Promise.resolve(new Blob([html], { type: "text/html" }));
+      await clip.write([new ClipboardItem(flavors)]);
       return;
     } catch {
       // Fall through to the plain-text routes.
