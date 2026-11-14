@@ -102,8 +102,8 @@ test.describe("bulk item operations", () => {
     await openKebab(page, dialog);
     await page.getByRole("menuitem", { name: "Uncheck all items" }).click();
 
-    // The checked count returns to 0 (every item unchecked).
-    await expect(dialog).toContainText(/0\s+checked items/, { timeout: 5_000 });
+    // Every item unchecked: the checked section (and its count) is gone.
+    await expect(dialog).not.toContainText(/checked items/, { timeout: 5_000 });
 
     // Converges on the server: nothing checked.
     await expect
@@ -183,9 +183,9 @@ test.describe("bulk item operations", () => {
     await openKebab(page, dialog);
     await page.getByRole("menuitem", { name: "Uncheck all items" }).click();
 
-    // Optimistic: checked count 0 and exactly one op queued (with the API blocked
-    // nothing could have reached the server yet).
-    await expect(dialog).toContainText(/0\s+checked items/, { timeout: 5_000 });
+    // Optimistic: nothing checked (so no checked section) and exactly one op
+    // queued (with the API blocked nothing could have reached the server yet).
+    await expect(dialog).not.toContainText(/checked items/, { timeout: 5_000 });
     await expect.poll(() => outboxOpCount(page), { timeout: 8_000 }).toBeGreaterThan(0);
 
     // ── Restore the API + reload → the outbox drains, server converges. ────────

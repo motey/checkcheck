@@ -4,7 +4,10 @@
     :style="cardStyle"
     :class="[
       hasColor ? '' : 'bg-elevated',
-      previewModeActive ? 'p-3 sm:p-4 sm:min-h-32 shadow-sm hover:shadow-md hover:ring-1 hover:ring-default cursor-pointer' : fullscreen ? '' : 'p-5 sm:p-6',
+      previewModeActive ? 'p-3 sm:p-4 shadow-sm hover:shadow-md hover:ring-1 hover:ring-default cursor-pointer' : fullscreen ? '' : 'p-5 sm:p-6',
+      // A note-only board card is as tall as its content: the height floor only
+      // exists to keep checklist cards from looking ragged in the grid.
+      previewModeActive && !noteOnly ? 'sm:min-h-32' : '',
       editModeActive && !fullscreen ? 'max-h-[92dvh] overflow-hidden' : '',
       fullscreen
         ? 'h-full overflow-hidden rounded-none border-0 px-4 pt-[max(0.25rem,env(safe-area-inset-top))] pb-[max(0.75rem,env(safe-area-inset-bottom))]'
@@ -54,10 +57,13 @@
          footer below stay pinned within the modal viewport. In preview/board
          mode it uses display:contents and behaves as if it weren't here. -->
     <div :class="editModeActive ? 'flex-1 min-h-0 overflow-y-auto overscroll-contain -mx-1 px-1' : 'contents'">
-      <!-- Board preview: rendered Markdown, read-only, line-clamped. -->
+      <!-- Board preview: rendered Markdown, read-only, line-clamped. A note-only
+           card has nothing else to show, so it gets the long clamp. -->
       <div
         v-if="!editModeActive && checkList!.text"
-        class="md-notes md-clamp flex-none text-sm opacity-80 break-words"
+        data-testid="card-notes-preview"
+        :class="previewNotesClampClass(itemCount)"
+        class="md-notes flex-none text-sm opacity-80 break-words"
         v-html="renderMarkdown(checkList!.text, { search: searchQuery })"
       />
       <!-- Open card notes: the shared focus-swap notes field (also rendered by the
@@ -69,7 +75,9 @@
         @focus="onFieldFocus('text')"
         @blur="onFieldBlur('text')"
       />
-      <div class="checklist-items-collection mt-1">
+      <!-- No empty item block on a card without items. The open card keeps it
+           for an editor, whose "Add new item" row is how the first item gets in. -->
+      <div v-if="!noteOnly || (editModeActive && canEdit)" class="checklist-items-collection mt-1">
         <CheckListItemCollectionSeperated
           v-if="checkList?.checked_items_seperated"
           :parentCheckList="checkList"
@@ -136,6 +144,7 @@ import { useCheckListsStore } from "@/stores/checklist";
 import { useCheckListsItemStore } from "@/stores/checklist_item";
 import { highlightText } from "@/utils/highlight";
 import { renderMarkdown } from "@/utils/markdown";
+import { isNoteOnlyCard, previewNotesClampClass } from "@/utils/cardLayout";
 import { isLocalFirstEnabled } from "@/utils/localFirst";
 import { useOutbox } from "@/composables/useOutbox";
 import { markEditing, clearEditing } from "@/utils/editGuard";
@@ -184,6 +193,20 @@ const showMaxItems = computed<number | undefined>(() => {
 // ref() would cache a pointer to the object at mount-time; if the store
 // replaces it (e.g. splice in refresh()), the component becomes stale.
 const checkList = computed(() => checkListsStore.get(props.checkListId));
+
+// All items, checked or not, or null while unknown. `getItemCount` falls back to
+// the backend's page counts for a card only loaded as a board preview; before
+// that first preview page arrives (no `checklistWasFullLoadedOnce` entry yet)
+// the count is not known, and the card keeps the checklist layout instead of
+// flashing as a note card. The loaded rows are a floor against count drift.
+const itemCount = computed<number | null>(() => {
+  if (!(props.checkListId in checkListsItemStore.checklistWasFullLoadedOnce)) return null;
+  return Math.max(
+    checkListsItemStore.getItemCount(props.checkListId),
+    checkListsItemStore.checkListsItems[props.checkListId]?.length ?? 0
+  );
+});
+const noteOnly = computed(() => isNoteOnlyCard(itemCount.value));
 
 // Editing the card name/notes requires edit access (P0.1 / usePermissions).
 const { can } = usePermissions();

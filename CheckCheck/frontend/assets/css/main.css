@@ -190,7 +190,8 @@ mark.search-highlight {
 
 /* Board-preview companion: the rendered block is line-clamped to 2/3 lines, but
    block children (lists, headings, blockquotes) introduce margins that make the
-   clamp look ragged. Flatten inter-block spacing so the preview stays tidy. */
+   clamp look ragged. Flatten inter-block spacing so the preview stays tidy.
+   Line breaks (<br>) stay: hiding them ran the lines of a note together. */
 .md-clamp {
   display: -webkit-box;
   -webkit-box-orient: vertical;
@@ -211,8 +212,21 @@ mark.search-highlight {
 .md-clamp :is(ul, ol) {
   padding-left: 1.2em;
 }
-.md-clamp br {
-  display: none;
+/* A small gap between blocks, so a blank line in the source (a new paragraph)
+   still reads as one instead of vanishing. */
+.md-clamp.md-notes > * + * {
+  margin-top: 0.3em;
+}
+/* A card without items is all notes: show much more of them. */
+.md-clamp.md-clamp-long {
+  -webkit-line-clamp: 12;
+  line-clamp: 12;
+}
+@media (min-width: 640px) {
+  .md-clamp.md-clamp-long {
+    -webkit-line-clamp: 20;
+    line-clamp: 20;
+  }
 }
 
 /* Phase 6 — Reduced motion.

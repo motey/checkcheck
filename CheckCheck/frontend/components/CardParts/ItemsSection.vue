@@ -4,9 +4,11 @@
   <slot name="unchecked" />
 
   <template v-if="separated">
-    <USeparator v-if="editMode" color="neutral" type="dashed" />
+    <!-- With nothing checked the header would only say "0 checked items", so it
+         and its separator stay away until the first item is checked. -->
+    <USeparator v-if="editMode && hasChecked" color="neutral" type="dashed" />
     <div
-      v-if="editMode"
+      v-if="editMode && hasChecked"
       data-testid="editor-checked-section"
       class="flex items-center"
       @click="onToggleCollapsed()"
@@ -16,7 +18,7 @@
       <span class="ml-2 text-base">{{ String(checkedCount) }} checked items</span>
     </div>
     <USeparator color="neutral" type="dashed"
-      v-if="!editMode && checkedCount > 0"
+      v-if="!editMode && hasChecked"
       :label="`+ ${String(checkedCount)} checked items`"
       class="opacity-90"  :ui="{
         label: 'text-primary-500 dark:text-primary-400',
@@ -47,6 +49,7 @@
 import { computed } from "vue";
 import { useMediaQuery } from "@vueuse/core";
 import { Collapse } from "vue-collapsed";
+import { showCheckedSection } from "@/utils/cardLayout";
 
 const isMobile = useMediaQuery("(max-width: 639px)");
 
@@ -67,6 +70,8 @@ const props = defineProps({
 });
 
 const emit = defineEmits<{ "toggle-collapsed": [] }>();
+
+const hasChecked = computed(() => showCheckedSection(props.checkedCount));
 
 // Board preview: the checked list only gets whatever row budget the unchecked
 // items left over, and nothing at all while the section is collapsed.

@@ -1,5 +1,30 @@
 <template>
-  <section class="flex flex-col gap-2" data-testid="card-reminders">
+  <!-- On a phone the section folds into a bell with a count badge, so it does
+       not take a block of the screen on every card (issue #22). Tapping the bell,
+       or the kebab's "Set a reminder", unfolds it in place. -->
+  <div v-if="folded" class="flex">
+    <UButton
+      color="neutral"
+      variant="ghost"
+      class="relative -ml-3 size-11 justify-center rounded-full"
+      :style="{ color: 'inherit' }"
+      :aria-label="reminderBellLabel(reminders.length)"
+      aria-expanded="false"
+      data-testid="card-reminders-bell"
+      @click.stop="unfold()"
+    >
+      <UIcon name="i-lucide-bell" class="size-5 opacity-80" />
+      <span
+        v-if="badgeText"
+        class="absolute top-1 right-1 min-w-4 h-4 px-1 rounded-full bg-primary text-inverted text-[10px] leading-4 font-semibold text-center"
+        aria-hidden="true"
+        data-testid="card-reminders-bell-count"
+      >
+        {{ badgeText }}
+      </span>
+    </UButton>
+  </div>
+  <section v-else ref="sectionRef" class="flex flex-col gap-2" data-testid="card-reminders">
     <div class="flex items-center gap-2">
       <UIcon name="i-lucide-alarm-clock" class="size-3.5 shrink-0 opacity-70" />
       <h3 class="flex-1 text-xs font-semibold uppercase tracking-wide opacity-70">Reminders</h3>
@@ -13,6 +38,17 @@
         :disabled="!online"
         data-testid="card-reminder-add"
         @click.stop="openForm()"
+      />
+      <UButton
+        v-if="isMobile"
+        size="xs"
+        variant="ghost"
+        color="neutral"
+        icon="i-lucide-chevron-up"
+        aria-label="Hide reminders"
+        aria-expanded="true"
+        data-testid="card-reminders-fold"
+        @click.stop="fold()"
       />
     </div>
 
@@ -162,6 +198,8 @@
 
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref, watch } from "vue";
+import { useMediaQuery } from "@vueuse/core";
+import { reminderBadgeText, reminderBellLabel } from "@/utils/cardLayout";
 import { useReminderStore } from "@/stores/reminder";
 import { useConnectivity } from "@/composables/useConnectivity";
 import {
@@ -209,6 +247,25 @@ const error = ref<string | null>(null);
 const input = ref<ReminderInput>(defaultReminderInput());
 
 const reminders = computed(() => store.forCard(props.checkListId));
+const badgeText = computed(() => reminderBadgeText(reminders.value.length));
+
+// Phones only: the section starts folded into the bell. Desktop always shows it.
+const isMobile = useMediaQuery("(max-width: 639px)");
+const unfolded = ref(false);
+const folded = computed(() => isMobile.value && !unfolded.value);
+const sectionRef = ref<HTMLElement | null>(null);
+
+function unfold(): void {
+  unfolded.value = true;
+  // The section grows downwards from where the bell sat, at the bottom of the
+  // editor's scroll region; bring what just opened into view.
+  nextTick(() => sectionRef.value?.scrollIntoView({ behavior: "smooth", block: "nearest" }));
+}
+
+function fold(): void {
+  closeForm();
+  unfolded.value = false;
+}
 const recurrenceItems = recurrenceOptions();
 const zoneHint = deviceZoneHint();
 
@@ -243,6 +300,9 @@ async function load(): Promise<void> {
 }
 
 function openForm(): void {
+  // The kebab entry reaches a folded phone section too: unfold it first, also
+  // offline, so the offline notice says why no form opens.
+  unfolded.value = true;
   if (!online.value) return;
   // A fresh default every time: "the next 09:00 that has not passed" is only
   // true at the moment it is computed.

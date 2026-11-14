@@ -64,12 +64,13 @@ test.describe("checked-items count reactivity", () => {
     const dialog = page.locator('[role="dialog"]:has(.checklist)');
     await expect(dialog).toBeVisible({ timeout: 5_000 });
     await expect(dialog.locator("[data-testid=item-row]")).toHaveCount(3, { timeout: 5_000 });
-    await expect(dialog).toContainText(/0\s+checked items/);
+    // Nothing checked yet: no "0 checked items" header (issue #22).
+    await expect(dialog.locator("[data-testid=editor-checked-section]")).toHaveCount(0);
 
     // Check the first item AFTER mount — the crux of the bug.
     await dialog.locator("li").first().getByRole("checkbox").click();
 
-    // Editor label must now reflect 1 (before the fix it stayed at 0).
+    // The header appears and reflects 1 (before the fix it stayed at 0).
     await expect(dialog).toContainText(/1\s+checked items/, { timeout: 5_000 });
 
     // Close the editor; the background board card must ALSO update to its
