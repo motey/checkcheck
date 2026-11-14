@@ -219,13 +219,13 @@ mark.search-highlight {
 }
 /* A card without items is all notes: show much more of them. */
 .md-clamp.md-clamp-long {
-  -webkit-line-clamp: 8;
-  line-clamp: 8;
+  -webkit-line-clamp: 12;
+  line-clamp: 12;
 }
 @media (min-width: 640px) {
   .md-clamp.md-clamp-long {
-    -webkit-line-clamp: 12;
-    line-clamp: 12;
+    -webkit-line-clamp: 20;
+    line-clamp: 20;
   }
 }
 

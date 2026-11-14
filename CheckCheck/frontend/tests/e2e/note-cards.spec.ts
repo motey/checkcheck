@@ -2,13 +2,13 @@
  * Note-only cards and readable notes on the board (issue #22), desktop.
  *
  * - The board preview keeps the line breaks of a note (all cards).
- * - A card without items shows far more of its note (12 lines instead of 3),
+ * - A card without items shows far more of its note (20 lines instead of 3),
  *   has no empty item block and no minimum height.
  * - "0 checked items" never renders: not on the board, not in the open card.
  * - A view-only public link to a note-only card shows just the notes, while a
  *   card with neither notes nor items still says it has no items.
  *
- * The phone side (8 note lines, the reminder bell) is touch-note-cards.spec.ts.
+ * The phone side (12 note lines, the reminder bell) is touch-note-cards.spec.ts.
  */
 import { test, expect, type Browser, type BrowserContext, type Page } from "@playwright/test";
 
@@ -21,8 +21,8 @@ async function apiPost(page: Page, path: string, body: object) {
   return res.json();
 }
 
-/** Fourteen short lines: more than the long clamp shows, so it must cut. */
-const LONG_NOTE = Array.from({ length: 14 }, (_, i) => `Line ${i + 1}`).join("\n");
+/** Twenty-four short lines: more than the long clamp shows, so it must cut. */
+const LONG_NOTE = Array.from({ length: 24 }, (_, i) => `Line ${i + 1}`).join("\n");
 /** Six short lines: fits in the long clamp, not in the short one. */
 const SIX_LINES = Array.from({ length: 6 }, (_, i) => `Row ${i + 1}`).join("\n");
 
@@ -80,7 +80,7 @@ test.describe("note-only cards (desktop)", () => {
     return link.token as string;
   }
 
-  test("the board preview keeps line breaks and gives a note-only card 12 lines", async ({ page }) => {
+  test("the board preview keeps line breaks and gives a note-only card 20 lines", async ({ page }) => {
     const tag = Date.now();
     const noteOnly = `NoteOnly-${tag}`;
     const mixed = `NoteMixed-${tag}`;
@@ -92,12 +92,12 @@ test.describe("note-only cards (desktop)", () => {
     await page.goto("/");
     await page.waitForSelector("[data-testid=checklist-board]");
 
-    // Note-only: the long clamp, every line on a line of its own, cut at 12.
+    // Note-only: the long clamp, every line on a line of its own, cut at 20.
     const long = await notesMetrics(page, noteOnly);
-    expect(long.clamp).toBe("12");
-    expect(long.brCount).toBe(13);
+    expect(long.clamp).toBe("20");
+    expect(long.brCount).toBe(23);
     expect(long.brHidden).toBe(0);
-    expect(long.visibleLines).toBe(12);
+    expect(long.visibleLines).toBe(20);
     expect(long.clipped).toBe(true);
 
     // A shorter note-only card shows all of it.

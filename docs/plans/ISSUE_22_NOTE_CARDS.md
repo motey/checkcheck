@@ -24,8 +24,8 @@ fully loaded, whose own list is the truth). Unit test:
    `assets/css/main.css`)
    - Board preview keeps `<br>` line breaks for all cards (the `.md-clamp br`
      hide rule goes).
-   - Note-only cards get a longer clamp (`.md-clamp-long`): 8 lines on phones,
-     12 on desktop, instead of 2 and 3.
+   - Note-only cards get a longer clamp (`.md-clamp-long`): 12 lines on phones,
+     20 on desktop, instead of 2 and 3.
    - Note-only cards drop the empty item block and the `sm:min-h-32` floor.
 2. **No "0 checked items"** (`CardParts/ItemsSection.vue`): the separator and
    collapse header only render when there is at least one checked item. Shared
@@ -42,7 +42,8 @@ fully loaded, whose own list is the truth). Unit test:
 
 ## Decisions taken by default (confirm with Tim)
 
-- Long clamp numbers: 8 lines on phones, 12 on desktop.
+- Long clamp numbers: 12 lines on phones, 20 on desktop (Tim raised them
+  from the first draft's 8 and 12).
 - The bell replaces the block on phones only; desktop keeps the full section
   (the issue scopes the bell to mobile).
 - The bell expands the section inline in the editor (no popover, no second
@@ -59,13 +60,14 @@ fully loaded, whose own list is the truth). Unit test:
 - A view-only public link to a card with neither notes nor items keeps the
   "This list has no items yet." line, so the card is not blank.
 
-## Left alone (open questions)
+## Settled with Tim
 
 - On desktop every board card keeps room at its bottom for the hover toolbar
-  (invisible until hover, Keep's model). A short note-only card therefore still
-  shows some empty space below the note on desktop. Overlaying the toolbar
-  instead would change every card and cover the last note lines on hover, so it
-  was not done here.
+  (invisible until hover, Keep's model), also a short note-only card. Tim: keep
+  it as is.
+- The reminder bell stays phone-only.
+
+## Left alone
 - The documentation screenshots (`gen_screenshots.sh`) were not regenerated;
   shots that showed "0 checked items" or the phone reminders block will differ.
 

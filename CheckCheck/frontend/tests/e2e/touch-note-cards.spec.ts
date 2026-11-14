@@ -1,7 +1,7 @@
 /**
  * Note-only cards on a phone (issue #22). Runs in the "mobile" project (Pixel 7).
  *
- * - A note-only board card shows 8 lines of its note instead of 2, with the
+ * - A note-only board card shows 12 lines of its note instead of 2, with the
  *   line breaks kept.
  * - In the open card the reminders block is folded into a bell with a count
  *   badge; tapping it unfolds the details in place (no second dialog), and the
@@ -21,7 +21,7 @@ async function apiPost(page: Page, path: string, body: object) {
 }
 
 const editorDialog = (page: Page) => page.locator('[role="dialog"]:has(.checklist)');
-const LONG_NOTE = Array.from({ length: 14 }, (_, i) => `Line ${i + 1}`).join("\n");
+const LONG_NOTE = Array.from({ length: 24 }, (_, i) => `Line ${i + 1}`).join("\n");
 
 test.describe("note-only cards (phone)", () => {
   const cleanup: string[] = [];
@@ -48,7 +48,7 @@ test.describe("note-only cards (phone)", () => {
     return dialog;
   }
 
-  test("a note-only board card shows 8 lines, a card with items 2", async ({ page }) => {
+  test("a note-only board card shows 12 lines, a card with items 2", async ({ page }) => {
     const tag = Date.now();
     const noteOnly = `PhoneNote-${tag}`;
     const mixed = `PhoneMixed-${tag}`;
@@ -71,7 +71,7 @@ test.describe("note-only cards (phone)", () => {
           };
         });
 
-    expect(await metrics(noteOnly)).toEqual({ clamp: "8", lines: 8 });
+    expect(await metrics(noteOnly)).toEqual({ clamp: "12", lines: 12 });
     expect(await metrics(mixed)).toEqual({ clamp: "2", lines: 2 });
   });
 

@@ -8,7 +8,7 @@ on [Keep a Changelog](https://keepachangelog.com/); dates are ISO-8601.
 ### Changed
 
 - **Cards that only hold a note read better.** On the board, a card without
-  items shows up to 8 lines of its note on a phone and 12 on a larger screen
+  items shows up to 12 lines of its note on a phone and 20 on a larger screen
   (instead of 2 and 3), and it no longer reserves room for an empty item list or
   a minimum height. Line breaks in a note now show on the board for every card,
   where the lines used to run together.
