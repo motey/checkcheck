@@ -332,8 +332,11 @@ test.describe("F4 public viewer", () => {
     page,
     browser,
   }) => {
+    // One checked item, so the collapsible "checked items" header exists: it
+    // stays away while nothing is checked.
     const { id, title, token } = await createCardWithItems(page, "view", [
       ["Some-item", false],
+      ["Done-item", true],
     ]);
 
     const anon = await openAnon(browser, token);

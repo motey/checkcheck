@@ -101,76 +101,80 @@
             />
           </template>
 
-          <div class="flex flex-col" data-testid="public-items">
-            <CardPartsItemsSection
-              :separated="separated"
-              :collapsed="collapsed"
-              edit-mode
-              :checked-count="checkedItems.length"
-              :unchecked-count="uncheckedItems.length"
-              @toggle-collapsed="setCollapsed(!collapsed)"
-            >
-              <template #unchecked>
-                <CardPartsItemList
-                  ref="uncheckedList"
-                  data-testid="public-unchecked-items"
-                  :items="separated ? uncheckedItems : allItems"
-                  :enable-drag="canEdit"
-                  :show-add-row="canEdit"
-                  @reorder="reorderItems"
-                >
-                  <template #item="{ item, registerRef }">
-                    <PublicChecklistItem
-                      :ref="registerRef"
-                      :item="item"
-                      :can-check="canCheck"
-                      :can-edit="canEdit"
-                      @toggle="toggleItem(item)"
-                      @update-text="(t: string) => updateItemText(item, t)"
-                      @delete="deleteItem(item)"
-                      @add-after="onAddAfter(item)"
-                    />
-                  </template>
-                  <template #add>
-                    <button
-                      type="button"
-                      class="flex items-center gap-1.5 py-1 w-full text-left rounded-md text-muted hover:text-default transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-inset"
-                      data-testid="public-add-item"
-                      @click="onAdd()"
-                    >
-                      <UIcon name="i-lucide-plus" class="flex-none size-5" />
-                      <span class="text-sm">Add new item</span>
-                    </button>
-                  </template>
-                </CardPartsItemList>
-              </template>
-              <template #checked>
-                <CardPartsItemList
-                  data-testid="public-checked-items"
-                  :items="checkedItems"
-                  :enable-drag="canEdit"
-                  @reorder="reorderItems"
-                >
-                  <template #item="{ item, registerRef }">
-                    <PublicChecklistItem
-                      :ref="registerRef"
-                      :item="item"
-                      :can-check="canCheck"
-                      :can-edit="canEdit"
-                      @toggle="toggleItem(item)"
-                      @update-text="(t: string) => updateItemText(item, t)"
-                      @delete="deleteItem(item)"
-                      @add-after="onAddAfter(item)"
-                    />
-                  </template>
-                </CardPartsItemList>
-              </template>
-            </CardPartsItemsSection>
+          <!-- A view-only link to a card that is all notes has no item area at
+               all (issue #22): the notes in the header are the card. -->
+          <template v-if="showItemsBody" #default>
+            <div class="flex flex-col" data-testid="public-items">
+              <CardPartsItemsSection
+                :separated="separated"
+                :collapsed="collapsed"
+                edit-mode
+                :checked-count="checkedItems.length"
+                :unchecked-count="uncheckedItems.length"
+                @toggle-collapsed="setCollapsed(!collapsed)"
+              >
+                <template #unchecked>
+                  <CardPartsItemList
+                    ref="uncheckedList"
+                    data-testid="public-unchecked-items"
+                    :items="separated ? uncheckedItems : allItems"
+                    :enable-drag="canEdit"
+                    :show-add-row="canEdit"
+                    @reorder="reorderItems"
+                  >
+                    <template #item="{ item, registerRef }">
+                      <PublicChecklistItem
+                        :ref="registerRef"
+                        :item="item"
+                        :can-check="canCheck"
+                        :can-edit="canEdit"
+                        @toggle="toggleItem(item)"
+                        @update-text="(t: string) => updateItemText(item, t)"
+                        @delete="deleteItem(item)"
+                        @add-after="onAddAfter(item)"
+                      />
+                    </template>
+                    <template #add>
+                      <button
+                        type="button"
+                        class="flex items-center gap-1.5 py-1 w-full text-left rounded-md text-muted hover:text-default transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-inset"
+                        data-testid="public-add-item"
+                        @click="onAdd()"
+                      >
+                        <UIcon name="i-lucide-plus" class="flex-none size-5" />
+                        <span class="text-sm">Add new item</span>
+                      </button>
+                    </template>
+                  </CardPartsItemList>
+                </template>
+                <template #checked>
+                  <CardPartsItemList
+                    data-testid="public-checked-items"
+                    :items="checkedItems"
+                    :enable-drag="canEdit"
+                    @reorder="reorderItems"
+                  >
+                    <template #item="{ item, registerRef }">
+                      <PublicChecklistItem
+                        :ref="registerRef"
+                        :item="item"
+                        :can-check="canCheck"
+                        :can-edit="canEdit"
+                        @toggle="toggleItem(item)"
+                        @update-text="(t: string) => updateItemText(item, t)"
+                        @delete="deleteItem(item)"
+                        @add-after="onAddAfter(item)"
+                      />
+                    </template>
+                  </CardPartsItemList>
+                </template>
+              </CardPartsItemsSection>
 
-            <p v-if="items.length === 0 && !canEdit" class="text-sm text-dimmed py-2">
-              This list has no items yet.
-            </p>
-          </div>
+              <p v-if="items.length === 0 && !canEdit" class="text-sm text-dimmed py-2">
+                This list has no items yet.
+              </p>
+            </div>
+          </template>
 
           <template #footer>
             <div class="flex items-center justify-between gap-3">
@@ -203,6 +207,7 @@
 import { computed, onMounted, onUnmounted, ref } from "vue";
 import { useDebounceFn } from "@vueuse/core";
 import { usePublicCard } from "~/composables/usePublicCard";
+import { isNoteOnlyCard } from "@/utils/cardLayout";
 
 // Standalone, fully public viewer — no auth required. The `/p/<token>` route is a
 // capability URL; the page owns all 4xx handling (plugins/api.ts skips the global
@@ -257,6 +262,13 @@ async function submitUnlock() {
 const separated = computed(() => card.value?.checked_items_seperated !== false);
 // When the card does not separate checked items, one list holds them all.
 const allItems = computed(() => [...uncheckedItems.value, ...checkedItems.value]);
+
+// The item area renders unless there is nothing to put in it: no items, no way
+// to add one, and notes that already fill the card. Without notes the "no items
+// yet" line stays, so a blank card still says something.
+const showItemsBody = computed(
+  () => canEdit.value || !isNoteOnlyCard(items.value.length) || !card.value?.text
+);
 
 // ── Card colour theme ────────────────────────────────────────────────────────
 // The `color` object is already in the public response; apply it exactly as
