@@ -49,6 +49,26 @@ on [Keep a Changelog](https://keepachangelog.com/); dates are ISO-8601.
   own. A bare `www.example.com` or `example.com/path` now stays plain text, and so
   do file names like `readme.md`, which used to become broken links. Write the
   full address, or use `[text](https://...)`, to get a link.
+- **An enabled OIDC provider needs a client secret.** The server now refuses
+  to start when an enabled entry of `AUTH_OIDC_PROVIDERS` has an empty
+  `CLIENT_SECRET`, and the message names the entry and the variable to set.
+  Before, an empty secret (for example from an unset variable in a compose
+  file) only showed up later as failed logins. Disabled providers are not
+  checked.
+
+### Fixed
+
+- **Environment variables can set single entries of list settings.** Names
+  like `AUTH_OIDC_PROVIDERS__0__CLIENT_SECRET` or `NEW_USER_DEFAULT_LABELS__0`
+  used to stop the server at startup with a validation error. They now set
+  that entry, or that one field of it, and keep the rest of the entry that
+  `config.yml` defines at the same position, so the OIDC client secret no
+  longer has to live in the config file. The position one past the end adds
+  an entry; a gap or a position that is not a number stops the server with an
+  error that names the setting. A whole list as one JSON value still works,
+  and indexed variables set next to it now change its entries instead of being
+  ignored. See "List settings in environment variables" in
+  `docs/configuration.md`.
 
 ## [1.0.0] - 2026-09-19
 

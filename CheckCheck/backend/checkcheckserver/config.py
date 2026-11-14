@@ -17,6 +17,7 @@ from pydantic_settings import (
     YamlConfigSettingsSource,
 )
 
+from checkcheckserver.config_sources import LayeredSettingsSource
 from checkcheckserver.utils import slugify_string
 
 
@@ -53,10 +54,16 @@ class Config(BaseSettings):
 
     1. an environment variable (fields holding an object or dictionary nest
        with a double underscore, e.g. ``NOTIFY_DEFAULT_MODES__card_shared__email``;
-       lists of objects such as ``AUTH_OIDC_PROVIDERS`` cannot be assembled
-       from indexed variables and take one JSON value instead),
+       list entries take their position counted from 0, e.g.
+       ``AUTH_OIDC_PROVIDERS__0__CLIENT_SECRET``, which sets that one field
+       and keeps the rest of the entry ``config.yml`` defines at that
+       position; a whole list also takes one JSON value),
     2. a ``config.yml`` file (path from ``CHECKCHECK_CONFIG_FILE``),
     3. the default shown for each field below.
+
+    The env, ``.env`` and YAML layers are merged by
+    ``checkcheckserver.config_sources.LayeredSettingsSource``, which holds the
+    exact list rules (appending, consecutive positions, errors).
 
     ``docs/CONFIG_REFERENCE.md`` and ``config.example.yml`` are generated from
     this model. After editing a field, regenerate them with
@@ -1009,6 +1016,28 @@ class Config(BaseSettings):
         return self
 
     @model_validator(mode="after")
+    def _validate_oidc_client_secrets(self) -> "Config":
+        """Refuse an enabled provider whose client secret is empty.
+
+        CheckCheck always registers itself as a confidential OAuth2 client (the
+        secret is sent on token exchange, refresh and revocation); there is no
+        public-client or PKCE-only mode. An empty secret most often means an
+        env var such as ``AUTH_OIDC_PROVIDERS__0__CLIENT_SECRET=${UNSET}`` was
+        interpolated to nothing, which would otherwise only show up as failed
+        logins. The value itself is never part of the message.
+        """
+        for index, provider in enumerate(self.AUTH_OIDC_PROVIDERS or []):
+            if provider.ENABLED and not provider.CLIENT_SECRET.get_secret_value().strip():
+                raise ValueError(
+                    f"AUTH_OIDC_PROVIDERS entry {index} "
+                    f"({provider.PROVIDER_DISPLAY_NAME!r}) is enabled but its "
+                    "CLIENT_SECRET is empty. Set it in config.yml or with the "
+                    f"environment variable AUTH_OIDC_PROVIDERS__{index}__CLIENT_SECRET, "
+                    "or set ENABLED to false for this provider."
+                )
+        return self
+
+    @model_validator(mode="after")
     def _resolve_public_address(self) -> "Config":
         """Resolve SERVER_PUBLIC_URL and the session-cookie Secure flag.
 
@@ -1170,7 +1199,9 @@ class Config(BaseSettings):
         env_nested_delimiter="__",
         env_file=env_file_path,
         env_file_encoding="utf-8",
-        yaml_file=config_file_path,
+        # No `yaml_file` here: the YAML source is created explicitly in
+        # settings_customise_sources (inside LayeredSettingsSource), and
+        # pydantic-settings warns about the key when it cannot see a YAML source.
         extra="ignore",
         # Lets an env var set a nullable setting to null (`VAR=null`). Without it
         # pydantic-settings can not: an int setting fails validation, a str setting
@@ -1190,9 +1221,17 @@ class Config(BaseSettings):
         # Priority high -> low. The YAML file sits underneath the environment so
         # secrets can stay in env vars while the non-secret shape lives in
         # config.yml. A missing config file is ignored.
+        #
+        # The three are merged by LayeredSettingsSource instead of
+        # pydantic-settings itself, so indexed env vars of list settings
+        # (AUTH_OIDC_PROVIDERS__0__CLIENT_SECRET) become real list entries and
+        # merge field by field with the entry config.yml defines at that index.
         return (
             init_settings,
-            env_settings,
-            dotenv_settings,
-            YamlConfigSettingsSource(settings_cls),
+            LayeredSettingsSource(
+                settings_cls,
+                env_settings,
+                dotenv_settings,
+                YamlConfigSettingsSource(settings_cls, yaml_file=config_file_path),
+            ),
         )

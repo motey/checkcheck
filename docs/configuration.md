@@ -36,15 +36,58 @@ For example, one leaf of the notification defaults is
 the whole branch it names: that example drops the default `in_app` entry of
 `card_shared`, so set every leaf of a branch you touch.
 
-Lists of objects cannot be assembled from indexed variables:
-`AUTH_OIDC_PROVIDERS__0__CLIENT_SECRET` does not work. The whole list takes
-one JSON value instead,
+### List settings in environment variables
+
+A list setting takes the position of an entry, counted from 0, as the next
+part of the name. For a list of plain values each variable sets one entry; for
+a list of objects, such as `AUTH_OIDC_PROVIDERS`, each variable sets one field
+of an entry:
+
+```bash
+NEW_USER_DEFAULT_LABELS__0=Work
+NEW_USER_DEFAULT_LABELS__1=Home
+
+AUTH_OIDC_PROVIDERS__0__ENABLED=true
+AUTH_OIDC_PROVIDERS__0__PROVIDER_DISPLAY_NAME="Company SSO"
+AUTH_OIDC_PROVIDERS__0__CONFIGURATION_ENDPOINT=https://sso.example.com/application/o/checkcheck/.well-known/openid-configuration
+AUTH_OIDC_PROVIDERS__0__CLIENT_ID=checkcheck
+AUTH_OIDC_PROVIDERS__0__CLIENT_SECRET=the-client-secret
+AUTH_OIDC_PROVIDERS__0__SCOPES='["openid", "profile", "email", "offline_access"]'
+AUTH_OIDC_PROVIDERS__0__ROLE_MAPPING='{"sso-admins": ["admin"]}'
+```
+
+A field that is itself a list or an object (`SCOPES`, `ROLE_MAPPING`) takes a
+JSON value, or is broken down further the same way
+(`AUTH_OIDC_PROVIDERS__0__SCOPES__0=openid`,
+`AUTH_OIDC_PROVIDERS__0__SCOPES__1=email`). The
+[reference](CONFIG_REFERENCE.md) writes the position as `[*]`, for example
+`AUTH_OIDC_PROVIDERS[*]__CLIENT_SECRET`: put the number of the entry there.
+
+Indexed variables combine with a list that `config.yml` (or a lower-priority
+source such as the `.env` file) defines:
+
+- A variable changes only what it names. In a list of objects the other fields
+  of that entry keep their values from the file. This is how the client secret
+  stays out of `config.yml`: describe the provider in the file and set only
+  `AUTH_OIDC_PROVIDERS__0__CLIENT_SECRET` in the environment (see the OIDC
+  section below).
+- The position right after the last entry of the file adds an entry. With one
+  provider in the file, `AUTH_OIDC_PROVIDERS__1__...` describes a second one.
+- Positions must be consecutive. A gap (`__0` and `__2` without `__1`, with no
+  entry 1 in the file either) or a position that is not a number stops the
+  server with an error that names the setting.
+- The built-in default of a list is replaced, not patched, just as for
+  dictionaries: `NEW_USER_DEFAULT_LABELS__0=Home` on its own gives the single
+  label `Home`.
+
+A whole list as one JSON value still works and replaces the list from the
+file:
 
 ```bash
 AUTH_OIDC_PROVIDERS='[{"ENABLED": true, "CLIENT_ID": "checkcheck", ...}]'
 ```
 
-which gets awkward fast, so if you use OIDC, prefer the YAML file (see below).
+Indexed variables next to it change its entries.
 
 ### Setting null
 
@@ -355,9 +398,8 @@ hour in the same background task that sends messages, together with
 ## Logging in with an external provider (OIDC)
 
 CheckCheck can delegate login to any OpenID Connect provider (Authentik,
-Keycloak, and so on). Because a provider is a list of objects, configure it in
-`config.yml` rather than through environment variables. A worked single-provider
-example:
+Keycloak, and so on). A provider has many fields, so `config.yml` is the most
+readable place for it. A worked single-provider example:
 
 ```yaml
 # Encrypts the stored OIDC tokens. Required once any provider is configured.
@@ -377,6 +419,23 @@ AUTH_OIDC_PROVIDERS:
       sso-admins: ["admin"]
       sso-usermanagers: ["usermanager"]
 ```
+
+To keep the client secret out of the file, leave `CLIENT_SECRET` out of the
+entry and set it from your secret store instead. The `0` is the position of
+the provider in the list, counted from 0:
+
+```bash
+AUTH_OIDC_PROVIDERS__0__CLIENT_SECRET=the-client-secret
+```
+
+An enabled provider must have a non-empty client secret, otherwise the server
+refuses to start and names the provider and the variable to set. This catches
+a secret variable that your orchestrator left empty. CheckCheck always logs in
+as a confidential client, so there is no mode without a secret.
+
+The same works for every other field, and a provider can also be described
+entirely through environment variables; see
+[List settings in environment variables](#list-settings-in-environment-variables).
 
 ### Redirect URI to register with the provider
 
