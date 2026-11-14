@@ -99,12 +99,12 @@ export function useItemBulkActions(checkListId: () => string) {
     const copied = (await text).split("\n").filter(Boolean).length;
     const label = `${copied} ${copied === 1 ? "item" : "items"}`;
     if (complete) {
-      toast.add({ title: "List copied", description: `${label} copied as a Markdown checklist.`, color: "success" });
+      toast.add({ title: "List copied", description: `${label} copied as a Markdown checklist.`, color: "primary" });
     } else {
       toast.add({
         title: "List partly copied",
         description: `${label} copied. The rest of this list is not available offline.`,
-        color: "warning",
+        color: "neutral",
       });
     }
   }
