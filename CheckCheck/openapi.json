@@ -2504,6 +2504,138 @@
         }
       }
     },
+    "/api/checklist/{checklist_id}/duplicate": {
+      "post": {
+        "tags": [
+          "Checklist"
+        ],
+        "summary": "Duplicate Checklist",
+        "description": "Create a copy of a checklist owned by the caller: the name gets a '(copy)' suffix, the note, color, view settings and the caller's own labels are copied, and so are all items, in the same order and all unchecked. Shares, public links and reminders are not copied. Requires 'view' on the source. Idempotent when the body carries a client `id` for the new card (a replay returns the existing copy).",
+        "operationId": "duplicate_checklist_api_checklist__checklist_id__duplicate_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "checklist_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Checklist Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/CheckListCopyRequest"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Copy Request"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CheckListApiWithSubObj"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/checklist/{checklist_id}/items/move-checked": {
+      "post": {
+        "tags": [
+          "Checklist"
+        ],
+        "summary": "Move Checked Items",
+        "description": "Move every currently checked item of a checklist into a new checklist owned by the caller. The new card's name gets a '(done)' suffix and it gets the note, color, view settings and the caller's own labels of the source; the items keep their order and checked state and are removed (tombstoned) from the source. Shares, public links and reminders are not copied. Requires 'edit' on the source (the same as deleting checked items). Idempotent when the body carries a client `id` for the new card: a replay returns the existing card and moves nothing again.",
+        "operationId": "move_checked_items_api_checklist__checklist_id__items_move_checked_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "checklist_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Checklist Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/CheckListCopyRequest"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Copy Request"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CheckListApiWithSubObj"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/checklist/{checklist_id}/shares": {
       "get": {
         "tags": [
@@ -6949,6 +7081,66 @@
           "labels"
         ],
         "title": "CheckListApiWithSubObj"
+      },
+      "CheckListCopyPosition": {
+        "properties": {
+          "index": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Index",
+            "description": "Board index of the new card for the caller. Omit to place it at the top of the caller's board."
+          }
+        },
+        "type": "object",
+        "title": "CheckListCopyPosition"
+      },
+      "CheckListCopyRequest": {
+        "properties": {
+          "id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Id",
+            "description": "Client-generated id for the new card. Makes the call idempotent: a replay returns the card created by the first call instead of copying (or moving) again. Omit and the server assigns one."
+          },
+          "position": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CheckListCopyPosition"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "item_ids": {
+            "additionalProperties": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "propertyNames": {
+              "format": "uuid"
+            },
+            "type": "object",
+            "title": "Item Ids",
+            "description": "Optional map from a source item id to the id its copy gets. Items not in the map get a server-generated id; keys that are not copied items of the source card are ignored."
+          }
+        },
+        "type": "object",
+        "title": "CheckListCopyRequest",
+        "description": "Body of the two card-copy actions (duplicate, move checked items).\n\nEvery field is optional; an empty body is a valid request. The fields exist\nso an offline client can show the new card before the call reaches the\nserver and then converge on exactly the rows the server creates."
       },
       "CheckListCountsPublic": {
         "properties": {
