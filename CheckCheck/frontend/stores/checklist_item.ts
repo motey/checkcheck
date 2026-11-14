@@ -10,10 +10,15 @@ import {
   itemPositionOp,
   itemStateOp,
   itemUpdateOp,
+  itemsCheckAllOp,
   itemsDeleteCheckedOp,
+  itemsRemoveDuplicatesOp,
+  itemsSortByNameOp,
   itemsUncheckAllOp,
   nextItemIndex,
 } from "@/utils/outboxOps";
+import { duplicateItemIdsToRemove, sortItemsByName } from "@/utils/itemBulk";
+import { isOnline } from "@/utils/connectivity";
 
 /**
  * Deterministic item order: by fractional `position.index`, then `id` as the
@@ -316,7 +321,7 @@ export const useCheckListsItemStore = defineStore("checkListitem", {
      */
     async uncheckAllItems(checkListId: string) {
       if (!checkListId) throw new Error("checkListId empty");
-      if (isLocalFirstEnabled()) return this._localUncheckAll(checkListId);
+      if (isLocalFirstEnabled()) return this._localSetAllChecked(checkListId, false);
       const { $checkapi } = useNuxtApp();
       try {
         await $checkapi("/api/checklist/{checklist_id}/items/uncheck-all", {
@@ -348,6 +353,64 @@ export const useCheckListsItemStore = defineStore("checkListitem", {
         throw error;
       }
       await this.fetchMultipleChecklistsItemsPreview([checkListId], null, true);
+    },
+    /** Bulk "check all items": the counterpart of `uncheckAllItems`. */
+    async checkAllItems(checkListId: string) {
+      if (!checkListId) throw new Error("checkListId empty");
+      if (isLocalFirstEnabled()) return this._localSetAllChecked(checkListId, true);
+      await this._legacyBulk(checkListId, "/api/checklist/{checklist_id}/items/check-all");
+    },
+    /**
+     * Bulk "sort items by name": the server rewrites every position A to Z (one
+     * outbox op); locally the loaded items get the same `rank + 1` indices.
+     */
+    async sortItemsByName(checkListId: string) {
+      if (!checkListId) throw new Error("checkListId empty");
+      if (isLocalFirstEnabled()) return this._localSortByName(checkListId);
+      await this._legacyBulk(checkListId, "/api/checklist/{checklist_id}/items/sort-by-name");
+    },
+    /**
+     * Bulk "remove duplicates" (rule in utils/itemBulk.ts). Returns how many items
+     * were removed locally, which is exact when the card is fully loaded.
+     */
+    async removeDuplicateItems(checkListId: string): Promise<number> {
+      if (!checkListId) throw new Error("checkListId empty");
+      if (isLocalFirstEnabled()) return this._localRemoveDuplicates(checkListId);
+      const res = await this._legacyBulk(checkListId, "/api/checklist/{checklist_id}/items/remove-duplicates");
+      return res.affected;
+    },
+    /**
+     * Make sure every item of the card is in the store, for actions that need the
+     * whole list (copy as text, the duplicate count). Returns false when only a
+     * partial (preview) list is available: offline, or the card has undrained
+     * ops, in which case a full refetch could clobber the optimistic state.
+     */
+    async ensureAllItemsLoaded(checkListId: string): Promise<boolean> {
+      if (this.checklistWasFullLoadedOnce[checkListId]) return true;
+      if (isLocalFirstEnabled() && (!isOnline() || useOutbox().pendingCardIds.value.has(checkListId))) {
+        return false;
+      }
+      try {
+        await this.refreshAllCheckListItems(checkListId);
+        return true;
+      } catch {
+        return false;
+      }
+    },
+    /** Legacy (flag-off) bulk endpoint call, then re-read the card from the server. */
+    async _legacyBulk(checkListId: string, path: string): Promise<{ affected: number }> {
+      const { $checkapi } = useNuxtApp();
+      let res: { affected: number };
+      try {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        res = await ($checkapi as any)(path, { method: "post", path: { checklist_id: checkListId } });
+      } catch (error) {
+        console.error("Bulk item operation failed 'POST " + path + "' for " + checkListId, error);
+        throw error;
+      }
+      if (this.checklistWasFullLoadedOnce[checkListId]) await this.refreshAllCheckListItems(checkListId);
+      else await this.fetchMultipleChecklistsItemsPreview([checkListId], null, true);
+      return res;
     },
     async refreshState(checkListId: string, checklistidItemId: string) {
       const { $checkapi } = useNuxtApp();
@@ -523,22 +586,54 @@ export const useCheckListsItemStore = defineStore("checkListitem", {
       return newState;
     },
     /**
-     * Optimistic "uncheck all": flip every loaded item to unchecked and set the
-     * count maps directly (all unchecked, total unchanged), then enqueue the
-     * single bulk op. For a preview card only the loaded slice is flipped, but
-     * the count maps are set from the authoritative total; the delta pull +
-     * `schedulePreviewCountsRefresh` converges the rest to server truth.
+     * Optimistic "check all" / "uncheck all": flip every loaded item and set the
+     * count maps directly (all in the target state, total unchanged), then
+     * enqueue the single bulk op. For a preview card only the loaded slice is
+     * flipped, but the count maps are set from the authoritative total; the
+     * delta pull + `schedulePreviewCountsRefresh` converges the rest to server
+     * truth.
      */
-    _localUncheckAll(checkListId: string) {
+    _localSetAllChecked(checkListId: string, checked: boolean) {
       const list = this.checkListsItems[checkListId] ?? [];
       const now = new Date().toISOString();
       for (const it of list) {
-        it.state = { ...it.state, checked: false, updated_at: now };
+        if (it.state.checked !== checked) it.state = { ...it.state, checked, updated_at: now };
       }
       const total = this.total_backend_count_per_checklist[checkListId] ?? list.length;
-      this.total_backend_count_checked_per_checklist[checkListId] = 0;
-      this.total_backend_count_unchecked_per_checklist[checkListId] = total;
-      useOutbox().enqueue(itemsUncheckAllOp(checkListId));
+      this.total_backend_count_checked_per_checklist[checkListId] = checked ? total : 0;
+      this.total_backend_count_unchecked_per_checklist[checkListId] = checked ? 0 : total;
+      useOutbox().enqueue(checked ? itemsCheckAllOp(checkListId) : itemsUncheckAllOp(checkListId));
+    },
+    /**
+     * Optimistic "sort by name": give the loaded items the server's `rank + 1`
+     * indices (exact on a fully loaded card, so a later offline drag computes the
+     * same neighbours the server sees), re-sort, enqueue the single bulk op.
+     */
+    _localSortByName(checkListId: string) {
+      const list = this.checkListsItems[checkListId] ?? [];
+      const now = new Date().toISOString();
+      sortItemsByName(list).forEach((it, rank) => {
+        if (it.position.index !== rank + 1) it.position = { ...it.position, index: rank + 1, updated_at: now };
+      });
+      if (this.checkListsItems[checkListId]) this._sort(checkListId);
+      useOutbox().enqueue(itemsSortByNameOp(checkListId));
+    },
+    /**
+     * Optimistic "remove duplicates": drop the duplicates among the loaded items
+     * (same rule as the server), adjust the count maps, enqueue the single bulk
+     * op. Returns the number removed locally.
+     */
+    _localRemoveDuplicates(checkListId: string): number {
+      const list = this.checkListsItems[checkListId] ?? [];
+      const remove = new Set(duplicateItemIdsToRemove(list));
+      let removedChecked = 0;
+      for (const it of list) if (remove.has(it.id) && it.state.checked) removedChecked++;
+      if (remove.size) {
+        this.checkListsItems[checkListId] = list.filter((it) => !remove.has(it.id));
+        this._adjustCounts(checkListId, -remove.size, -removedChecked, -(remove.size - removedChecked));
+      }
+      useOutbox().enqueue(itemsRemoveDuplicatesOp(checkListId));
+      return remove.size;
     },
     /**
      * Optimistic "delete checked": drop every checked item from the loaded slice

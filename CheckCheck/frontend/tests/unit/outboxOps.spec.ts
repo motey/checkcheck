@@ -17,10 +17,14 @@ import {
   itemPositionOp,
   itemStateOp,
   itemUpdateOp,
+  itemsCheckAllOp,
   itemsDeleteCheckedOp,
+  itemsRemoveDuplicatesOp,
+  itemsSortByNameOp,
   itemsUncheckAllOp,
   nextItemIndex,
 } from "@/utils/outboxOps";
+import { coalesce, pendingChecklistIds, type OutboxOp, type OutboxOpInput } from "@/utils/outbox";
 
 const CL = "11111111-1111-1111-1111-111111111111";
 const ITEM = "22222222-2222-2222-2222-222222222222";
@@ -251,6 +255,46 @@ describe("checklist⇄label association ops", () => {
   it("keeps associations on different cards independent", () => {
     const other = "44444444-4444-4444-4444-444444444444";
     expect(checklistLabelKey(CL, LABEL)).not.toBe(checklistLabelKey(other, LABEL));
+  });
+});
+
+describe("check-all / sort-by-name / remove-duplicates ops", () => {
+  const cases: Array<[string, (id: string) => OutboxOpInput, string, string]> = [
+    ["check-all", itemsCheckAllOp, "bulk_check", "/api/checklist/{checklist_id}/items/check-all"],
+    ["sort-by-name", itemsSortByNameOp, "bulk_sort_by_name", "/api/checklist/{checklist_id}/items/sort-by-name"],
+    [
+      "remove-duplicates",
+      itemsRemoveDuplicatesOp,
+      "bulk_remove_duplicates",
+      "/api/checklist/{checklist_id}/items/remove-duplicates",
+    ],
+  ];
+
+  it.each(cases)("%s is a card-keyed POST without a body", (_name, build, kind, path) => {
+    const op = build(CL);
+    expect(op.entityType).toBe("item");
+    expect(op.entityId).toBe(CL);
+    expect(op.kind).toBe(kind);
+    expect(op.request).toEqual({ method: "post", path, pathParams: { checklist_id: CL } });
+  });
+
+  it("all five bulk kinds append in order and never merge", () => {
+    const builders = [itemsCheckAllOp, itemsSortByNameOp, itemsUncheckAllOp, itemsRemoveDuplicatesOp, itemsDeleteCheckedOp];
+    let q: OutboxOp[] = [];
+    builders.forEach((build, i) => {
+      q = coalesce(q, { ...build(CL), seq: i + 1, opId: `op-${i}`, enqueuedAt: i, attempts: 0 });
+    });
+    // Repeating one (e.g. sort twice) still appends: each click is its own op.
+    q = coalesce(q, { ...itemsSortByNameOp(CL), seq: 9, opId: "op-9", enqueuedAt: 9, attempts: 0 });
+    expect(q.map((o) => o.kind)).toEqual([
+      "bulk_check",
+      "bulk_sort_by_name",
+      "bulk_uncheck",
+      "bulk_remove_duplicates",
+      "bulk_delete_checked",
+      "bulk_sort_by_name",
+    ]);
+    expect([...pendingChecklistIds(q)]).toEqual([CL]);
   });
 });
 

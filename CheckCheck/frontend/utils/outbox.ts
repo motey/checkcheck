@@ -24,11 +24,11 @@ export type OutboxEntityType = "checklist" | "item" | "label";
  * the earlier queued one (see `coalesce`). `create` / `delete` are not merged
  * (but a `delete` cancels a still-queued `create`).
  *
- * `bulk_uncheck` / `bulk_delete_checked` are card-level bulk item operations
- * (one op per click, replayed against a dedicated server endpoint). They are
- * deliberately NOT coalescable and NOT `delete`/`create`: they are distinct,
- * order-dependent operations ("uncheck all" then "delete checked" must replay in
- * that order), so they always append and never merge across kinds.
+ * The `bulk_*` kinds are card-level bulk item operations (one op per click,
+ * replayed against a dedicated server endpoint). They are deliberately NOT
+ * coalescable and NOT `delete`/`create`: they are distinct, order-dependent
+ * operations ("uncheck all" then "delete checked" must replay in that order), so
+ * they always append and never merge across kinds.
  *
  * `duplicate` / `move_checked` are card copy actions: one op that creates a NEW
  * card (its `entityId`) from a source card (`pathParams.checklist_id`). They
@@ -45,7 +45,10 @@ export type OutboxOpKind =
   | "state"
   | "position"
   | "bulk_uncheck"
+  | "bulk_check"
   | "bulk_delete_checked"
+  | "bulk_sort_by_name"
+  | "bulk_remove_duplicates"
   | "duplicate"
   | "move_checked";
 

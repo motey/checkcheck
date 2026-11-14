@@ -62,6 +62,7 @@ from checkcheckserver.model.checklist_position import CheckListPosition
 
 from checkcheckserver.db._base_crud import create_crud_base
 from checkcheckserver.model._base_model import naive_utc_now
+from checkcheckserver.item_text import item_sort_key, normalize_item_text
 from checkcheckserver.api.paginator import QueryParamsInterface
 
 
@@ -184,6 +185,91 @@ class CheckListItemCRUD(
         if items:
             await self.session.commit()
         return len(items)
+
+    async def _list_live_items_in_position_order(
+        self, checklist_id: uuid.UUID
+    ) -> List[CheckListItem]:
+        """All live items of a checklist with state + position loaded, in display
+        order: ``(position.index, id)``, the same tiebreak the client sorts by."""
+        query = (
+            select(CheckListItem)
+            .join(
+                CheckListItemPosition,
+                CheckListItemPosition.checklist_item_id == CheckListItem.id,
+            )
+            .options(
+                contains_eager(CheckListItem.position),
+                joinedload(CheckListItem.state),
+            )
+            .where(CheckListItem.checklist_id == checklist_id)
+            .where(col(CheckListItem.deleted_at).is_(None))
+        )
+        result = await self.session.exec(query)
+        items = list(result.unique().all())
+        items.sort(key=lambda it: (it.position.index, str(it.id)))
+        return items
+
+    async def sort_items_by_name(self, checklist_id: uuid.UUID) -> int:
+        """Bulk "sort by name": rewrite the positions of all live items (checked
+        and unchecked) so they read A to Z by ``item_sort_key``. Ties keep their
+        current relative order. The new indices are ``1, 2, 3, ...`` so a client
+        holding the whole card computes the very same values offline, and a later
+        offline drag lands between the right neighbours on replay.
+
+        ORM-object mutation (see ``delete_checked_items``) so every rewritten
+        position row gets a fresh ``server_seq``. Only rows whose index actually
+        changes are written. Idempotent: a replay over an already sorted card
+        writes nothing.
+
+        Returns the number of positions changed.
+        """
+        items = await self._list_live_items_in_position_order(checklist_id)
+        # Stable sort: equal keys keep their (index, id) order from the query.
+        ordered = sorted(items, key=lambda it: (item_sort_key(it.text), it.text or ""))
+        changed = 0
+        for rank, item in enumerate(ordered):
+            new_index = float(rank + 1)
+            if item.position.index != new_index:
+                item.position.index = new_index
+                self.session.add(item.position)
+                changed += 1
+        if changed:
+            await self.session.commit()
+        return changed
+
+    async def remove_duplicate_items(self, checklist_id: uuid.UUID) -> int:
+        """Bulk "remove duplicates": items whose text matches by
+        ``normalize_item_text`` (the item-suggestion rule) count as duplicates.
+        Per group the topmost unchecked copy stays, or the topmost copy when all
+        are checked; the others are tombstoned. Items with empty text are never
+        duplicates.
+
+        ORM-object soft delete, parent row only (see ``delete_checked_items``).
+        Idempotent: a replay finds no duplicates left.
+
+        Returns the number of items tombstoned.
+        """
+        items = await self._list_live_items_in_position_order(checklist_id)
+        groups: Dict[str, List[CheckListItem]] = defaultdict(list)
+        for item in items:
+            key = normalize_item_text(item.text)
+            if not key:
+                continue
+            groups[key].append(item)
+        to_delete: List[CheckListItem] = []
+        for key, group in groups.items():
+            if len(group) < 2:
+                continue
+            unchecked = [it for it in group if not (it.state and it.state.checked)]
+            keeper = unchecked[0] if unchecked else group[0]
+            to_delete.extend(it for it in group if it is not keeper)
+        now = naive_utc_now()
+        for item in to_delete:
+            item.deleted_at = now
+            self.session.add(item)
+        if to_delete:
+            await self.session.commit()
+        return len(to_delete)
 
     async def list_changed_items(
         self,

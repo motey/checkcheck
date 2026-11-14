@@ -5202,6 +5202,104 @@
         }
       }
     },
+    "/api/checklist/{checklist_id}/items/remove-duplicates": {
+      "post": {
+        "tags": [
+          "Checklist Items"
+        ],
+        "summary": "Remove Duplicate Items",
+        "description": "Soft-delete duplicate items of a checklist in a single operation. Items are duplicates when their text matches ignoring case and whitespace. Per group the topmost unchecked copy stays, otherwise the topmost copy. Requires 'edit'. Offline-safe (one outbox op); idempotent on replay.",
+        "operationId": "remove_duplicate_items_api_checklist__checklist_id__items_remove_duplicates_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "checklist_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Checklist Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BulkItemOpResult"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/checklist/{checklist_id}/items/sort-by-name": {
+      "post": {
+        "tags": [
+          "Checklist Items"
+        ],
+        "summary": "Sort Items By Name",
+        "description": "Sort all items of a checklist (checked and unchecked) A to Z once by rewriting their positions to 1, 2, 3, ... Natural order, ignoring case, accents and whitespace; empty items go last. Manual reordering keeps working afterwards. Requires 'edit'. Offline-safe (one outbox op); idempotent on replay.",
+        "operationId": "sort_items_by_name_api_checklist__checklist_id__items_sort_by_name_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "checklist_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Checklist Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BulkItemOpResult"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/checklist/{checklist_id}/item/{checklist_item_id}/position": {
       "get": {
         "tags": [
@@ -5717,6 +5815,55 @@
         "summary": "Uncheck All Items",
         "description": "Uncheck every currently-checked item of a checklist in a single operation. Requires 'check'. Offline-safe (one outbox op) and trivially idempotent on replay.",
         "operationId": "uncheck_all_items_api_checklist__checklist_id__items_uncheck_all_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "checklist_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Checklist Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BulkItemOpResult"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/checklist/{checklist_id}/items/check-all": {
+      "post": {
+        "tags": [
+          "Checklist Items State"
+        ],
+        "summary": "Check All Items",
+        "description": "Check every currently-unchecked item of a checklist in a single operation. Requires 'check'. Offline-safe (one outbox op) and trivially idempotent on replay.",
+        "operationId": "check_all_items_api_checklist__checklist_id__items_check_all_post",
         "security": [
           {
             "HTTPBearer": []

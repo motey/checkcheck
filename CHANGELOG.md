@@ -22,6 +22,20 @@ on [Keep a Changelog](https://keepachangelog.com/); dates are ISO-8601.
   server when the connection returns. They are also available to API clients as
   `POST /api/checklist/{id}/duplicate` and
   `POST /api/checklist/{id}/items/move-checked`.
+- **More item actions in a card's ⋮ menu**, all of which also work offline:
+  - **Check all items**, the counterpart of "Uncheck all items", for example to
+    mark a finished list as done while keeping it.
+  - **Sort items by name** sorts all items (checked and unchecked) A to Z once.
+    Case, accents and extra spaces are ignored, and numbers sort by value ("Item 2"
+    before "Item 10"). You can still reorder items by hand afterwards.
+  - **Remove duplicates** merges items with the same text (ignoring case and
+    spaces, the same rule as the item suggestions). An unchecked copy is kept if
+    there is one, otherwise the topmost. It asks for confirmation first and says
+    how many items will be deleted.
+  - **Copy list as text** copies the items to the clipboard as a Markdown checklist
+    (`- [ ] milk`, `- [x] eggs`), for example to send a list via a messenger.
+- New API endpoints for these: `POST /api/checklist/{id}/items/check-all`,
+  `.../items/sort-by-name` and `.../items/remove-duplicates`.
 
 ### Changed
 
