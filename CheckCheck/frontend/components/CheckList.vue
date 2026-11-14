@@ -137,6 +137,7 @@ import { useCheckListsItemStore } from "@/stores/checklist_item";
 import { highlightText } from "@/utils/highlight";
 import { renderMarkdown } from "@/utils/markdown";
 import { isLocalFirstEnabled } from "@/utils/localFirst";
+import { useOutbox } from "@/composables/useOutbox";
 import { markEditing, clearEditing } from "@/utils/editGuard";
 import { useCreateCheckList } from "~/composables/useCreateCheckList";
 import { useDebouncedCardFields } from "~/composables/useDebouncedCardFields";
@@ -256,7 +257,11 @@ if (!props.previewModeActive && props.checkListId) {
   // a card we'd only seen as a board preview. Once loaded, deltas keep it fresh,
   // so we don't refetch — which also avoids clobbering undrained optimistic edits.
   if (isLocalFirstEnabled()) {
-    if (!checkListsItemStore.checklistWasFullLoadedOnce[props.checkListId]) {
+    // A card whose create is still queued (e.g. a fresh copy of a preview-only
+    // card) is unknown to the server, so there is nothing to fetch yet; the
+    // delta pull after the drain delivers its items.
+    const createQueued = useOutbox().queuedCreateIds("checklist").has(props.checkListId);
+    if (!checkListsItemStore.checklistWasFullLoadedOnce[props.checkListId] && !createQueued) {
       await checkListsItemStore.refreshAllCheckListItems(props.checkListId).catch(() => {});
     }
   } else {

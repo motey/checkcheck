@@ -6,10 +6,13 @@ import { useUserStore } from "@/stores/user";
 import {
   checklistCreateOp,
   checklistDeleteOp,
+  checklistDuplicateOp,
+  checklistMoveCheckedOp,
   checklistPositionOp,
   checklistUpdateOp,
   fractionalIndexBetween,
 } from "@/utils/outboxOps";
+import { planCardCopy, type CardCopyMode } from "@/utils/cardCopy";
 
 // Active filters for the server-side "filtered view" (text search and/or the
 // shared=with_me|by_me filter, optionally narrowed by a label; or the Archive
@@ -147,6 +150,50 @@ export const useCheckListsStore = defineStore("checkList", {
         this.checkLists.push(resChecklist);
       }
       this._sort();
+      return resChecklist;
+    },
+    /**
+     * Card action "Duplicate": a new card of the caller's with the same note,
+     * color, labels and items (all unchecked), titled "<name> (copy)". Returns
+     * the new card.
+     */
+    async duplicate(sourceId: string): Promise<CheckListType> {
+      return this._copyCard("duplicate", sourceId);
+    },
+    /**
+     * Card action "Move checked items to a new card": the checked items leave
+     * the card and go, still checked and in order, to a new card of the caller's
+     * titled "<name> (done)". Returns the new card.
+     */
+    async moveCheckedToNewCard(sourceId: string): Promise<CheckListType> {
+      return this._copyCard("move_checked", sourceId);
+    },
+    async _copyCard(mode: CardCopyMode, sourceId: string): Promise<CheckListType> {
+      if (!sourceId) throw new Error("Checklistid empty");
+      if (isLocalFirstEnabled()) return this._localCopyCard(mode, sourceId);
+      const { $checkapi } = useNuxtApp();
+      const checkListItemStore = useCheckListsItemStore();
+      const path =
+        mode === "duplicate"
+          ? ("/api/checklist/{checklist_id}/duplicate" as const)
+          : ("/api/checklist/{checklist_id}/items/move-checked" as const);
+      let resChecklist: CheckListType;
+      try {
+        resChecklist = await $checkapi(path, { method: "post", path: { checklist_id: sourceId }, body: {} });
+      } catch (error) {
+        console.error(`Could not ${mode} checklist 'POST ${path}' for ${sourceId}`, error);
+        throw error;
+      }
+      await checkListItemStore.refreshAllCheckListItems(resChecklist.id);
+      if (!this.checkLists.some((c) => c.id === resChecklist.id)) this.checkLists.push(resChecklist);
+      this._sort();
+      if (mode === "move_checked") {
+        if (checkListItemStore.checklistWasFullLoadedOnce[sourceId]) {
+          await checkListItemStore.refreshAllCheckListItems(sourceId);
+        } else {
+          await checkListItemStore.fetchMultipleChecklistsItemsPreview([sourceId], null, true);
+        }
+      }
       return resChecklist;
     },
     async update(checkListId: string, checklist: CheckListUpdateType): Promise<CheckListType | undefined> {
@@ -553,6 +600,62 @@ export const useCheckListsStore = defineStore("checkList", {
         })
       );
       return row;
+    },
+    /**
+     * Optimistic card copy (duplicate / move checked): show the new card right
+     * away (also offline) from what the client holds, then queue ONE op that does
+     * the whole copy server side. See utils/cardCopy.ts for how a preview-only
+     * source converges.
+     */
+    _localCopyCard(mode: CardCopyMode, sourceId: string): CheckListType {
+      const source = this.get(sourceId);
+      if (!source) throw new Error(`Unknown checklist ${sourceId}`);
+      const itemStore = useCheckListsItemStore();
+      const plan = planCardCopy(
+        mode,
+        {
+          card: source,
+          items: itemStore.checkListsItems[sourceId] ?? [],
+          fullyLoaded: itemStore.checklistWasFullLoadedOnce[sourceId] === true,
+          counts: {
+            total: itemStore.getItemCount(sourceId),
+            checked: itemStore.getItemCount(sourceId, true),
+            unchecked: itemStore.getItemCount(sourceId, false),
+          },
+        },
+        {
+          newId: crypto.randomUUID(),
+          ownerId: useUserStore().myId ?? "",
+          index: this._nextCheckListIndex(),
+          now: new Date().toISOString(),
+          newItemId: () => crypto.randomUUID(),
+        }
+      );
+      const newId = plan.card.id;
+      itemStore.checkListsItems[newId] = plan.items;
+      itemStore.checklistWasFullLoadedOnce[newId] = plan.fullyLoaded;
+      itemStore.total_backend_count_per_checklist[newId] = plan.counts.total;
+      itemStore.total_backend_count_checked_per_checklist[newId] = plan.counts.checked;
+      itemStore.total_backend_count_unchecked_per_checklist[newId] = plan.counts.unchecked;
+      if (mode === "move_checked") {
+        // The checked items leave the source: the same local effect as "Delete
+        // checked items" (unchecked count unchanged, checked count to zero).
+        const list = itemStore.checkListsItems[sourceId] ?? [];
+        itemStore.checkListsItems[sourceId] = list.filter((it) => !plan.movedSourceItemIds.has(it.id));
+        const total = itemStore.total_backend_count_per_checklist[sourceId] ?? 0;
+        const checked = itemStore.total_backend_count_checked_per_checklist[sourceId] ?? 0;
+        itemStore.total_backend_count_per_checklist[sourceId] = Math.max(0, total - checked);
+        itemStore.total_backend_count_checked_per_checklist[sourceId] = 0;
+      }
+      if (!this.checkLists.some((c) => c.id === newId)) this.checkLists.push(plan.card);
+      this._sort();
+      const body = { position: { index: plan.card.position.index }, item_ids: plan.itemIds };
+      useOutbox().enqueue(
+        mode === "duplicate"
+          ? checklistDuplicateOp(sourceId, newId, body)
+          : checklistMoveCheckedOp(sourceId, newId, body)
+      );
+      return plan.card;
     },
     _localUpdate(checkListId: string, checklist: CheckListUpdateType): CheckListType | undefined {
       const now = new Date().toISOString();

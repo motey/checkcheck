@@ -5,6 +5,24 @@ on [Keep a Changelog](https://keepachangelog.com/); dates are ISO-8601.
 
 ## [Unreleased]
 
+### Added
+
+- **Duplicate a card.** A card's ⋮ menu has a new **Duplicate card** action for
+  recurring lists such as a packing list or the weekly shopping. It creates a
+  new card titled "*name* (copy)" with the same note, color, your labels and all
+  items in the same order, all unchecked. Shares, public links and reminders are
+  not copied. Anyone who can see a card can duplicate it; the copy is yours alone.
+- **Move checked items to a new card.** The new ⋮ menu action **Move checked
+  items to new card** moves every checked item into a new card titled "*name*
+  (done)", for example to keep what is done as a log while the original card
+  stays short. The items keep their order and stay checked, and the new card gets
+  the note, color and your labels. The action asks for confirmation first and
+  needs edit access to the card, like deleting checked items.
+- Both actions work offline: the new card shows up at once and is created on the
+  server when the connection returns. They are also available to API clients as
+  `POST /api/checklist/{id}/duplicate` and
+  `POST /api/checklist/{id}/items/move-checked`.
+
 ### Changed
 
 - **Links in card notes need a scheme.** Only addresses that start with

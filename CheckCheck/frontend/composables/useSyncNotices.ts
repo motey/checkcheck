@@ -2,9 +2,10 @@ import { createSharedComposable } from "@vueuse/core";
 import { onSyncNotice, type SyncNotice } from "@/utils/syncNotices";
 import { useOutbox } from "@/composables/useOutbox";
 import { useCheckListsStore } from "@/stores/checklist";
+import { useCheckListsItemStore } from "@/stores/checklist_item";
 import { isLocalFirstEnabled } from "@/utils/localFirst";
 import { applyDelta } from "@/utils/localSnapshot";
-import type { OutboxEvent, OutboxOp } from "@/utils/outbox";
+import { isCardCopyKind, type OutboxEvent, type OutboxOp } from "@/utils/outbox";
 
 // ── Sync-notice UI (WI-11) ───────────────────────────────────────────────────
 //
@@ -124,7 +125,30 @@ export const useSyncNotices = createSharedComposable(() => {
       // back in `removed_checklist_ids` and the normal removal path takes it out;
       // a downgrade re-emits the card (view access) and it stays put (Chunk A3).
       if (isLocalFirstEnabled()) applyDelta(pinia).catch(() => {});
+      // A dropped "move checked items" never moved anything on the server, but
+      // the items already left the source card locally, and no delta will bring
+      // them back (they did not change). Re-read the source card's items.
+      const moveSource = op.kind === "move_checked" ? op.request.pathParams?.checklist_id : undefined;
+      if (moveSource) {
+        const itemStore = useCheckListsItemStore();
+        const reread = itemStore.checklistWasFullLoadedOnce[moveSource]
+          ? itemStore.refreshAllCheckListItems(moveSource)
+          : itemStore.fetchMultipleChecklistsItemsPreview([moveSource], null, true);
+        reread.catch(() => {});
+      }
       if (!firstInWindow(key)) return;
+      if (isCardCopyKind(op.kind)) {
+        toast.add({
+          title: `“${name}” couldn’t be created`,
+          description:
+            op.kind === "move_checked"
+              ? "The checked items stay in the original card."
+              : "The original card may have been deleted or is no longer shared with you.",
+          icon: "i-lucide-ban",
+          color: "error",
+        });
+        return;
+      }
       toast.add({
         title: `Offline changes to “${name}” couldn’t be saved`,
         description: impliesRowGone(status)
