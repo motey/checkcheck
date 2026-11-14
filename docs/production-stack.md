@@ -50,7 +50,7 @@ checkcheck-stack/
 ├── .env                # all secrets and hostnames; gitignored
 ├── docker-compose.yml
 ├── config/
-│   └── config.yml      # CheckCheck config; includes the OIDC client secret
+│   └── config.yml      # CheckCheck config, no secrets
 └── backups/            # database dumps land here
 ```
 
@@ -74,6 +74,8 @@ ACME_EMAIL=you@example.com
 SERVER_SESSION_SECRET=<openssl rand -hex 32>
 AUTH_JWT_SECRET=<a different openssl rand -hex 32>
 ADMIN_USER_PW=<a strong password>
+# From the Keycloak client's Credentials tab (step 4); leave empty until then
+OIDC_CLIENT_SECRET=
 
 # PostgreSQL for CheckCheck
 POSTGRES_DB=checkcheck
@@ -128,6 +130,8 @@ services:
       SERVER_SESSION_SECRET: ${SERVER_SESSION_SECRET}
       AUTH_JWT_SECRET: ${AUTH_JWT_SECRET}
       ADMIN_USER_PW: ${ADMIN_USER_PW}
+      # Fills CLIENT_SECRET of the first provider in config/config.yml.
+      AUTH_OIDC_PROVIDERS__0__CLIENT_SECRET: ${OIDC_CLIENT_SECRET}
       SERVER_PUBLIC_URL: https://${CHECKCHECK_DOMAIN}
       SQL_DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
       # Only Traefik may set X-Forwarded-* headers (its fixed address above).
@@ -280,13 +284,13 @@ Notes on the choices:
 
 ## 3. CheckCheck config/config.yml
 
-Most secrets (session/JWT secrets, admin password, SMTP password) come from
-`.env` as environment variables, which win over the file; the non-secret
-shape lives here. The OIDC client secret is the exception: an environment
-variable cannot override a single field inside the provider list, so it
-lives in this file. The file never leaves the host. Treat it like a secret
-and never commit it. See [configuration.md](configuration.md) for precedence
-and every field.
+The secrets (session/JWT secrets, admin password, OIDC client secret, SMTP
+password) come from `.env` as environment variables, which win over the file;
+the non-secret shape lives here. The OIDC client secret fills in one field of
+the provider entry below through `AUTH_OIDC_PROVIDERS__0__CLIENT_SECRET` (the
+`0` is the provider's position in the list). Still keep the file out of
+version control. See [configuration.md](configuration.md) for precedence and
+every field.
 
 ```yaml
 APP_NAME: CheckCheck
@@ -300,7 +304,7 @@ AUTH_OIDC_PROVIDERS:
     PROVIDER_DISPLAY_NAME: Keycloak        # slug "keycloak" → see callback URI below
     CONFIGURATION_ENDPOINT: https://auth.example.com/realms/checkcheck/.well-known/openid-configuration
     CLIENT_ID: checkcheck
-    CLIENT_SECRET: <paste from the Keycloak client's Credentials tab>
+    # CLIENT_SECRET is injected from .env (OIDC_CLIENT_SECRET)
     SCOPES: [openid, profile, email, offline_access]
     AUTO_CREATE_AUTHORIZED_USER: true
     AUTO_LOGIN: true                       # go straight to Keycloak, skip the login form
@@ -324,16 +328,23 @@ EXPORT_CACHE_DIR: /data/export_cache
 ```
 
 If you do not want a config file at all, the same settings also fit into the
-checkcheck service's `environment` block: scalar settings one variable each,
-the provider list as one JSON value. Drop the `./config/config.yml` volume
-mount in that case. This is what that looks like, commented out because the
-YAML file above is a lot more readable:
+checkcheck service's `environment` block: one variable per setting, and one
+per provider field with the provider's position in the name. Drop the
+`./config/config.yml` volume mount in that case. This is what that looks like,
+commented out because the YAML file above is a lot more readable:
 
 ```yaml
     # environment:
     #   APP_NAME: CheckCheck
     #   AUTH_BASIC_LOGIN_IS_ENABLED: "true"
-    #   AUTH_OIDC_PROVIDERS: '[{"ENABLED": true, "PROVIDER_DISPLAY_NAME": "Keycloak", "CONFIGURATION_ENDPOINT": "https://auth.example.com/realms/checkcheck/.well-known/openid-configuration", "CLIENT_ID": "checkcheck", "CLIENT_SECRET": "<paste from the Keycloak client Credentials tab>", "SCOPES": ["openid", "profile", "email", "offline_access"], "AUTO_CREATE_AUTHORIZED_USER": true, "AUTO_LOGIN": true}]'
+    #   AUTH_OIDC_PROVIDERS__0__ENABLED: "true"
+    #   AUTH_OIDC_PROVIDERS__0__PROVIDER_DISPLAY_NAME: Keycloak
+    #   AUTH_OIDC_PROVIDERS__0__CONFIGURATION_ENDPOINT: https://auth.example.com/realms/checkcheck/.well-known/openid-configuration
+    #   AUTH_OIDC_PROVIDERS__0__CLIENT_ID: checkcheck
+    #   AUTH_OIDC_PROVIDERS__0__CLIENT_SECRET: ${OIDC_CLIENT_SECRET}
+    #   AUTH_OIDC_PROVIDERS__0__SCOPES: '["openid", "profile", "email", "offline_access"]'
+    #   AUTH_OIDC_PROVIDERS__0__AUTO_CREATE_AUTHORIZED_USER: "true"
+    #   AUTH_OIDC_PROVIDERS__0__AUTO_LOGIN: "true"
     #   EMAIL_ENABLED: "true"
     #   EMAIL_FROM_ADDRESS: checkcheck@example.com
     #   EMAIL_SMTP_HOST: smtp.example.com
@@ -351,9 +362,9 @@ redirect-URI mismatch.
 
 ## 4. Boot and set up Keycloak
 
-CheckCheck refuses to start while a provider entry lacks its client secret,
-so bring up the pieces Keycloak needs first, create the client, and start
-the rest afterwards:
+CheckCheck needs the client secret that Keycloak issues, so bring up the
+pieces Keycloak needs first, create the client, and start the rest
+afterwards:
 
 ```bash
 mkdir -p config backups
@@ -376,7 +387,7 @@ with `KEYCLOAK_ADMIN_USERNAME` / `KEYCLOAK_ADMIN_PASSWORD`):
      The callback path is `/api/auth/oidc/callback/` plus the slug of the
      provider's display name (`"Keycloak"` becomes `keycloak`).
    - Save, open the **Credentials** tab, and paste the client secret into
-     `CLIENT_SECRET` in `config/config.yml`.
+     `OIDC_CLIENT_SECRET` in `.env`.
 4. (Optional, for `ROLE_MAPPING`) In the realm, create a group such as
    `checkcheck-admins`, put your admin in it, then add a groups claim:
    Client scopes → `checkcheck-dedicated` → Add mapper → *Group membership*,

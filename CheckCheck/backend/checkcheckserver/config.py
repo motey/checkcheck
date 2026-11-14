@@ -17,6 +17,7 @@ from pydantic_settings import (
     YamlConfigSettingsSource,
 )
 
+from checkcheckserver.config_sources import LayeredSettingsSource
 from checkcheckserver.utils import slugify_string
 
 
@@ -53,10 +54,16 @@ class Config(BaseSettings):
 
     1. an environment variable (fields holding an object or dictionary nest
        with a double underscore, e.g. ``NOTIFY_DEFAULT_MODES__card_shared__email``;
-       lists of objects such as ``AUTH_OIDC_PROVIDERS`` cannot be assembled
-       from indexed variables and take one JSON value instead),
+       list entries take their position counted from 0, e.g.
+       ``AUTH_OIDC_PROVIDERS__0__CLIENT_SECRET``, which sets that one field
+       and keeps the rest of the entry ``config.yml`` defines at that
+       position; a whole list also takes one JSON value),
     2. a ``config.yml`` file (path from ``CHECKCHECK_CONFIG_FILE``),
     3. the default shown for each field below.
+
+    The env, ``.env`` and YAML layers are merged by
+    ``checkcheckserver.config_sources.LayeredSettingsSource``, which holds the
+    exact list rules (appending, consecutive positions, errors).
 
     ``docs/CONFIG_REFERENCE.md`` and ``config.example.yml`` are generated from
     this model. After editing a field, regenerate them with
@@ -1170,7 +1177,9 @@ class Config(BaseSettings):
         env_nested_delimiter="__",
         env_file=env_file_path,
         env_file_encoding="utf-8",
-        yaml_file=config_file_path,
+        # No `yaml_file` here: the YAML source is created explicitly in
+        # settings_customise_sources (inside LayeredSettingsSource), and
+        # pydantic-settings warns about the key when it cannot see a YAML source.
         extra="ignore",
         # Lets an env var set a nullable setting to null (`VAR=null`). Without it
         # pydantic-settings can not: an int setting fails validation, a str setting
@@ -1190,9 +1199,17 @@ class Config(BaseSettings):
         # Priority high -> low. The YAML file sits underneath the environment so
         # secrets can stay in env vars while the non-secret shape lives in
         # config.yml. A missing config file is ignored.
+        #
+        # The three are merged by LayeredSettingsSource instead of
+        # pydantic-settings itself, so indexed env vars of list settings
+        # (AUTH_OIDC_PROVIDERS__0__CLIENT_SECRET) become real list entries and
+        # merge field by field with the entry config.yml defines at that index.
         return (
             init_settings,
-            env_settings,
-            dotenv_settings,
-            YamlConfigSettingsSource(settings_cls),
+            LayeredSettingsSource(
+                settings_cls,
+                env_settings,
+                dotenv_settings,
+                YamlConfigSettingsSource(settings_cls, yaml_file=config_file_path),
+            ),
         )
