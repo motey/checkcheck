@@ -45,6 +45,14 @@ on [Keep a Changelog](https://keepachangelog.com/); dates are ISO-8601.
     many items will be added before you confirm.
 - New API endpoints for these: `POST /api/checklist/{id}/items/check-all`,
   `.../items/sort-by-name` and `.../items/remove-duplicates`.
+- **Copy card notes.** In an open card, two small buttons under the notes copy
+  them to the clipboard. **Copy notes** copies readable text without Markdown
+  markers (`**bold**` becomes `bold`, a link becomes `label (address)`, lists keep
+  their `-` and `1.`). Pasted into an email or a word processor, the notes keep
+  their formatting; pasted into a plain text field, you get the plain text.
+  **Copy as Markdown** copies the notes exactly as written and only shows when
+  the notes use Markdown. The buttons are also there for people who can only
+  view the card and on public links, and they work offline.
 
 ### Changed
 
