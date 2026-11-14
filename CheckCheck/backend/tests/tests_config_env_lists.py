@@ -295,6 +295,50 @@ def test_null_list_setting_still_works(monkeypatch):
     assert Config().NEW_USER_DEFAULT_LABELS is None
 
 
+def _validation_error() -> str:
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError) as excinfo:
+        Config()
+    return str(excinfo.value)
+
+
+@pytest.mark.parametrize("empty", ["", "   "])
+def test_enabled_provider_with_empty_client_secret_is_refused(
+    monkeypatch, clean_env, empty
+):
+    # Typical cause: `AUTH_OIDC_PROVIDERS__0__CLIENT_SECRET: ${UNSET}` in a
+    # compose file, interpolated to an empty string.
+    write_yaml(clean_env, YAML_ONE_PROVIDER)
+    monkeypatch.setenv("AUTH_OIDC_PROVIDERS__0__CLIENT_SECRET", empty)
+    message = _validation_error()
+    assert "AUTH_OIDC_PROVIDERS entry 0 ('Company SSO')" in message
+    assert "CLIENT_SECRET is empty" in message
+    assert "AUTH_OIDC_PROVIDERS__0__CLIENT_SECRET" in message
+
+
+def test_empty_secret_error_names_the_right_entry(monkeypatch, clean_env):
+    write_yaml(clean_env, YAML_ONE_PROVIDER)
+    monkeypatch.setenv("AUTH_OIDC_PROVIDERS__1__ENABLED", "true")
+    monkeypatch.setenv("AUTH_OIDC_PROVIDERS__1__PROVIDER_DISPLAY_NAME", "Second")
+    monkeypatch.setenv("AUTH_OIDC_PROVIDERS__1__CLIENT_ID", "second")
+    monkeypatch.setenv("AUTH_OIDC_PROVIDERS__1__CLIENT_SECRET", "")
+    monkeypatch.setenv("AUTH_OIDC_PROVIDERS__1__CONFIGURATION_ENDPOINT", DISCOVERY)
+    message = _validation_error()
+    assert "AUTH_OIDC_PROVIDERS entry 1 ('Second')" in message
+    assert "AUTH_OIDC_PROVIDERS__1__CLIENT_SECRET" in message
+    # The secret of the healthy entry never shows up in the message.
+    assert "from-the-file" not in message
+
+
+def test_disabled_provider_may_have_an_empty_client_secret(monkeypatch, clean_env):
+    write_yaml(clean_env, YAML_ONE_PROVIDER)
+    monkeypatch.setenv("AUTH_OIDC_PROVIDERS__0__ENABLED", "false")
+    monkeypatch.setenv("AUTH_OIDC_PROVIDERS__0__CLIENT_SECRET", "")
+    (provider,) = Config().AUTH_OIDC_PROVIDERS
+    assert provider.ENABLED is False
+
+
 def test_null_inside_an_entry_sets_that_field_to_null(monkeypatch, clean_env):
     write_yaml(clean_env, YAML_ONE_PROVIDER + "    AUTO_LOGIN: true\n")
     monkeypatch.setenv("AUTH_OIDC_PROVIDERS__0__AUTO_LOGIN", "null")

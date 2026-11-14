@@ -1016,6 +1016,28 @@ class Config(BaseSettings):
         return self
 
     @model_validator(mode="after")
+    def _validate_oidc_client_secrets(self) -> "Config":
+        """Refuse an enabled provider whose client secret is empty.
+
+        CheckCheck always registers itself as a confidential OAuth2 client (the
+        secret is sent on token exchange, refresh and revocation); there is no
+        public-client or PKCE-only mode. An empty secret most often means an
+        env var such as ``AUTH_OIDC_PROVIDERS__0__CLIENT_SECRET=${UNSET}`` was
+        interpolated to nothing, which would otherwise only show up as failed
+        logins. The value itself is never part of the message.
+        """
+        for index, provider in enumerate(self.AUTH_OIDC_PROVIDERS or []):
+            if provider.ENABLED and not provider.CLIENT_SECRET.get_secret_value().strip():
+                raise ValueError(
+                    f"AUTH_OIDC_PROVIDERS entry {index} "
+                    f"({provider.PROVIDER_DISPLAY_NAME!r}) is enabled but its "
+                    "CLIENT_SECRET is empty. Set it in config.yml or with the "
+                    f"environment variable AUTH_OIDC_PROVIDERS__{index}__CLIENT_SECRET, "
+                    "or set ENABLED to false for this provider."
+                )
+        return self
+
+    @model_validator(mode="after")
     def _resolve_public_address(self) -> "Config":
         """Resolve SERVER_PUBLIC_URL and the session-cookie Secure flag.
 

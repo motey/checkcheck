@@ -362,9 +362,9 @@ redirect-URI mismatch.
 
 ## 4. Boot and set up Keycloak
 
-CheckCheck needs the client secret that Keycloak issues, so bring up the
-pieces Keycloak needs first, create the client, and start the rest
-afterwards:
+CheckCheck refuses to start while an enabled provider has an empty client
+secret (`OIDC_CLIENT_SECRET` in `.env`), so bring up the pieces Keycloak needs
+first, create the client, and start the rest afterwards:
 
 ```bash
 mkdir -p config backups

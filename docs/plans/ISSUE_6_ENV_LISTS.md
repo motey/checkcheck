@@ -55,6 +55,27 @@ untouched).
 * production-stack.md now injects the Keycloak client secret through
   `AUTH_OIDC_PROVIDERS__0__CLIENT_SECRET: ${OIDC_CLIENT_SECRET}` from `.env`.
 
+## Empty client secret (follow-up decided by Tim)
+
+An enabled provider with an empty (or whitespace-only) `CLIENT_SECRET` is
+refused at startup by `Config._validate_oidc_client_secrets`; the message
+names the entry index, display name and env var, never the value. Checked
+first: there is no public-client / PKCE-only mode, `api/auth/utils.py` always
+registers a confidential client and sends the secret on token exchange,
+refresh and revocation. Disabled providers are not checked.
+
+## Follow-ups
+
+* `AUTH_OIDC_TOKEN_STORAGE_SECRET` keeps a built-in default that nothing
+  enforces replacing, and docs/production-stack.md never sets it (out of scope
+  here).
+* `CONFIG_REFERENCE.md` `[*]` notation: left unchanged, Tim considers fixing
+  it upstream in psyplus.
+* psyplus (pydantic-settings-yaml-plus) `load()` likely has the same
+  indexed-list bug and documents `[*]__` env names. Porting
+  `LayeredSettingsSource` there and printing `__0__` is a possible later
+  upstream task; the fix stays in CheckCheck for now.
+
 ## Progress
 
 - [x] Implementation + unit tests (`tests/tests_config_env_lists.py`, 22 cases)
@@ -63,3 +84,5 @@ untouched).
 - [x] `gen_config_docs.py --check`: no drift (field metadata unchanged)
 - [x] SQLite suite: 646 passed / 10 skipped, invite pass 11 passed / 10 skipped
 - [x] Postgres suite: 647 passed / 9 skipped, invite pass 11 passed / 10 skipped
+- [x] Empty client secret check (4 more test cases): SQLite 650 passed / 10
+  skipped, Postgres 651 passed / 9 skipped, invite passes 11 passed / 10 skipped

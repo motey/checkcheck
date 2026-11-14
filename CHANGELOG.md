@@ -12,6 +12,12 @@ on [Keep a Changelog](https://keepachangelog.com/); dates are ISO-8601.
   own. A bare `www.example.com` or `example.com/path` now stays plain text, and so
   do file names like `readme.md`, which used to become broken links. Write the
   full address, or use `[text](https://...)`, to get a link.
+- **An enabled OIDC provider needs a client secret.** The server now refuses
+  to start when an enabled entry of `AUTH_OIDC_PROVIDERS` has an empty
+  `CLIENT_SECRET`, and the message names the entry and the variable to set.
+  Before, an empty secret (for example from an unset variable in a compose
+  file) only showed up later as failed logins. Disabled providers are not
+  checked.
 
 ### Fixed
 

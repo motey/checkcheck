@@ -428,6 +428,11 @@ the provider in the list, counted from 0:
 AUTH_OIDC_PROVIDERS__0__CLIENT_SECRET=the-client-secret
 ```
 
+An enabled provider must have a non-empty client secret, otherwise the server
+refuses to start and names the provider and the variable to set. This catches
+a secret variable that your orchestrator left empty. CheckCheck always logs in
+as a confidential client, so there is no mode without a secret.
+
 The same works for every other field, and a provider can also be described
 entirely through environment variables; see
 [List settings in environment variables](#list-settings-in-environment-variables).
