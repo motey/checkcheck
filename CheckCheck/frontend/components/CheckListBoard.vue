@@ -80,6 +80,7 @@
           <li
             v-for="checkList in dragPinned"
             :key="checkList.id"
+            :data-card-id="checkList.id"
             class="w-full checklist-preview rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-default"
             role="button"
             tabindex="0"
@@ -101,6 +102,7 @@
         <li
           v-for="checkList in dragNormal"
           :key="checkList.id"
+          :data-card-id="checkList.id"
           class="w-full checklist-preview rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-default"
           role="button"
           tabindex="0"
@@ -161,9 +163,10 @@ import { useDragAndDrop } from "@formkit/drag-and-drop/vue";
 import { animations } from "@formkit/drag-and-drop";
 import type { DragendEventData } from "@formkit/drag-and-drop";
 import { vElementVisibility } from "@vueuse/components";
-import { useDebounceFn } from "@vueuse/core";
+import { useDebounceFn, usePreferredReducedMotion } from "@vueuse/core";
 import { useAppRoute } from "~/composables/useAppRoute";
 import { useCreateCheckList } from "~/composables/useCreateCheckList";
+import { clearCardSpawn, peekCardSpawn, planCardFlip, type Box, type CardSpawn } from "~/utils/cardSpawn";
 
 const route = useRoute();
 const { openCard } = useAppRoute();
@@ -171,6 +174,8 @@ const { createAndOpen } = useCreateCheckList();
 const checkListStore = useCheckListsStore();
 const checkListsColorSchemeStore = useCheckListsColorSchemeStore();
 const checkListsLabelStore = useCheckListsLabelStore();
+// Declared before the list-sync watchEffect below, which runs during setup.
+const reducedMotion = usePreferredReducedMotion();
 const { checkLists, total_backend_count, searchResults, searchTotalCount } = storeToRefs(checkListStore);
 
 // "Load more" is visible when there is another page to fetch — in the filtered
@@ -309,9 +314,94 @@ watchEffect(() => {
     : checkListStore.getCheckLists({ archived: false, label_id: label });
   const pinned = source.filter((c) => c.position.pinned ?? false);
   const normal = source.filter((c) => !(c.position.pinned ?? false));
+  // A card copy just landed (utils/cardSpawn.ts): measure the cards now, while
+  // the DOM still shows the old order, and animate to the new one after render.
+  const spawn = peekCardSpawn();
+  let first: Map<string, Box> | null = null;
+  if (spawn && source.some((c) => c.id === spawn.newId)) {
+    clearCardSpawn();
+    const alreadyShown = [...toRaw(dragPinned.value), ...toRaw(dragNormal.value)].some((c) => c.id === spawn.newId);
+    if (!alreadyShown && reducedMotion.value !== "reduce") first = measureCards();
+  }
   dragPinned.value.splice(0, dragPinned.value.length, ...pinned);
   dragNormal.value.splice(0, dragNormal.value.length, ...normal);
+  if (first) {
+    const before = first;
+    void nextTick(() => playCardFlip(before, spawn!));
+  }
 });
+
+// ── Card copy animation (issue #30) ──────────────────────────────────────────
+// A FLIP: measure every card before and after the board re-rendered, then play
+// each card from its old spot to its new one. The new card starts on the source
+// card, lifts off and floats to its slot; the cards it pushed aside slide. Only
+// a copy triggers this (see the spawn hint above), never paging or filtering.
+const FLIP_ANIMATION_ID = "card-flip";
+
+function cardElements(): HTMLElement[] {
+  const out: HTMLElement[] = [];
+  for (const ul of [pinnedBoard.value, normalBoard.value]) {
+    if (ul) out.push(...Array.from(ul.querySelectorAll<HTMLElement>(":scope > li[data-card-id]")));
+  }
+  return out;
+}
+
+function measureCards(): Map<string, Box> {
+  const boxes = new Map<string, Box>();
+  for (const el of cardElements()) boxes.set(el.dataset.cardId!, el.getBoundingClientRect());
+  return boxes;
+}
+
+function playCardFlip(first: Map<string, Box>, spawn: CardSpawn) {
+  const els = cardElements();
+  // A copy made while the last one is still in flight: stop those animations so
+  // the new measurement is the cards' real slots. (`first` was measured with
+  // them running, so the cards continue from where they visibly were.)
+  for (const el of els) {
+    for (const a of el.getAnimations()) if (a.id === FLIP_ANIMATION_ID) a.cancel();
+  }
+  const byId = new Map(els.map((el) => [el.dataset.cardId!, el]));
+  const last = measureCards();
+  const flips = planCardFlip(first, last, spawn, { width: window.innerWidth, height: window.innerHeight });
+  for (const flip of flips) {
+    const el = byId.get(flip.id);
+    if (!el) continue;
+    let animation: Animation;
+    if (flip.kind === "move") {
+      animation = el.animate(
+        [{ transform: `translate(${flip.dx}px, ${flip.dy}px)` }, { transform: "none" }],
+        { duration: 350, easing: "cubic-bezier(0.2, 0, 0, 1)" }
+      );
+    } else {
+      // The new card is painted above the others for the whole flight.
+      el.style.zIndex = "20";
+      animation =
+        flip.kind === "spawn"
+          ? el.animate(
+              [
+                { transform: `translate(${flip.dx}px, ${flip.dy}px) scale(1)`, boxShadow: "0 0 0 rgb(0 0 0 / 0)" },
+                {
+                  offset: 0.25,
+                  transform: `translate(${flip.dx}px, ${flip.dy - 10}px) scale(1.04)`,
+                  boxShadow: "0 14px 32px rgb(0 0 0 / 0.22)",
+                },
+                { transform: "none", boxShadow: "0 0 0 rgb(0 0 0 / 0)" },
+              ],
+              { duration: 600, easing: "cubic-bezier(0.3, 0, 0.2, 1)" }
+            )
+          : el.animate(
+              [{ opacity: 0, transform: "scale(0.92)" }, { opacity: 1, transform: "none" }],
+              { duration: 300, easing: "ease-out" }
+            );
+      const reset = () => {
+        el.style.zIndex = "";
+      };
+      animation.addEventListener("finish", reset);
+      animation.addEventListener("cancel", reset);
+    }
+    animation.id = FLIP_ANIMATION_ID;
+  }
+}
 
 async function onLoadingTriggerVisibility(state: boolean) {
   loadingTriggerIsVisible.value = state;

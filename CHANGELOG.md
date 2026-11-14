@@ -22,6 +22,10 @@ on [Keep a Changelog](https://keepachangelog.com/); dates are ISO-8601.
   server when the connection returns. They are also available to API clients as
   `POST /api/checklist/{id}/duplicate` and
   `POST /api/checklist/{id}/items/move-checked`.
+- On the board, the new card floats out of the original card to its own spot
+  and the other cards slide aside, so it is easy to see where both cards are.
+  With "reduce motion" turned on in the system settings, the board updates
+  without animation.
 - **More item actions in a card's ⋮ menu**, all of which also work offline:
   - **Check all items**, the counterpart of "Uncheck all items", for example to
     mark a finished list as done while keeping it.

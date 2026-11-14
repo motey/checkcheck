@@ -190,6 +190,74 @@ test.describe("card copy actions", () => {
     await expect(boardCard(page, `${name} (done)`)).toHaveCount(1, { timeout: 5_000 });
   });
 
+  test("animates the copy out of the source card, unless reduced motion is asked for", async ({ page }) => {
+    // The suite emulates prefers-reduced-motion (playwright.config.ts), so a
+    // copy is instant first; with motion allowed, the board plays the FLIP:
+    // the copy raised above the others, the pushed cards sliding.
+    const tag = Date.now();
+    const name = `Anim-${tag}`;
+    const { cl, label } = await seedCard(page, name, tag);
+    cleanupCards.push(cl.id);
+    cleanupLabels.push(label.id);
+
+    await page.goto("/?localFirst=1");
+    await page.waitForSelector("[data-testid=checklist-board]");
+    const dialog = await openCard(page, name);
+
+    /** Every animation frame for `ms`: which cards run the flip, and which is raised. */
+    const watchFlips = (ms: number) =>
+      page.evaluate(
+        (ms) =>
+          new Promise<{ animated: string[]; raised: string[] }>((resolve) => {
+            const animated = new Set<string>();
+            const raised = new Set<string>();
+            const end = performance.now() + ms;
+            const tick = () => {
+              for (const el of document.querySelectorAll<HTMLElement>("li[data-card-id]")) {
+                if (!el.getAnimations().some((a) => a.id === "card-flip")) continue;
+                animated.add(el.dataset.cardId!);
+                if (el.style.zIndex === "20") raised.add(el.dataset.cardId!);
+              }
+              if (performance.now() < end) requestAnimationFrame(tick);
+              else resolve({ animated: [...animated], raised: [...raised] });
+            };
+            tick();
+          }),
+        ms
+      );
+
+    // Reduced motion: no animation.
+    let flips = watchFlips(2_000);
+    await openKebab(dialog);
+    await page.getByRole("menuitem", { name: "Duplicate card" }).click();
+    expect(await flips).toEqual({ animated: [], raised: [] });
+    await expect.poll(async () => (await serverCardsNamed(page, `${name} (copy)`)).length, { timeout: 10_000 }).toBe(1);
+    const firstCopyId: string = (await serverCardsNamed(page, `${name} (copy)`))[0].id;
+    cleanupCards.push(firstCopyId);
+
+    // Motion allowed: the second copy floats out of the source.
+    await page.emulateMedia({ reducedMotion: "no-preference" });
+    flips = watchFlips(2_000);
+    await openKebab(dialog);
+    await page.getByRole("menuitem", { name: "Duplicate card" }).click();
+    const seen = await flips;
+    await expect.poll(async () => (await serverCardsNamed(page, `${name} (copy)`)).length, { timeout: 10_000 }).toBe(2);
+    const copies = await serverCardsNamed(page, `${name} (copy)`);
+    const newest = copies.find((c: any) => c.id !== firstCopyId)!;
+    cleanupCards.push(newest.id);
+    expect(seen.raised).toEqual([newest.id]);
+    // The source card was pushed one slot and slid there.
+    expect(seen.animated).toContain(cl.id);
+
+    // Afterwards the board is at rest: no flip left running, nothing raised.
+    const rest = await page.evaluate(() =>
+      [...document.querySelectorAll<HTMLElement>("li[data-card-id]")].filter(
+        (el) => el.getAnimations().some((a) => a.id === "card-flip") || el.style.zIndex !== ""
+      ).length
+    );
+    expect(rest).toBe(0);
+  });
+
   test("duplicate and move work offline and converge after reconnect", async ({ page }) => {
     const tag = Date.now();
     const name = `CopyOffline-${tag}`;

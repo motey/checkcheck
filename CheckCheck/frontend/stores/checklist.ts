@@ -13,6 +13,7 @@ import {
   fractionalIndexBetween,
 } from "@/utils/outboxOps";
 import { planCardCopy, type CardCopyMode } from "@/utils/cardCopy";
+import { noteCardSpawn } from "@/utils/cardSpawn";
 
 // Active filters for the server-side "filtered view" (text search and/or the
 // shared=with_me|by_me filter, optionally narrowed by a label; or the Archive
@@ -185,6 +186,8 @@ export const useCheckListsStore = defineStore("checkList", {
         throw error;
       }
       await checkListItemStore.refreshAllCheckListItems(resChecklist.id);
+      // The board animates the copy out of the source card (utils/cardSpawn.ts).
+      noteCardSpawn(resChecklist.id, sourceId);
       if (!this.checkLists.some((c) => c.id === resChecklist.id)) this.checkLists.push(resChecklist);
       this._sort();
       if (mode === "move_checked") {
@@ -647,6 +650,8 @@ export const useCheckListsStore = defineStore("checkList", {
         itemStore.total_backend_count_per_checklist[sourceId] = Math.max(0, total - checked);
         itemStore.total_backend_count_checked_per_checklist[sourceId] = 0;
       }
+      // The board animates the copy out of the source card (utils/cardSpawn.ts).
+      noteCardSpawn(newId, sourceId);
       if (!this.checkLists.some((c) => c.id === newId)) this.checkLists.push(plan.card);
       this._sort();
       const body = { position: { index: plan.card.position.index }, item_ids: plan.itemIds };
