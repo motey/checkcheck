@@ -131,6 +131,24 @@ export const useCheckListsItemStore = defineStore("checkListitem", {
       this._insertNewAtCorrectIndex(this.checkListsItems[checkListId]!, resChecklistItem);
       return resChecklistItem;
     },
+    /**
+     * Append several items in the given order ("Add items from text"). Each is a
+     * normal create, so local-first it is one optimistic row plus one outbox op
+     * per item (offline capable, idempotent by client id), and each lands one
+     * step past the current last index, i.e. where a new item normally goes.
+     */
+    async createMany(checkListId: string, entries: ReadonlyArray<{ text: string; checked: boolean }>) {
+      const created: CheckListItemType[] = [];
+      for (const entry of entries) {
+        created.push(
+          await this.create(checkListId, {
+            text: entry.text,
+            state: { checked: entry.checked },
+          } as CheckListItemCreateType)
+        );
+      }
+      return created;
+    },
     async update(checkListId: string, checklistidItemId: string, checklistitem: CheckListItemUpdateType) {
       if (!checklistitem || !checklistidItemId || !checkListId) return;
       if (isLocalFirstEnabled()) return this._localUpdate(checkListId, checklistidItemId, checklistitem);

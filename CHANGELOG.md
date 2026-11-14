@@ -34,6 +34,11 @@ on [Keep a Changelog](https://keepachangelog.com/); dates are ISO-8601.
     how many items will be deleted.
   - **Copy list as text** copies the items to the clipboard as a Markdown checklist
     (`- [ ] milk`, `- [x] eggs`), for example to send a list via a messenger.
+  - **Add items from text** opens a box to paste or type a list: each line becomes
+    one item, added in order after the existing items. List markers such as `-`,
+    `*`, `•` or `1.` are removed, and `- [x]` adds a checked item, so a list copied
+    with "Copy list as text" can be added to another card as is. The box shows how
+    many items will be added before you confirm.
 - New API endpoints for these: `POST /api/checklist/{id}/items/check-all`,
   `.../items/sort-by-name` and `.../items/remove-duplicates`.
 

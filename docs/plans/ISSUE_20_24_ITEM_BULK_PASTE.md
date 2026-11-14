@@ -41,18 +41,31 @@ Replay semantics like the existing bulk ops: "operate on what the server has now
 
 ## Chunk 2: #24 add items from text
 
-Status: open
+Status: done 2026-11-14.
 
 UX decided by Tim: no automatic split on paste (pasting stays as today), no undo
-toast, no Ctrl+Shift+V handling. Instead a kebab entry "Add items from text" opens a
-modal with a multi-line textarea, a hint about the rules, and a live count. Confirm
-appends the items in order where new unchecked items normally go, through the normal
-optimistic create + outbox path (offline capable).
+toast, no Ctrl+Shift+V handling. Instead a kebab entry "Add items from text" opens
+`components/CheckListFooter/AddItemsFromTextModal.vue`: a multi-line textarea, a hint
+about the rules, a live count ("4 items will be added, 1 of them checked."), Cancel
+and "Add N items" (Ctrl/Cmd+Enter also confirms). Below `sm` the dialog is full
+screen pinned to the visual viewport like the card editor, so the buttons stay above
+the keyboard. Confirm calls the store's `createMany`: one normal optimistic create per
+item, appended in order where new items go (server: after the last index; local:
+`nextItemIndex`).
 
-Parser rules (own unit-tested module): one item per non-empty line; strip `- `, `* `,
-`• `, `1. `, `- [ ] `; `- [x]` / `- [X]` creates a checked item.
+Parser `utils/parseItemsFromText.ts` (tests in `parseItemsFromText.spec.ts`): one item
+per non-empty line; strips one bullet (`-`, `*`, `+`, `•`, `1.`, `1)`, only when
+followed by whitespace, so "-5 degrees" and "1.5 kg" stay) and then one task box;
+`[x]` / `[X]` creates a checked item. Round-trips `itemsToMarkdown`, including item
+texts that themselves start with a marker.
 
-Out of scope: an "auto-split on paste" setting (possible later follow-up).
+Why one create op per item and not a batched endpoint: the client holds every new
+item, each create is idempotent by client id, and per-item ops keep all outbox rules
+(delete cancels create, resync, pending badge, own-write echo) working with no new
+op kind. A typical paste is a handful to a few dozen items.
+
+Out of scope: an "auto-split on paste" setting (Tim sees it as a possible later
+follow-up).
 
 ## Decisions taken by default
 
@@ -61,3 +74,8 @@ Out of scope: an "auto-split on paste" setting (possible later follow-up).
   them last.
 * "Sort items by name" asks no confirmation (the issue asks only for one on remove
   duplicates).
+* "Copy list as text" copies items only, without the card title, so the output reads
+  back through "Add items from text" unchanged.
+* "Add items from text" needs `edit` (same as creating an item) and adds nothing for
+  lines that are empty after removing markers.
+

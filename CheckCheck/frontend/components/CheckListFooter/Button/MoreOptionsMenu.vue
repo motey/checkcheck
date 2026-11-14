@@ -78,6 +78,8 @@
       </div>
     </template>
   </UModal>
+
+  <CheckListFooterAddItemsFromTextModal v-model:open="addFromTextOpen" :checkListId="checkListId" />
 </template>
 
 <script setup lang="ts">
@@ -111,6 +113,7 @@ const canEdit = computed(() => can(checkList.value, "edit"));
 
 const confirmDeleteOpen = ref(false);
 const deleting = ref(false);
+const addFromTextOpen = ref(false);
 
 // Check all, sort by name, remove duplicates, copy as text.
 const bulk = useItemBulkActions(() => props.checkListId);
@@ -213,6 +216,15 @@ const items = computed(
         },
       },
       { type: "separator" as const },
+      {
+        label: "Add items from text",
+        icon: "i-lucide-list-plus",
+        disabled: !canEdit.value,
+        "data-testid": "card-add-items-from-text",
+        onSelect() {
+          addFromTextOpen.value = true;
+        },
+      },
       {
         label: "Sort items by name",
         icon: "i-lucide-arrow-down-a-z",
