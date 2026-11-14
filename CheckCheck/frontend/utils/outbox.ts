@@ -29,6 +29,14 @@ export type OutboxEntityType = "checklist" | "item" | "label";
  * deliberately NOT coalescable and NOT `delete`/`create`: they are distinct,
  * order-dependent operations ("uncheck all" then "delete checked" must replay in
  * that order), so they always append and never merge across kinds.
+ *
+ * `duplicate` / `move_checked` are card copy actions: one op that creates a NEW
+ * card (its `entityId`) from a source card (`pathParams.checklist_id`). They
+ * create the new card the way `create` does (see `createsEntity`), with one
+ * difference on cancel: a `duplicate` whose new card is deleted before it drained
+ * cancels out like a `create`, but a `move_checked` does not, because the moved
+ * items already left the source card locally and the move must still happen on
+ * the server (the delete then removes the new card).
  */
 export type OutboxOpKind =
   | "create"
@@ -37,7 +45,28 @@ export type OutboxOpKind =
   | "state"
   | "position"
   | "bulk_uncheck"
-  | "bulk_delete_checked";
+  | "bulk_delete_checked"
+  | "duplicate"
+  | "move_checked";
+
+/** The card copy kinds: they create a new card from a source card. */
+export function isCardCopyKind(kind: OutboxOpKind): boolean {
+  return kind === "duplicate" || kind === "move_checked";
+}
+
+/** Whether the op creates its entity (a plain create or a card copy). */
+function createsEntity(op: Pick<OutboxOp, "kind">): boolean {
+  return op.kind === "create" || isCardCopyKind(op.kind);
+}
+
+/**
+ * Whether a later `delete` of the op's entity cancels the op (rule 2 of
+ * `coalesce`): a plain create, and a duplicate (nothing else changed locally).
+ * Not a move, see `OutboxOpKind`.
+ */
+function cancelledByDelete(op: Pick<OutboxOp, "kind">): boolean {
+  return op.kind === "create" || op.kind === "duplicate";
+}
 
 /**
  * A self-contained description of one REST call, in the shape the generated
@@ -185,7 +214,7 @@ export function coalesce(
   // Rule 2 — delete cancels a queued create.
   if (incoming.kind === "delete") {
     const hasUnlockedCreate = queue.some(
-      (op) => op.entityId === incoming.entityId && op.kind === "create" && !lockedSeqs.has(op.seq)
+      (op) => op.entityId === incoming.entityId && cancelledByDelete(op) && !lockedSeqs.has(op.seq)
     );
     if (hasUnlockedCreate) {
       // Create never reached the server → drop the whole local history for this
@@ -201,8 +230,9 @@ export function coalesce(
       );
     }
     // No pending create → the delete supersedes any queued edits for this entity.
+    // Ops that create the entity stay (a queued move must still run first).
     const kept = queue.filter(
-      (op) => op.entityId !== incoming.entityId || op.kind === "create" || lockedSeqs.has(op.seq)
+      (op) => op.entityId !== incoming.entityId || createsEntity(op) || lockedSeqs.has(op.seq)
     );
     return [...kept, incoming];
   }
@@ -246,7 +276,7 @@ export function queuedCreateIds(
 ): Set<string> {
   const ids = new Set<string>();
   for (const op of queue) {
-    if (op.entityType === entityType && op.kind === "create") ids.add(op.entityId);
+    if (op.entityType === entityType && createsEntity(op)) ids.add(op.entityId);
   }
   return ids;
 }
@@ -417,8 +447,12 @@ export function opOwnWrites(op: OutboxOpInput): OwnWrite[] {
 export function pendingChecklistIds(queue: readonly OutboxOp[]): Set<string> {
   const ids = new Set<string>();
   for (const op of queue) {
-    if (op.entityType === "checklist") ids.add(op.entityId);
-    else if (op.entityType === "item") {
+    if (op.entityType === "checklist") {
+      ids.add(op.entityId);
+      // A move also changes its source card (the moved items leave it).
+      const source = op.request.pathParams?.checklist_id;
+      if (op.kind === "move_checked" && source) ids.add(source);
+    } else if (op.entityType === "item") {
       const clId = op.request.pathParams?.checklist_id;
       if (clId) ids.add(clId);
     } else if (op.entityType === "label") {
@@ -454,6 +488,19 @@ export function partitionResync(
   for (const op of queue) if (op.kind === "create") queuedCreates.add(op.entityId);
   const existsAfterResync = (id: string | undefined): boolean =>
     !!id && (knownIds.has(id) || queuedCreates.has(id));
+  // A card copy re-creates its new card (and the item copies it names in
+  // `item_ids`) only if its source survives. Walk in queue order so a copy of a
+  // card that is itself a queued copy resolves.
+  for (const op of queue) {
+    if (
+      isCardCopyKind(op.kind) &&
+      (lockedSeqs.has(op.seq) || existsAfterResync(op.request.pathParams?.checklist_id))
+    ) {
+      queuedCreates.add(op.entityId);
+      const itemIds = (op.request.body?.item_ids ?? {}) as Record<string, string>;
+      for (const id of Object.values(itemIds)) queuedCreates.add(id);
+    }
+  }
 
   const survives = (op: OutboxOp): boolean => {
     if (lockedSeqs.has(op.seq)) return true;
@@ -470,7 +517,8 @@ export function partitionResync(
       if (!existsAfterResync(op.request.pathParams?.checklist_id)) return false;
       return op.kind === "create" || existsAfterResync(op.entityId);
     }
-    // checklist
+    // checklist. A card copy needs its source card (the route 404s/410s without it).
+    if (isCardCopyKind(op.kind)) return existsAfterResync(op.request.pathParams?.checklist_id);
     return op.kind === "create" || existsAfterResync(op.entityId);
   };
   const kept: OutboxOp[] = [];
@@ -526,7 +574,7 @@ export type OutboxEvent =
 export function affectsSidebarCounts(op: OutboxOp): boolean {
   if (op.entityType === "label") return true; // attach/detach → labels[id]
   if (op.entityType === "checklist") {
-    if (op.kind === "create" || op.kind === "delete") return true;
+    if (createsEntity(op) || op.kind === "delete") return true;
     if (op.kind === "position") return "archived" in (op.request.body ?? {});
   }
   return false;

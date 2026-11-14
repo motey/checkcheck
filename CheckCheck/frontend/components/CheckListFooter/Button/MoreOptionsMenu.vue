@@ -39,11 +39,19 @@
       </div>
     </template>
   </UModal>
+
+  <CheckListFooterButtonMoveCheckedConfirm
+    v-model:open="confirmMoveOpen"
+    :checked-count="checkedCount"
+    :loading="moving"
+    @confirm="moveChecked()"
+  />
 </template>
 
 <script setup lang="ts">
 import type { DropdownMenuItem } from "@nuxt/ui";
-import { computed, ref } from "vue";
+import { computed, ref, toRef } from "vue";
+import { useCardCopyActions } from "@/composables/useCardCopyActions";
 import { useCheckListsStore } from "@/stores/checklist";
 import { useCheckListsItemStore } from "@/stores/checklist_item";
 import { usePermissions } from "@/composables/usePermissions";
@@ -76,6 +84,14 @@ const deleting = ref(false);
 // nowhere to open. Any collaborator may set one, including a view-only one — a
 // reminder notifies nobody but the person who set it.
 const reminderPanel = useReminderPanel();
+
+// "Duplicate card" and "Move checked items to new card" (own composable + confirm).
+const {
+  menuItems: cardCopyMenuItems,
+  confirmMoveOpen,
+  moving,
+  moveChecked,
+} = useCardCopyActions(toRef(props, "checkListId"));
 
 async function deleteChecked() {
   deleting.value = true;
@@ -116,6 +132,8 @@ const items = computed(
           e.preventDefault();
         },
       },
+      { type: "separator" as const },
+      ...cardCopyMenuItems.value,
       { type: "separator" as const },
       ...(reminderPanel
         ? [

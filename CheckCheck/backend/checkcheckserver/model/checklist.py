@@ -145,6 +145,36 @@ class CheckListApiCreate(CheckListBase):
     position: CheckListPositionApiCreate | None = None
 
 
+class CheckListCopyPosition(BaseTable):
+    index: Optional[float] = Field(
+        default=None,
+        description="Board index of the new card for the caller. Omit to place it "
+        "at the top of the caller's board.",
+    )
+
+
+class CheckListCopyRequest(BaseTable):
+    """Body of the two card-copy actions (duplicate, move checked items).
+
+    Every field is optional; an empty body is a valid request. The fields exist
+    so an offline client can show the new card before the call reaches the
+    server and then converge on exactly the rows the server creates."""
+
+    id: Optional[uuid.UUID] = Field(
+        default=None,
+        description="Client-generated id for the new card. Makes the call "
+        "idempotent: a replay returns the card created by the first call instead "
+        "of copying (or moving) again. Omit and the server assigns one.",
+    )
+    position: Optional[CheckListCopyPosition] = Field(default=None)
+    item_ids: Dict[uuid.UUID, uuid.UUID] = Field(
+        default_factory=dict,
+        description="Optional map from a source item id to the id its copy gets. "
+        "Items not in the map get a server-generated id; keys that are not copied "
+        "items of the source card are ignored.",
+    )
+
+
 class CheckListCountsPublic(BaseTable):
     """Aggregate card counts for the sidebar badges (one request, no N+1). Every
     count is access-scoped to the caller and, except ``archived``, excludes

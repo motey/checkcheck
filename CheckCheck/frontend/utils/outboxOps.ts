@@ -27,6 +27,8 @@ const CHECKLIST_COLLECTION_PATH = "/api/checklist";
 const CHECKLIST_PATH = "/api/checklist/{checklist_id}";
 const CHECKLIST_POSITION_PATH = "/api/checklist/{checklist_id}/position";
 const CHECKLIST_LABEL_PATH = "/api/checklist/{checklist_id}/label/{label_id}";
+const CHECKLIST_DUPLICATE_PATH = "/api/checklist/{checklist_id}/duplicate";
+const CHECKLIST_MOVE_CHECKED_PATH = "/api/checklist/{checklist_id}/items/move-checked";
 
 /**
  * The step between two client-appended item indices (WI-8 decision).
@@ -355,6 +357,55 @@ export function checklistPositionOp(
       body: { ...body },
     },
   };
+}
+
+// ── Card copy builders (duplicate, move checked items) ───────────────────────
+//
+// Both actions create a NEW card from a source card in one server call. The op
+// is keyed on the new card (`entityType: "checklist"`, `entityId` = the new id)
+// so the engine treats it as that card's create (see `isCardCopyKind` in
+// utils/outbox.ts: it keeps the optimistic card out of `known=` until it drains,
+// item ops queued on the new card cascade with it, and a resync keeps it while
+// the source exists). `pathParams.checklist_id` is the source card.
+//
+// The body carries the client id of the new card (a replay returns the first
+// copy instead of copying again), its board slot, and the ids the client gave
+// the copies of the items it holds, so the delta pull updates those rows in place.
+
+/** Body of a card copy op (the generated `CheckListCopyRequest`). */
+export interface CardCopyOpBody {
+  position?: { index: number };
+  item_ids?: Record<string, string>;
+}
+
+function cardCopyOp(
+  kind: "duplicate" | "move_checked",
+  path: string,
+  sourceId: string,
+  newId: string,
+  body: CardCopyOpBody
+): OutboxOpInput {
+  return {
+    entityType: "checklist",
+    entityId: newId,
+    kind,
+    request: {
+      method: "post",
+      path,
+      pathParams: { checklist_id: sourceId },
+      body: { ...body, id: newId },
+    },
+  };
+}
+
+/** `POST /api/checklist/{id}/duplicate`: copy a card with all items, unchecked. */
+export function checklistDuplicateOp(sourceId: string, newId: string, body: CardCopyOpBody): OutboxOpInput {
+  return cardCopyOp("duplicate", CHECKLIST_DUPLICATE_PATH, sourceId, newId, body);
+}
+
+/** `POST /api/checklist/{id}/items/move-checked`: move the checked items to a new card. */
+export function checklistMoveCheckedOp(sourceId: string, newId: string, body: CardCopyOpBody): OutboxOpInput {
+  return cardCopyOp("move_checked", CHECKLIST_MOVE_CHECKED_PATH, sourceId, newId, body);
 }
 
 // ── Checklist⇄label association builders (WI-9) ───────────────────────────────

@@ -44,7 +44,9 @@ export default defineNuxtConfig({
       // (toast/notification options) and must be listed so they're bundled too.
       icons: [
         "lucide:ban",
+        "lucide:copy",
         "lucide:database-backup",
+        "lucide:list-end",
         "lucide:download",
         "lucide:server-crash",
       ],
