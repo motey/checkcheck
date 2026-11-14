@@ -7,6 +7,19 @@ on [Keep a Changelog](https://keepachangelog.com/); dates are ISO-8601.
 
 ### Changed
 
+- **Cards that only hold a note read better.** On the board, a card without
+  items shows up to 8 lines of its note on a phone and 12 on a larger screen
+  (instead of 2 and 3), and it no longer reserves room for an empty item list or
+  a minimum height. Line breaks in a note now show on the board for every card,
+  where the lines used to run together.
+- **No more "0 checked items".** The checked items section of a card (and its
+  separator on the board) only appears once at least one item is checked. This
+  applies to the open card and to public share links alike, and a read-only
+  share link to a card that only holds a note shows just the note.
+- **Reminders take less room on phones.** In an open card on a phone, the
+  reminders block is folded into a bell with a badge that counts the reminders
+  you have set. Tap the bell to see and change them; "Set a reminder" in the
+  card menu still opens the form directly.
 - **Links in card notes need a scheme.** Only addresses that start with
   `https://` (or another scheme, or an email address) turn into links on their
   own. A bare `www.example.com` or `example.com/path` now stays plain text, and so
