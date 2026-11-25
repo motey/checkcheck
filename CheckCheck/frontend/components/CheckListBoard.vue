@@ -166,7 +166,14 @@ import { vElementVisibility } from "@vueuse/components";
 import { useDebounceFn, usePreferredReducedMotion } from "@vueuse/core";
 import { useAppRoute } from "~/composables/useAppRoute";
 import { useCreateCheckList } from "~/composables/useCreateCheckList";
-import { clearCardSpawn, peekCardSpawn, planCardFlip, type Box, type CardSpawn } from "~/utils/cardSpawn";
+import {
+  clearCardMotions,
+  matchCardMotions,
+  pendingCardMotions,
+  planCardFlip,
+  type Box,
+  type CardMotion,
+} from "~/utils/cardMotion";
 
 const route = useRoute();
 const { openCard } = useAppRoute();
@@ -314,29 +321,35 @@ watchEffect(() => {
     : checkListStore.getCheckLists({ archived: false, label_id: label });
   const pinned = source.filter((c) => c.position.pinned ?? false);
   const normal = source.filter((c) => !(c.position.pinned ?? false));
-  // A card copy just landed (utils/cardSpawn.ts): measure the cards now, while
-  // the DOM still shows the old order, and animate to the new one after render.
-  const spawn = peekCardSpawn();
-  let first: Map<string, Box> | null = null;
-  if (spawn && source.some((c) => c.id === spawn.newId)) {
-    clearCardSpawn();
-    const alreadyShown = [...toRaw(dragPinned.value), ...toRaw(dragNormal.value)].some((c) => c.id === spawn.newId);
-    if (!alreadyShown && reducedMotion.value !== "reduce") first = measureCards();
+  // A card copy just landed or the user's own action takes a card off the board
+  // (utils/cardMotion.ts): measure the cards now, while the DOM still shows the
+  // old order, and animate to the new one after render.
+  let motion: { first: Map<string, Box>; ghosts: Map<string, HTMLElement>; motions: CardMotion[] } | null = null;
+  const motions = pendingCardMotions();
+  if (motions.length) {
+    const shownIds = new Set([...toRaw(dragPinned.value), ...toRaw(dragNormal.value)].map((c) => c.id));
+    const { done, animate } = matchCardMotions(motions, shownIds, new Set(source.map((c) => c.id)));
+    clearCardMotions(done);
+    if (animate.length && reducedMotion.value !== "reduce") {
+      motion = { first: measureCards(), ghosts: captureGhosts(animate), motions: animate };
+    }
   }
   dragPinned.value.splice(0, dragPinned.value.length, ...pinned);
   dragNormal.value.splice(0, dragNormal.value.length, ...normal);
-  if (first) {
-    const before = first;
-    void nextTick(() => playCardFlip(before, spawn!));
+  if (motion) {
+    const m = motion;
+    void nextTick(() => playCardFlip(m.first, m.ghosts, m.motions));
   }
 });
 
-// ── Card copy animation (issue #30) ──────────────────────────────────────────
+// ── Card motion (issues #30 and #34) ─────────────────────────────────────────
 // A FLIP: measure every card before and after the board re-rendered, then play
-// each card from its old spot to its new one. The new card starts on the source
-// card, lifts off and floats to its slot; the cards it pushed aside slide. Only
-// a copy triggers this (see the spawn hint above), never paging or filtering.
+// each card from its old spot to its new one. A copy starts on the source card,
+// lifts off and floats to its slot; a card that leaves fades and shrinks out
+// where it was (as a ghost, its element is gone already); the other cards slide.
+// Only a hinted change triggers this (see above), never paging or filtering.
 const FLIP_ANIMATION_ID = "card-flip";
+const LEAVE_GHOST_ATTR = "data-card-leaving";
 
 function cardElements(): HTMLElement[] {
   const out: HTMLElement[] = [];
@@ -352,7 +365,66 @@ function measureCards(): Map<string, Box> {
   return boxes;
 }
 
-function playCardFlip(first: Map<string, Box>, spawn: CardSpawn) {
+/**
+ * A static copy of each leaving card's element, taken before Vue removes it: the
+ * ghost that plays the exit. Only the leaving cards are cloned.
+ */
+function captureGhosts(motions: readonly CardMotion[]): Map<string, HTMLElement> {
+  const ghosts = new Map<string, HTMLElement>();
+  const leaving = new Set(motions.filter((m) => m.kind === "leave").map((m) => m.id));
+  if (!leaving.size) return ghosts;
+  for (const el of cardElements()) {
+    const id = el.dataset.cardId!;
+    if (leaving.has(id)) ghosts.set(id, el.cloneNode(true) as HTMLElement);
+  }
+  return ghosts;
+}
+
+/** Fade and shrink the ghost out at the card's old box, then drop it. */
+function playLeave(ghost: HTMLElement, box: Box) {
+  // Not a card any more: no id for the measuring, no focus, no pointer, hidden
+  // from assistive technology (the card is already gone from the list).
+  ghost.removeAttribute("data-card-id");
+  ghost.removeAttribute("tabindex");
+  ghost.removeAttribute("role");
+  ghost.removeAttribute("aria-label");
+  ghost.setAttribute("aria-hidden", "true");
+  ghost.inert = true;
+  // No duplicate element ids and no test hooks that would find the ghost
+  // instead of a real card while it fades.
+  for (const el of [ghost, ...ghost.querySelectorAll<HTMLElement>("[id], [data-testid]")]) {
+    el.removeAttribute("id");
+    el.removeAttribute("data-testid");
+  }
+  ghost.setAttribute(LEAVE_GHOST_ATTR, "");
+  Object.assign(ghost.style, {
+    position: "fixed",
+    left: `${box.left}px`,
+    top: `${box.top}px`,
+    width: `${box.width}px`,
+    height: `${box.height}px`,
+    margin: "0",
+    pointerEvents: "none",
+    listStyle: "none",
+  });
+  // First in the body and without a z-index, so it paints below the board's
+  // cards: the cards that slide into the gap pass over the fading ghost, and
+  // the navbar stays on top.
+  document.body.prepend(ghost);
+  const animation = ghost.animate(
+    [
+      { opacity: 1, transform: "scale(1)" },
+      { opacity: 0, transform: "scale(0.85)" },
+    ],
+    { duration: 250, easing: "cubic-bezier(0.4, 0, 1, 1)", fill: "forwards" }
+  );
+  animation.id = FLIP_ANIMATION_ID;
+  const drop = () => ghost.remove();
+  animation.addEventListener("finish", drop);
+  animation.addEventListener("cancel", drop);
+}
+
+function playCardFlip(first: Map<string, Box>, ghosts: Map<string, HTMLElement>, motions: readonly CardMotion[]) {
   const els = cardElements();
   // A copy made while the last one is still in flight: stop those animations so
   // the new measurement is the cards' real slots. (`first` was measured with
@@ -362,8 +434,13 @@ function playCardFlip(first: Map<string, Box>, spawn: CardSpawn) {
   }
   const byId = new Map(els.map((el) => [el.dataset.cardId!, el]));
   const last = measureCards();
-  const flips = planCardFlip(first, last, spawn, { width: window.innerWidth, height: window.innerHeight });
+  const flips = planCardFlip(first, last, motions, { width: window.innerWidth, height: window.innerHeight });
   for (const flip of flips) {
+    if (flip.kind === "leave") {
+      const ghost = ghosts.get(flip.id);
+      if (ghost) playLeave(ghost, flip.box);
+      continue;
+    }
     const el = byId.get(flip.id);
     if (!el) continue;
     let animation: Animation;

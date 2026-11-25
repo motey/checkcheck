@@ -257,6 +257,74 @@ def test_duplicate_uses_client_item_ids_where_given():
     req(f"api/checklist/{src['id']}", "delete")
 
 
+def _pin(cl_id: str, pinned: bool = True, archived: bool = False) -> None:
+    req(
+        f"api/checklist/{cl_id}/position",
+        "patch",
+        b={"pinned": pinned, "archived": archived},
+    )
+
+
+def test_copy_of_a_pinned_card_is_pinned():
+    src = _source_card("Pinned source")
+    _new_item(src["id"], "a", checked=True)
+    _pin(src["id"])
+
+    copy = req(f"api/checklist/{src['id']}/duplicate", "post")
+    assert copy["position"]["pinned"] is True
+    done = req(f"api/checklist/{src['id']}/items/move-checked", "post")
+    assert done["position"]["pinned"] is True
+
+    # An explicit pin state in the body wins (the client sends what it shows).
+    unpinned = req(
+        f"api/checklist/{src['id']}/duplicate",
+        "post",
+        b={"position": {"index": 7.25, "pinned": False}},
+    )
+    assert unpinned["position"]["pinned"] is False
+    assert unpinned["position"]["index"] == 7.25
+
+    for cl in (copy, done, unpinned, src):
+        req(f"api/checklist/{cl['id']}", "delete")
+
+
+def test_copy_of_an_unpinned_or_archived_card_is_not_pinned():
+    plain = _source_card("Plain source")
+    assert req(f"api/checklist/{plain['id']}/duplicate", "post")["position"]["pinned"] is False
+
+    archived = _source_card("Archived pinned source")
+    _pin(archived["id"], pinned=True, archived=True)
+    copy = req(f"api/checklist/{archived['id']}/duplicate", "post")
+    assert copy["position"]["pinned"] is False
+    assert copy["position"]["archived"] is False
+
+    explicit = req(
+        f"api/checklist/{plain['id']}/duplicate",
+        "post",
+        b={"position": {"pinned": True}},
+    )
+    assert explicit["position"]["pinned"] is True
+
+    for cl_id in {c["id"] for c in (plain, archived, copy, explicit)}:
+        req(f"api/checklist/{cl_id}", "delete")
+
+
+def test_copy_pin_follows_the_callers_own_pin_state():
+    """Pinning is per user: a collaborator's copy follows the collaborator's own
+    pin state of the source, not the owner's."""
+    collab = _make_user_token("copy_pin_collab")
+    collab_id = _user_id(collab)
+    src = _source_card("Pinned by owner only")
+    _pin(src["id"])
+    _share(src["id"], collab_id, "view")
+
+    copy = req(f"api/checklist/{src['id']}/duplicate", "post", access_token=collab)
+    assert copy["position"]["pinned"] is False
+
+    req(f"api/checklist/{copy['id']}", "delete", access_token=collab)
+    req(f"api/checklist/{src['id']}", "delete")
+
+
 def test_duplicate_by_a_view_collaborator_is_their_own_card():
     viewer = _make_user_token("copy-viewer")
     viewer_id = _user_id(viewer)

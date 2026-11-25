@@ -8,7 +8,9 @@ Shared by the two card actions that create a card from an existing one:
 
 Both copy the card fields (name with a suffix, note, color, view settings) and the
 caller's own labels on the source card. Shares, public links and reminders are
-never copied: the new card belongs to the caller alone.
+never copied: the new card belongs to the caller alone. A copy of a card the
+caller has pinned is pinned too; the client sends the board slot (right after the
+source, see utils/cardCopy.ts) and the pin state along.
 
 Everything is staged as ORM objects and committed in ONE transaction, so the
 ``before_insert`` / ``before_update`` mapper events stamp a ``server_seq`` on every
@@ -125,6 +127,22 @@ async def _next_board_index(
     return float(decimal.Decimal(str(highest.index)) + decimal.Decimal("0.4"))
 
 
+async def _source_is_pinned(
+    source_id: uuid.UUID,
+    user_id: uuid.UUID,
+    checklist_position_crud: CheckListPositionCRUD,
+) -> bool:
+    """The caller's pin state of the source card, the default for the copy. An
+    archived source counts as unpinned: the copy is never archived, so it cannot
+    sit next to the source anyway."""
+    source_position = await checklist_position_crud.get(
+        checklist_id=source_id, user_id=user_id
+    )
+    if source_position is None or source_position.archived:
+        return False
+    return bool(source_position.pinned)
+
+
 async def copy_checklist(
     *,
     source: CheckList,
@@ -157,6 +175,10 @@ async def copy_checklist(
         board_index = request.position.index
     else:
         board_index = await _next_board_index(user_id, checklist_position_crud)
+    if request.position is not None and request.position.pinned is not None:
+        pinned = request.position.pinned
+    else:
+        pinned = await _source_is_pinned(source.id, user_id, checklist_position_crud)
 
     card = CheckList(
         id=request.id or uuid.uuid4(),
@@ -172,7 +194,7 @@ async def copy_checklist(
         checklist_id=card.id,
         user_id=user_id,
         index=board_index,
-        pinned=False,
+        pinned=pinned,
         archived=False,
     )
     session.add(card)

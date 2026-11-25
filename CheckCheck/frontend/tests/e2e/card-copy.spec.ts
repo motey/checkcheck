@@ -190,6 +190,80 @@ test.describe("card copy actions", () => {
     await expect(boardCard(page, `${name} (done)`)).toHaveCount(1, { timeout: 5_000 });
   });
 
+  test("a copy lands right after its source, also in the pinned section", async ({ page }) => {
+    const tag = Date.now();
+    // New cards go on top, so creating C, B, A gives the board order A, B, C.
+    const names = { a: `Place-A-${tag}`, b: `Place-B-${tag}`, c: `Place-C-${tag}` };
+    const ids: Record<string, string> = {};
+    for (const key of ["c", "b", "a"] as const) {
+      ids[key] = (await apiPost(page, "/api/checklist", { name: names[key] })).id;
+      cleanupCards.push(ids[key]!);
+    }
+
+    /** Our cards' titles in one board section, top to bottom. */
+    const order = (board: "checklist-board" | "pinned-board") =>
+      page
+        .locator(`[data-testid=${board}] > li[data-card-id] [data-testid=card-title]`)
+        .allInnerTexts()
+        .then((titles) => titles.map((t) => t.trim()).filter((t) => t.includes(`-${tag}`)));
+
+    await page.goto("/?localFirst=1");
+    await page.waitForSelector("[data-testid=checklist-board]");
+    await expect.poll(() => order("checklist-board")).toEqual([names.a, names.b, names.c]);
+
+    let dialog = await openCard(page, names.b);
+    await openKebab(dialog);
+    await page.getByRole("menuitem", { name: "Duplicate card" }).click();
+    await expect(page.getByText("Card duplicated", { exact: true })).toBeVisible();
+    await dialog.getByRole("button", { name: "Close" }).click();
+    await expect(dialog).toBeHidden({ timeout: 5_000 });
+    const copyName = `${names.b} (copy)`;
+    await expect.poll(() => order("checklist-board")).toEqual([names.a, names.b, copyName, names.c]);
+
+    // The server stored the same slot: after a reload the order is unchanged.
+    await expect.poll(async () => (await serverCardsNamed(page, copyName)).length, { timeout: 10_000 }).toBe(1);
+    const [copy] = await serverCardsNamed(page, copyName);
+    cleanupCards.push(copy.id);
+    expect(copy.position.pinned).toBe(false);
+    await page.reload();
+    await page.waitForSelector("[data-testid=checklist-board]");
+    await expect.poll(() => order("checklist-board")).toEqual([names.a, names.b, copyName, names.c]);
+
+    // Pinned: pin A and C, duplicate C; the copy is pinned and follows C.
+    for (const key of ["a", "c"] as const) {
+      await page.request.patch(`/api/checklist/${ids[key]}/position`, {
+        data: { pinned: true },
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+    await page.reload();
+    await page.waitForSelector("[data-testid=checklist-board]");
+    await expect.poll(() => order("pinned-board")).toEqual([names.a, names.c]);
+
+    dialog = await page
+      .locator("[data-testid=pinned-board] .checklist-preview")
+      .filter({ hasText: names.c })
+      .locator("[data-testid=card-title]")
+      .click()
+      .then(() => page.locator('[role="dialog"]:has(.checklist)'));
+    await expect(dialog).toBeVisible({ timeout: 5_000 });
+    await openKebab(dialog);
+    await page.getByRole("menuitem", { name: "Duplicate card" }).click();
+    await expect(page.getByText("Card duplicated", { exact: true }).first()).toBeVisible();
+    await dialog.getByRole("button", { name: "Close" }).click();
+    await expect(dialog).toBeHidden({ timeout: 5_000 });
+    const pinnedCopyName = `${names.c} (copy)`;
+    await expect.poll(() => order("pinned-board")).toEqual([names.a, names.c, pinnedCopyName]);
+
+    await expect.poll(async () => (await serverCardsNamed(page, pinnedCopyName)).length, { timeout: 10_000 }).toBe(1);
+    const [pinnedCopy] = await serverCardsNamed(page, pinnedCopyName);
+    cleanupCards.push(pinnedCopy.id);
+    expect(pinnedCopy.position.pinned).toBe(true);
+    await page.reload();
+    await page.waitForSelector("[data-testid=checklist-board]");
+    await expect.poll(() => order("pinned-board")).toEqual([names.a, names.c, pinnedCopyName]);
+  });
+
   test("animates the copy out of the source card, unless reduced motion is asked for", async ({ page }) => {
     // The suite emulates prefers-reduced-motion (playwright.config.ts), so a
     // copy is instant first; with motion allowed, the board plays the FLIP:
@@ -246,8 +320,10 @@ test.describe("card copy actions", () => {
     const newest = copies.find((c: any) => c.id !== firstCopyId)!;
     cleanupCards.push(newest.id);
     expect(seen.raised).toEqual([newest.id]);
-    // The source card was pushed one slot and slid there.
-    expect(seen.animated).toContain(cl.id);
+    // The source keeps its slot; the new copy takes the one after it, so the
+    // first copy is pushed one slot on and slides there.
+    expect(seen.animated).toContain(firstCopyId);
+    expect(seen.animated).not.toContain(cl.id);
 
     // Afterwards the board is at rest: no flip left running, nothing raised.
     const rest = await page.evaluate(() =>

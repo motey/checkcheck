@@ -151,6 +151,12 @@ class CheckListCopyPosition(BaseTable):
         description="Board index of the new card for the caller. Omit to place it "
         "at the top of the caller's board.",
     )
+    pinned: Optional[bool] = Field(
+        default=None,
+        description="Whether the new card is pinned on the caller's board. Omit to "
+        "take over the caller's pin state of the source card (an archived source "
+        "counts as unpinned, the copy is never archived).",
+    )
 
 
 class CheckListCopyRequest(BaseTable):

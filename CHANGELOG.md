@@ -22,6 +22,10 @@ on [Keep a Changelog](https://keepachangelog.com/); dates are ISO-8601.
   server when the connection returns. They are also available to API clients as
   `POST /api/checklist/{id}/duplicate` and
   `POST /api/checklist/{id}/items/move-checked`.
+- The new card appears right after the original card instead of at the top of
+  the board, so it stays where you were working, also on a long board. A copy
+  of a pinned card is pinned as well and sits next to the original in the
+  pinned section.
 - On the board, the new card floats out of the original card to its own spot
   and the other cards slide aside, so it is easy to see where both cards are.
   With "reduce motion" turned on in the system settings, the board updates
@@ -53,6 +57,12 @@ on [Keep a Changelog](https://keepachangelog.com/); dates are ISO-8601.
   **Copy as Markdown** copies the notes exactly as written and only shows when
   the notes use Markdown. The buttons are also there for people who can only
   view the card and on public links, and they work offline.
+- **Cards leave the board smoothly.** When you archive or delete a card, restore
+  it in the archive, or leave a card someone shared with you, it fades out where
+  it was and the cards after it slide into the gap, so you can see what changed.
+  Changes from other devices or other people, scrolling, filters and search
+  still update the board at once. With "reduce motion" turned on in the system
+  settings, the board updates without animation.
 
 ### Changed
 

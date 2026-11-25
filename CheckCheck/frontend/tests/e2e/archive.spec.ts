@@ -159,4 +159,78 @@ test.describe("archive & permanent delete", () => {
     const res = await page.request.get(`/api/checklist/${cl.id}`);
     expect(res.status()).toBe(410);
   });
+
+  test("animates a card leaving the board on the user's own action only", async ({ page }) => {
+    // The suite emulates prefers-reduced-motion (playwright.config.ts), so the
+    // first archive is instant; with motion allowed, the archived card fades out
+    // as a ghost and the card after it slides into the gap. A card removed from
+    // elsewhere (here: the API, like another device) just goes.
+    const tag = Date.now();
+    // New cards go on top, so creating B, Y, X, A gives the board order A, X, Y, B.
+    const ids: Record<string, string> = {};
+    for (const key of ["B", "Y", "X", "A"]) {
+      ids[key] = (await apiPost(page, "/api/checklist", { name: `Leave-${key}-${tag}` })).id;
+      cleanupChecklists.push(ids[key]!);
+    }
+
+    await page.goto("/");
+    await page.waitForSelector("[data-testid=checklist-board]");
+    await expect(page.getByText(`Leave-B-${tag}`, { exact: true })).toBeVisible();
+
+    /** Every animation frame for `ms`: which cards run the flip, and whether a leave ghost played. */
+    const watchMotion = (ms: number) =>
+      page.evaluate(
+        (ms) =>
+          new Promise<{ animated: string[]; ghosts: number }>((resolve) => {
+            const animated = new Set<string>();
+            let ghosts = 0;
+            const end = performance.now() + ms;
+            const tick = () => {
+              for (const el of document.querySelectorAll<HTMLElement>("li[data-card-id]")) {
+                if (el.getAnimations().some((a) => a.id === "card-flip")) animated.add(el.dataset.cardId!);
+              }
+              ghosts = Math.max(ghosts, document.querySelectorAll("[data-card-leaving]").length);
+              if (performance.now() < end) requestAnimationFrame(tick);
+              else resolve({ animated: [...animated], ghosts });
+            };
+            tick();
+          }),
+        ms
+      );
+
+    const archive = async (key: string) => {
+      const dialog = await openCard(page, `Leave-${key}-${tag}`);
+      await dialog.locator("[data-testid=card-archive]").click();
+      await expect(page.getByText(`Leave-${key}-${tag}`, { exact: true })).not.toBeVisible({ timeout: 5_000 });
+    };
+
+    // Reduced motion: instant.
+    let seen = watchMotion(1_500);
+    await archive("X");
+    expect(await seen).toEqual({ animated: [], ghosts: 0 });
+
+    // Motion allowed: Y fades out, B slides into its slot.
+    await page.emulateMedia({ reducedMotion: "no-preference" });
+    seen = watchMotion(1_500);
+    await archive("Y");
+    const played = await seen;
+    expect(played.ghosts).toBe(1);
+    expect(played.animated).toContain(ids.B);
+
+    // Removed elsewhere: no animation.
+    seen = watchMotion(3_000);
+    await apiDelete(page, `/api/checklist/${ids.A}`);
+    await expect(page.getByText(`Leave-A-${tag}`, { exact: true })).not.toBeVisible({ timeout: 5_000 });
+    expect(await seen).toEqual({ animated: [], ghosts: 0 });
+
+    // At rest: no ghost left behind, no flip running.
+    expect(await page.locator("[data-card-leaving]").count()).toBe(0);
+    const running = await page.evaluate(
+      () =>
+        [...document.querySelectorAll<HTMLElement>("li[data-card-id]")].filter((el) =>
+          el.getAnimations().some((a) => a.id === "card-flip")
+        ).length
+    );
+    expect(running).toBe(0);
+  });
 });

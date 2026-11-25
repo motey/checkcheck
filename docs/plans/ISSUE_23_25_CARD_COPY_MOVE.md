@@ -124,7 +124,9 @@ Works offline, one outbox op each, following the bulk-op pattern.
 
 - Duplicate needs only `view` (template use by share recipients).
 - The new card goes to the top of the board (like a new card), unpinned and
-  unarchived, even when the source is pinned or archived.
+  unarchived, even when the source is pinned or archived. (Superseded by #35:
+  the copy now lands right after the source and is pinned when the source is,
+  see ISSUE_34_35_CARD_PLACEMENT_ANIMATION.md.)
 - The card settings (separate checked items, collapsed, suggestions) are copied.
 - Empty title: the copy is called "(copy)" / "(done)".
 - Move with nothing checked: the menu entry is disabled; the endpoint still
