@@ -11,7 +11,7 @@ hobby project with a single maintainer; see the
 - `latest`: newest stable release
 - `beta`: newest pre-release
 - `dev`: latest build from `main` (bleeding edge)
-- `<version>`: a specific release (e.g. `1.1.0`)
+- `<version>`: a specific release (e.g. `1.1.1`)
 
 ## Documentation
 

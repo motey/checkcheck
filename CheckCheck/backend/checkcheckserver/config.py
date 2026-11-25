@@ -1,3 +1,4 @@
+import json
 import os
 from enum import Enum
 from pathlib import Path
@@ -1194,6 +1195,30 @@ class Config(BaseSettings):
     @property
     def POSTGRES_DSN(self) -> str:
         return self.SQL_DATABASE_URL.replace("postgresql+asyncpg://", "postgresql://")
+
+    @property
+    def SQL_DATABASE_URL_REDACTED(self) -> str:
+        """``SQL_DATABASE_URL`` with the password masked, for logs.
+
+        The URL is a plain ``str`` (not ``SecretStr``) because the engine and
+        Alembic need it as one, so anything that prints it must use this."""
+        from sqlalchemy.engine import make_url
+
+        try:
+            return make_url(self.SQL_DATABASE_URL).render_as_string(hide_password=True)
+        except Exception:
+            # Never echo a URL we could not parse: it may still hold a password.
+            return "<unparseable SQL_DATABASE_URL>"
+
+    def dump_for_log(self) -> Dict:
+        """The whole config as plain data for the startup debug log.
+
+        ``SecretStr`` fields already dump as ``**********``; the database URL is
+        the one secret-bearing plain string, so it is replaced by its redacted
+        form."""
+        dumped = json.loads(self.model_dump_json())
+        dumped["SQL_DATABASE_URL"] = self.SQL_DATABASE_URL_REDACTED
+        return dumped
 
     model_config = SettingsConfigDict(
         env_nested_delimiter="__",

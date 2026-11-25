@@ -51,7 +51,7 @@ def start():
     print(f"Start checkcheckserver version: {version}")
 
     log.debug("----CONFIG-----")
-    log.debug(yaml.dump(json.loads(config.model_dump_json()), sort_keys=False))
+    log.debug(yaml.dump(config.dump_for_log(), sort_keys=False))
     log.debug("----CONFIG-END-----")
     # test_exporter()
     # exit()

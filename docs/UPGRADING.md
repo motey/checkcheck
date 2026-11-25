@@ -5,6 +5,16 @@ changes see [`../CHANGELOG.md`](../CHANGELOG.md).
 
 ---
 
+## 1.1.1: database password kept out of the log (no migration)
+
+1.1.1 has no database migrations and no configuration changes. Earlier versions
+wrote the full `SQL_DATABASE_URL`, password included, to the container log at
+every start. If you keep or forward container logs, change the database
+password after the upgrade (in PostgreSQL and in `SQL_DATABASE_URL`), and
+remove old log copies where you can.
+
+---
+
 ## 1.1.0: OIDC client secret checked at startup (no migration)
 
 1.1.0 has no database migrations. Three changes are worth knowing before you

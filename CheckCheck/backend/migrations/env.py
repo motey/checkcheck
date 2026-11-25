@@ -45,7 +45,7 @@ from sqlmodel import SQLModel
 from alembic import context
 from checkcheckserver.model._tables import *
 
-print(f"RUN MIGRATIONS ON DB: {checkcheckserver_config.SQL_DATABASE_URL}")
+print(f"RUN MIGRATIONS ON DB: {checkcheckserver_config.SQL_DATABASE_URL_REDACTED}")
 target_metadata = SQLModel.metadata
 # /MoteyEdit
 
