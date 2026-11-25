@@ -2,7 +2,7 @@
 
 A collaborative, self-hostable, offline-capable checklist application (web UI + REST API).
 
-**Status: 1.0.** Stable for personal use and small, trusted groups. It is a
+**Status: 1.x.** Stable for personal use and small, trusted groups. It is a
 hobby project with a single maintainer; see the
 [limitations](https://github.com/motey/checkcheck#limitations) before you rely on it.
 

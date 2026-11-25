@@ -22,7 +22,7 @@ historical notes.
 | Document | What it covers |
 |--------|----------|
 | [development.md](development.md) | Developer onboarding: the start-here on-ramp for hacking on CheckCheck. Repo layout, dev environment, request flow, tests, and the gotchas. |
-| [SYNC_PROTOCOL.md](SYNC_PROTOCOL.md) | The 2.0 local-first delta-sync contract (`/api/changes` + `/api/sync`). |
+| [SYNC_PROTOCOL.md](SYNC_PROTOCOL.md) | The local-first delta-sync contract (`/api/changes` + `/api/sync`). |
 | [ISSUES.md](ISSUES.md) | Running log of known bugs and rough edges, newest first. |
 | [testing/E2E_TESTING.md](testing/E2E_TESTING.md) | The E2E how-to. The selector/API reference lives at `CheckCheck/frontend/tests/e2e/LLM_GUIDE.md`. |
 
@@ -30,6 +30,6 @@ historical notes.
 
 | Folder | Contents |
 |--------|----------|
-| [`plans/`](plans/) | Forward-looking and in-progress plans only: the [`EMAIL_NOTIFICATIONS.md`](plans/EMAIL_NOTIFICATIONS.md) sub-project and the 2.5 / 3.0 idea docs. Finished plans move to `archive/`. |
+| [`plans/`](plans/) | Plans for ongoing and recently finished work, and the 2.5 / 3.0 idea docs. Older finished plans move to `archive/`. |
 | [`testing/`](testing/) | Testing guides. |
 | [`archive/`](archive/) | Superseded or finished docs kept for history: the shipped 2.0 plan and work items, the 2.0 / phase reviews, the card-sharing plans, point-in-time status notes, and the legacy repo-local `memory/` notes. |

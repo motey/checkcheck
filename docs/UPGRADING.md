@@ -7,7 +7,8 @@ changes see [`../CHANGELOG.md`](../CHANGELOG.md).
 
 ## 1.1.0: OIDC client secret checked at startup (no migration)
 
-1.1.0 has no database migrations. One configuration check is new:
+1.1.0 has no database migrations. Three changes are worth knowing before you
+upgrade:
 
 - **An enabled OIDC provider needs a client secret.** The server refuses to
   start when an enabled entry of `AUTH_OIDC_PROVIDERS` has an empty
