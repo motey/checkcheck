@@ -84,6 +84,9 @@ class _FakeUserAuthCRUD:
             return None
         return obj.model_copy(deep=True)
 
+    async def get_fresh(self, id_):
+        return await self.get(id_)
+
     async def update(self, user_auth_update: UserAuthUpdate, id_=None, **_):
         stored = self.store.get(id_)
         if stored is None:
@@ -110,6 +113,9 @@ class _FakeUserSessionCRUD:
                 raise raise_exception_if_none
             return None
         return obj.model_copy(deep=True)
+
+    async def get_fresh(self, id_):
+        return await self.get(id_)
 
     async def get_by_user_auth_id(self, user_auth_id, raise_exception_if_none=None):
         for s in self.store.values():

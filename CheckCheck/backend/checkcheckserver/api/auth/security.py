@@ -202,12 +202,15 @@ async def get_current_user_auth(
                 # while we waited for the lock. Re-read from the DB and only refresh
                 # if it is *still* expired — this is what stops every request but
                 # the first from failing (and being wiped) under a rotating IdP.
-                fresh_user_auth = await user_auth_crud.get(user_auth.id)
+                # `get_fresh`, not `get`: this request's DB session already holds
+                # the expired rows, and `get` would answer from that cache instead
+                # of seeing the refresh another request just committed.
+                fresh_user_auth = await user_auth_crud.get_fresh(user_auth.id)
                 if fresh_user_auth is None:
                     raise not_authenticated_exception
                 fresh_session = user_session
                 if user_session is not None:
-                    fresh_session = await user_session_crud.get(user_session.id)
+                    fresh_session = await user_session_crud.get_fresh(user_session.id)
                 still_expired = (
                     fresh_session is not None and fresh_session.is_expired()
                 ) or fresh_user_auth.is_expired()
@@ -231,7 +234,7 @@ async def get_current_user_auth(
                         # request only), in which case this request is still valid
                         # and must NOT be logged out. Only wipe when it is still
                         # definitively expired.
-                        recheck = await user_auth_crud.get(fresh_user_auth.id)
+                        recheck = await user_auth_crud.get_fresh(fresh_user_auth.id)
                         if recheck is not None and not recheck.is_expired():
                             user_auth = recheck
                         else:

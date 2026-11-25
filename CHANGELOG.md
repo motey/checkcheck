@@ -83,6 +83,11 @@ on [Keep a Changelog](https://keepachangelog.com/); dates are ISO-8601.
 
 ### Fixed
 
+- **No more brief login page when opening the app after a break.** With an
+  OIDC login, opening CheckCheck some time after the last visit could show the
+  login page for a moment before auto-login brought the board back, because
+  the server could end the session while it renewed the login with the
+  provider. The renewal now keeps the session.
 - **Environment variables can set single entries of list settings.** Names
   like `AUTH_OIDC_PROVIDERS__0__CLIENT_SECRET` or `NEW_USER_DEFAULT_LABELS__0`
   used to stop the server at startup with a validation error. They now set

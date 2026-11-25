@@ -224,6 +224,20 @@ class CRUDBase(
             id_, raise_exception_if_none, include_deleted=include_deleted
         )
 
+    async def get_fresh(self, id_: str | UUID) -> Optional[GenericCRUDTableType]:
+        """Read the row from the database even if this session already holds it.
+
+        ``get()`` answers from the session's identity map once an object is
+        loaded, so it never sees what another request committed in the meantime.
+        Use this where a request has to observe a concurrent write (e.g. the OIDC
+        refresh double-check in api/auth/security.py). The loaded object is
+        updated in place; a row deleted meanwhile reads as ``None``."""
+        if isinstance(id_, str):
+            id_ = UUID(id_)
+        return await self.session.get(
+            self.get_table_cls(), id_, populate_existing=True
+        )
+
     async def get_multiple(
         self,
         ids: List[UUID],
