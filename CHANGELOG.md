@@ -22,6 +22,10 @@ on [Keep a Changelog](https://keepachangelog.com/); dates are ISO-8601.
   server when the connection returns. They are also available to API clients as
   `POST /api/checklist/{id}/duplicate` and
   `POST /api/checklist/{id}/items/move-checked`.
+- The new card appears right after the original card instead of at the top of
+  the board, so it stays where you were working, also on a long board. A copy
+  of a pinned card is pinned as well and sits next to the original in the
+  pinned section.
 - On the board, the new card floats out of the original card to its own spot
   and the other cards slide aside, so it is easy to see where both cards are.
   With "reduce motion" turned on in the system settings, the board updates

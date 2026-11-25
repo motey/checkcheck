@@ -2,7 +2,7 @@
 // the pure optimistic plan, the op builders, and the outbox engine rules for the
 // two new op kinds. The store wiring has its own spec (cardCopyStore.spec.ts).
 import { describe, it, expect } from "vitest";
-import { planCardCopy, suffixedName, type CardCopySource } from "@/utils/cardCopy";
+import { planCardCopy, planCopyPlacement, suffixedName, type CardCopySource, type PlacementCard } from "@/utils/cardCopy";
 import { checklistDuplicateOp, checklistMoveCheckedOp, itemStateOp } from "@/utils/outboxOps";
 import {
   affectsSidebarCounts,
@@ -61,7 +61,7 @@ function ids() {
   return () => `copy-${++n}`;
 }
 
-const opts = () => ({ newId: "new", ownerId: "me", index: 42, now: NOW, newItemId: ids() });
+const opts = () => ({ newId: "new", ownerId: "me", index: 42, pinned: false, now: NOW, newItemId: ids() });
 
 function op(seq: number, input: OutboxOpInput): OutboxOp {
   return { ...input, seq, opId: `op${seq}`, enqueuedAt: seq, attempts: 0 };
@@ -126,6 +126,57 @@ describe("planCardCopy: duplicate", () => {
     expect(plan.items).toHaveLength(1);
     expect(plan.counts).toEqual({ total: 40, checked: 0, unchecked: 40 });
     expect(plan.fullyLoaded).toBe(false);
+  });
+});
+
+describe("planCardCopy: placement", () => {
+  it("takes the index and pin state it is given", () => {
+    const plan = planCardCopy("duplicate", source(), { ...opts(), index: 2.5, pinned: true });
+    expect(plan.card.position).toMatchObject({ index: 2.5, pinned: true, archived: false });
+  });
+});
+
+// ── planCopyPlacement ────────────────────────────────────────────────────────
+
+describe("planCopyPlacement", () => {
+  const c = (id: string, index: number, pinned = false, archived = false): PlacementCard => ({
+    id,
+    position: { index, pinned, archived },
+  });
+
+  it("goes between the source and the next card in reading order (next lower index)", () => {
+    const board = [c("a", 10), c("src", 8), c("b", 4), c("d", 1)];
+    expect(planCopyPlacement(board[1]!, board, { complete: false })).toEqual({ index: 6, pinned: false });
+  });
+
+  it("ignores card order in the input, other sections and archived cards", () => {
+    const board = [c("d", 1), c("pinned-between", 6, true), c("archived-between", 7, false, true), c("b", 4), c("src", 8)];
+    expect(planCopyPlacement(c("src", 8), board, { complete: false })).toEqual({ index: 6, pinned: false });
+  });
+
+  it("a pinned source keeps the copy in the pinned section", () => {
+    const board = [c("src", 8, true), c("p2", 7, true), c("n", 7.9)];
+    expect(planCopyPlacement(board[0]!, board, { complete: false })).toEqual({ index: 7.5, pinned: true });
+  });
+
+  it("after the last card: an end gap on a complete board, a small step otherwise", () => {
+    const board = [c("a", 10), c("src", 8)];
+    expect(planCopyPlacement(board[1]!, board, { complete: true })).toEqual({ index: 7.6, pinned: false });
+    expect(planCopyPlacement(board[1]!, board, { complete: false })).toEqual({ index: 7.9999, pinned: false });
+  });
+
+  it("stays exact on decimal indexes (no binary float drift)", () => {
+    const board = [c("src", 0.3), c("b", 0.1)];
+    expect(planCopyPlacement(board[0]!, board, { complete: false }).index).toBe(0.2);
+  });
+
+  it("a copy of an archived card goes to the top of the board, unpinned", () => {
+    const board = [c("a", 10, true), c("b", 4)];
+    expect(planCopyPlacement(c("src", 8, true, true), board, { complete: true })).toEqual({
+      index: 10.4,
+      pinned: false,
+    });
+    expect(planCopyPlacement(c("src", 8, false, true), [], { complete: true })).toEqual({ index: 0, pinned: false });
   });
 });
 

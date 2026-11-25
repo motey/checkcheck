@@ -17,7 +17,7 @@ import { useCheckListsItemStore } from "@/stores/checklist_item";
 const SRC = "11111111-1111-1111-1111-111111111111";
 const NOW = new Date().toISOString();
 
-const card = (id: string, index: number) => ({
+const card = (id: string, index: number, pinned = false) => ({
   id,
   name: "Shopping",
   text: "weekly",
@@ -29,7 +29,7 @@ const card = (id: string, index: number) => ({
   owner_id: "me",
   my_permission: "owner",
   updated_at: NOW,
-  position: { index, pinned: false, archived: false, checked_items_collapsed: true, updated_at: NOW },
+  position: { index, pinned, archived: false, checked_items_collapsed: true, updated_at: NOW },
   labels: [{ id: "lbl", display_name: "food" }],
 });
 
@@ -45,7 +45,8 @@ const item = (id: string, index: number, checked: boolean) => ({
 function seed(fullyLoaded: boolean) {
   const store = useCheckListsStore();
   const items = useCheckListsItemStore();
-  store.checkLists = [card(SRC, 5) as any, card("other", 9) as any];
+  // Board order (descending index): above (9), SRC (5), below (1).
+  store.checkLists = [card(SRC, 5) as any, card("above", 9) as any, card("below", 1) as any];
   items.checkListsItems[SRC] = [item("milk", 1, true), item("bread", 2, false), item("eggs", 3, true)] as any;
   items.checklistWasFullLoadedOnce[SRC] = fullyLoaded;
   // A preview shows only part of the card; the counts are the whole card.
@@ -63,14 +64,16 @@ beforeEach(() => {
 });
 
 describe("checklist store: duplicate (local-first)", () => {
-  it("shows the copy on top of the board and enqueues one duplicate op with matching ids", async () => {
+  it("shows the copy right after the source and enqueues one duplicate op with matching ids", async () => {
     const { store, items } = seed(true);
 
     const copy = await store.duplicate(SRC);
 
     expect(copy.name).toBe("Shopping (copy)");
-    expect(store.checkLists[0]!.id).toBe(copy.id); // highest index, top of the board
-    expect(copy.position.index).toBeGreaterThan(9);
+    // Between the source (5) and the card after it (1).
+    expect(store.checkLists.map((c) => c.id)).toEqual(["above", SRC, copy.id, "below"]);
+    expect(copy.position.index).toBe(3);
+    expect(copy.position.pinned).toBe(false);
     const copied = items.checkListsItems[copy.id]!;
     expect(copied.map((i) => i.text)).toEqual(["milk", "bread", "eggs"]);
     expect(copied.every((i) => !i.state.checked)).toBe(true);
@@ -85,7 +88,7 @@ describe("checklist store: duplicate (local-first)", () => {
     expect(op).toMatchObject({ entityType: "checklist", entityId: copy.id, kind: "duplicate" });
     expect(op.request.pathParams).toEqual({ checklist_id: SRC });
     expect(op.request.body.id).toBe(copy.id);
-    expect(op.request.body.position).toEqual({ index: copy.position.index });
+    expect(op.request.body.position).toEqual({ index: 3, pinned: false });
     // Every optimistic item id is the one the server is told to use.
     const sentIds = op.request.body.item_ids as Record<string, string>;
     expect(Object.keys(sentIds).sort()).toEqual(["bread", "eggs", "milk"]);
@@ -99,6 +102,42 @@ describe("checklist store: duplicate (local-first)", () => {
     expect(items.getItemCount(copy.id)).toBe(30);
     expect(items.getItemCount(copy.id, false)).toBe(30);
     expect(items.getItemCount(copy.id, true)).toBe(0);
+  });
+});
+
+describe("checklist store: copy placement (local-first)", () => {
+  it("a copy of a pinned card is pinned and lands next to it in the pinned section", async () => {
+    const { store } = seed(true);
+    store.checkLists = [card(SRC, 5, true) as any, card("pinned-low", 2, true) as any, card("normal", 4) as any];
+    await store._sort();
+
+    const copy = await store.duplicate(SRC);
+
+    expect(copy.position.pinned).toBe(true);
+    // The unpinned card at 4 is in the other section and does not count.
+    expect(copy.position.index).toBe(3.5);
+    expect(store.checkLists.map((c) => c.id)).toEqual([SRC, copy.id, "pinned-low", "normal"]);
+    expect(enqueue.mock.calls[0]![0].request.body.position).toEqual({ index: 3.5, pinned: true });
+  });
+
+  it("the last loaded card: a small step down while more pages may follow, an end gap on a full board", async () => {
+    const { store } = seed(true);
+    store.checkLists = [card("above", 9) as any, card(SRC, 5) as any];
+    store.total_backend_count = 10;
+    expect((await store.duplicate(SRC)).position.index).toBe(4.9999);
+
+    setActivePinia(createPinia());
+    const again = seed(true).store;
+    again.checkLists = [card("above", 9) as any, card(SRC, 5) as any];
+    again.total_backend_count = 2;
+    expect((await again.duplicate(SRC)).position.index).toBe(4.6);
+  });
+
+  it("moving checked items places the new card right after the source too", async () => {
+    const { store } = seed(true);
+    const done = await store.moveCheckedToNewCard(SRC);
+    expect(store.checkLists.map((c) => c.id)).toEqual(["above", SRC, done.id, "below"]);
+    expect(enqueue.mock.calls[0]![0].request.body.position).toEqual({ index: 3, pinned: false });
   });
 });
 

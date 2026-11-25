@@ -17,6 +17,12 @@
 //     drained brings the remaining items and the preview count refresh settles
 //     the counts.
 // A fully loaded source gives an exact, fully loaded copy.
+//
+// The copy takes the slot right after its source in reading order (issue #35),
+// see planCopyPlacement().
+
+import { Decimal } from "decimal.js";
+import { fractionalIndexBetween } from "@/utils/outboxOps";
 
 export type CardCopyMode = "duplicate" | "move_checked";
 
@@ -51,8 +57,10 @@ export interface CardCopySource {
 export interface CardCopyOptions {
   newId: string;
   ownerId: string;
-  /** Board index of the new card (top of the board, see the checklist store). */
+  /** Board index of the new card (right after the source, see planCopyPlacement). */
   index: number;
+  /** Whether the new card is pinned (it is when the source is, see planCopyPlacement). */
+  pinned: boolean;
   /** ISO timestamp for the optimistic rows. */
   now: string;
   /** Id generator for the item copies (crypto.randomUUID in the app). */
@@ -120,7 +128,7 @@ export function planCardCopy(mode: CardCopyMode, source: CardCopySource, opts: C
     updated_at: opts.now,
     position: {
       index: opts.index,
-      pinned: false,
+      pinned: opts.pinned,
       archived: false,
       checked_items_collapsed: false,
       updated_at: opts.now,
@@ -138,4 +146,68 @@ export function planCardCopy(mode: CardCopyMode, source: CardCopySource, opts: C
     counts,
     movedSourceItemIds: new Set(moving ? picked.map((it) => it.id) : []),
   };
+}
+
+// ── Where the copy goes ──────────────────────────────────────────────────────
+
+/**
+ * Step below the source when the card after it may not be loaded yet. Small, so
+ * the copy stays above any card the server has between the source and the end
+ * of the loaded slice (board indexes are 0.4 apart, halved by every insert
+ * between two cards).
+ */
+export const COPY_INDEX_STEP = "0.0001";
+
+/** The part of a card the placement reads. */
+export interface PlacementCard {
+  id: string;
+  position: { index: number; pinned?: boolean | null; archived?: boolean | null };
+}
+
+export interface CopyPlacement {
+  index: number;
+  pinned: boolean;
+}
+
+/**
+ * Board slot for a copy of `source`: directly after it in reading order, in the
+ * same section (a copy of a pinned card is pinned too). The board sorts by
+ * descending index, so "after" is the next LOWER index among the cards of the
+ * source's section; the copy takes the midpoint (the same decimal.js fractional
+ * index as an offline reorder), so the optimistic card and the server agree.
+ *
+ * `board` is what the client holds of the caller's home board, in any order.
+ * `complete` says whether that is the whole board: without a known next card,
+ * the copy goes one end gap below the source on a complete board and only a
+ * small step below it otherwise (the next card may be on a page not loaded yet).
+ *
+ * An archived source has no slot to share (the copy is never archived): the
+ * copy goes to the top of the board, unpinned, like a new card.
+ */
+export function planCopyPlacement(
+  source: PlacementCard,
+  board: readonly PlacementCard[],
+  opts: { complete: boolean }
+): CopyPlacement {
+  if (source.position.archived) {
+    let top: number | null = null;
+    for (const c of board) {
+      const idx = c.position.index;
+      if (typeof idx === "number" && (top === null || idx > top)) top = idx;
+    }
+    return { index: fractionalIndexBetween(top, null), pinned: false };
+  }
+  const pinned = source.position.pinned ?? false;
+  const sourceIndex = source.position.index;
+  let next: number | null = null;
+  for (const c of board) {
+    if (c.id === source.id || c.position.archived) continue;
+    if ((c.position.pinned ?? false) !== pinned) continue;
+    const idx = c.position.index;
+    if (idx < sourceIndex && (next === null || idx > next)) next = idx;
+  }
+  if (next !== null || opts.complete) {
+    return { index: fractionalIndexBetween(next, sourceIndex), pinned };
+  }
+  return { index: new Decimal(sourceIndex).minus(COPY_INDEX_STEP).toNumber(), pinned };
 }

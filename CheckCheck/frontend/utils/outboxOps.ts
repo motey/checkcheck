@@ -396,7 +396,7 @@ export function checklistPositionOp(
 
 /** Body of a card copy op (the generated `CheckListCopyRequest`). */
 export interface CardCopyOpBody {
-  position?: { index: number };
+  position?: { index: number; pinned?: boolean };
   item_ids?: Record<string, string>;
 }
 
