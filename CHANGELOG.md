@@ -5,6 +5,11 @@ on [Keep a Changelog](https://keepachangelog.com/); dates are ISO-8601.
 
 ## [Unreleased]
 
+## [1.1.1] - 2026-11-25
+
+A security fix for self-hosters. There are no database migrations and no
+configuration changes.
+
 ### Fixed
 
 - **The database password no longer shows up in the server log.** At every
