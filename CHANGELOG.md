@@ -5,6 +5,15 @@ on [Keep a Changelog](https://keepachangelog.com/); dates are ISO-8601.
 
 ## [Unreleased]
 
+### Fixed
+
+- **The database password no longer shows up in the server log.** At every
+  start the server printed the full `SQL_DATABASE_URL`, password included, and
+  with `LOG_LEVEL: DEBUG` (the setting of the beta and dev images) the config
+  dump at startup contained it too. Both now show the address with the password
+  replaced by `***`. If your container logs are kept or shipped somewhere,
+  consider changing the database password.
+
 ## [1.1.0] - 2026-11-25
 
 New card actions for recurring lists (duplicate a card, move what is done to a

@@ -72,7 +72,7 @@ def init_schema_and_migrations():
         await db_engine.dispose()
         return rev
 
-    log.info(f"Create tables if not existent: {config.SQL_DATABASE_URL}")
+    log.info(f"Create tables if not existent: {config.SQL_DATABASE_URL_REDACTED}")
     current_rev = asyncio.run(_create_schema_and_check_rev())
 
     alembic_dir = Path(Path(__file__).parent.parent.parent, "migrations")
