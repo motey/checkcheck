@@ -252,6 +252,10 @@ deliberate, surfaced event (WI-11), never a silent loss.
 - **PATCH/PUT** are replay-safe by construction (field-level LWW: applying the same
   op twice yields the same row, only `updated_at`/`server_seq` re-stamp).
 - **Re-issuing a delete** is idempotent success (not `410`) — a safe outbox replay.
+- **Card copies** (`POST /api/checklist/{id}/duplicate` and
+  `POST /api/checklist/{id}/items/move-checked`) take an optional client `id` for
+  the new card in the body. A replay returns the existing copy and moves nothing
+  again.
 
 Because every op carries a client-generated id and every endpoint is replay-safe,
 the outbox can retry freely without duplicating or corrupting state.

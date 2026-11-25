@@ -48,9 +48,11 @@ place. Batch actions work on the whole list in one step: **Check all items**,
 **Uncheck all items** and **Delete checked items**, plus **Sort items by name**,
 **Remove duplicates** and **Copy list as text** (a Markdown checklist for sending
 the list elsewhere). **Add items from text** goes the other way: paste a list and
-each line becomes an item.
+each line becomes an item. For lists you use again and again, **Duplicate
+card** makes a fresh, unchecked copy, and **Move checked items to new card**
+keeps what is done on a card of its own.
 
-<a href="screenshots/DesktopCompactShowItemOptions.png"><img src="screenshots/DesktopCompactShowItemOptions.png" alt="The card menu: separate checked items, suggest existing items, uncheck all, delete checked"></a>
+<a href="screenshots/DesktopCompactShowItemOptions.png"><img src="screenshots/DesktopCompactShowItemOptions.png" alt="The card menu: view options, duplicate card, move checked items to a new card, check and uncheck all, delete checked, add items from text, sort, remove duplicates, copy list as text"></a>
 
 With **Suggest existing items** on, typing the name of something you already
 checked off offers to uncheck it again, instead of adding a duplicate. Handy for

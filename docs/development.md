@@ -109,8 +109,8 @@ own is owned by the OIDC mock user **`admin`**, so log in as `admin` to see it.
 Seeding is deterministic (a fixed `--seed`) and idempotent: a re-run without
 `--wipe` detects its own data and does nothing, so leaving `--seed-data` on your
 usual command is safe. The generator is a standalone, parameterizable helper
-([`checkcheckserver/dev/seed_dev_data.py`](../CheckCheck/backend/checkcheckserver/dev/seed_dev_data.py)) —
-run it directly for more knobs (`--seed`, `--owned-lists`, `--shared-with-me`,
+([`checkcheckserver/dev/seed_dev_data.py`](../CheckCheck/backend/checkcheckserver/dev/seed_dev_data.py)).
+Run it directly for more knobs (`--seed`, `--owned-lists`, `--shared-with-me`,
 `--max-items`, …):
 
 ```bash

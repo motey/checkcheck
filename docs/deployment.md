@@ -13,7 +13,7 @@ settings see [configuration.md](configuration.md).
 | `latest` | Newest stable release. |
 | `beta` | Newest pre-release. |
 | `dev` | Latest build from `main` (bleeding edge). |
-| `<version>` | A specific release, for example `1.0.0`. Pin this in production. |
+| `<version>` | A specific release, for example `1.1.0`. Pin this in production. |
 
 ## Data that must persist
 
@@ -90,8 +90,8 @@ Real-time events fan out between server processes through a PostgreSQL
 `pg_notify` channel, so you can run multiple workers safely.
 
 Set `SERVER_PUBLIC_URL` to the external URL users reach the app on (scheme
-included, e.g. `https://checklists.example.com`). Every absolute URL — OIDC
-redirect URIs, the CORS origin — is built from it, and the session cookie's
+included, e.g. `https://checklists.example.com`). Every absolute URL (OIDC
+redirect URIs, the CORS origin) is built from it, and the session cookie's
 `Secure` flag is derived from its scheme, so an HTTPS public URL needs no further
 cookie tuning. The app binds internally on `SERVER_BIND_HOST`/`SERVER_BIND_PORT`
 (`0.0.0.0:8181` in the image); point your proxy there.
@@ -99,7 +99,7 @@ cookie tuning. The app binds internally on `SERVER_BIND_HOST`/`SERVER_BIND_PORT`
 The app also honours proxy headers (`X-Forwarded-Proto`, `X-Forwarded-For`) from
 trusted upstreams (`SERVER_TRUSTED_PROXIES`, default `*`) for client-IP logging.
 These no longer affect the OIDC redirect URI, which is pinned to
-`SERVER_PUBLIC_URL` — so a spoofed forwarded header cannot divert a login. If the
+`SERVER_PUBLIC_URL`, so a spoofed forwarded header cannot divert a login. If the
 container is ever reachable directly (not only through the proxy), narrow
 `SERVER_TRUSTED_PROXIES` to your proxy's IP.
 

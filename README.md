@@ -21,7 +21,7 @@ organise with labels, and share individual cards with other people. Because it
 is local-first, the app keeps working while you are offline and syncs back up
 when the connection returns, and it installs as a PWA.
 
-**Status: 1.0.** The feature set I set out to build is in place, and I run it
+**Status: stable (1.x).** The feature set I set out to build is in place, and I run it
 for my own lists. From here on, breaking changes and database migrations are
 announced in the [changelog](CHANGELOG.md) and the
 [upgrade notes](docs/UPGRADING.md). It is still a hobby project with a single
@@ -34,8 +34,13 @@ See more in the [screenshot gallery](docs/screenshots.md).
 ## Features
 
 - **Checklists.** Make lists and check things off.
-- **Drag and Drop**. Sort you cards and the items by drag and drop.
-- **Markdown**. Card notes support Markdown.
+- **Drag and Drop**. Sort your cards and the items by drag and drop.
+- **Card actions.** Duplicate a card for a recurring list, move the checked
+  items to a new card, check or uncheck all items, sort items by name, remove
+  duplicate items, copy a list as text, or paste a list to add each line as an
+  item. All of them also work offline.
+- **Markdown notes**. Card notes support Markdown, and a card can hold just a
+  note. Notes can be copied to the clipboard as formatted text or as Markdown.
 - **Labels.** Organise cards with labels.
 - **Sharing.** Share individual cards with other people and collaborate.
 - **Real-time collaboration.** Shared cards update live across devices as
