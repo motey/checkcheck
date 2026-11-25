@@ -1,5 +1,7 @@
 import { defineStore } from "pinia";
 import { assertOnline } from "@/utils/connectivity";
+import { CARD_LEAVE_SYNC_TTL_MS, noteCardLeave } from "@/utils/cardMotion";
+import { useUserStore } from "@/stores/user";
 
 // Collaborator (per-user) share management, keyed by checklist id.
 //
@@ -132,6 +134,10 @@ export const useShareStore = defineStore("share", {
         console.error("Could not revoke share 'DELETE .../shares/" + userId + "'", error);
         throw error;
       }
+      // Revoking one's own share is leaving the card. The sync takes it off the
+      // board (the server reports it as gone to this user), so the board can
+      // animate it out when that arrives (utils/cardMotion.ts).
+      if (userId === useUserStore().myId) noteCardLeave(checkListId, { ttl: CARD_LEAVE_SYNC_TTL_MS });
       const list = this.shares[checkListId];
       if (list) {
         const idx = list.findIndex((s) => s.user_id === userId);

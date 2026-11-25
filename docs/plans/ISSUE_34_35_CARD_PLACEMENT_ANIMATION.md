@@ -71,10 +71,30 @@ card. Remote changes, paging, filters and search stay instant.
 
 ### Progress
 
-- [ ] `cardSpawn.ts`: leave hint + plan, unit tests
-- [ ] Store hooks (archive, delete, self leave)
-- [ ] Board: ghost + slide
-- [ ] E2E where it pays off
-- [ ] CHANGELOG, commit (#34)
+- [x] `cardSpawn.ts` renamed to `utils/cardMotion.ts`: per-card hints
+  (`noteCardSpawn`, `noteCardLeave`, `pendingCardMotions`, `matchCardMotions`,
+  `clearCardMotions`) and `planCardFlip` with a `leave` kind; unit tests in
+  `cardMotion.spec.ts`
+- [x] Store hooks: `archive()` (when the state changes), `delete()` and
+  `_localDelete()`, `revokeShare()` on the caller's own id (sync TTL)
+- [x] Board: ghost + slide, reduced motion respected, off-screen cards skipped
+- [x] E2E: `archive.spec.ts` "animates a card leaving the board on the user's
+  own action only" (reduced motion instant, ghost + slide with motion, a card
+  deleted through the API goes without animation)
+- [x] CHANGELOG, commit (#34)
 
 ## Notes
+
+- The ghost is a `cloneNode` of the card's `<li>`, taken before Vue removes it,
+  fixed at the old box and prepended to `<body>` without a z-index: it paints
+  below the board's cards (the sliding cards pass over it) and below the navbar.
+  It carries `data-card-leaving` (for tests) and none of the card's ids, roles
+  or tab stops.
+- An undo of an archive (toast) notes a leave hint too, which never matches (the
+  card comes back instead) and goes stale after 2 s. The store does not know
+  which view the board shows, so it cannot tell the two apart; harmless.
+- Leaving a shared card: the removal arrives through the sync, so the hint lives
+  10 s. A remote removal of that same card inside that window would animate
+  too; it is the card the user just left, so that is fine.
+- Checked by eye with slowed-down animations (CDP playback rate) in a throwaway
+  spec: the ghost looks like the card and fades in place.

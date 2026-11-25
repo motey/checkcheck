@@ -13,7 +13,7 @@ import {
   fractionalIndexBetween,
 } from "@/utils/outboxOps";
 import { planCardCopy, planCopyPlacement, type CardCopyMode, type CopyPlacement } from "@/utils/cardCopy";
-import { noteCardSpawn } from "@/utils/cardSpawn";
+import { noteCardLeave, noteCardSpawn } from "@/utils/cardMotion";
 
 // Active filters for the server-side "filtered view" (text search and/or the
 // shared=with_me|by_me filter, optionally narrowed by a label; or the Archive
@@ -189,7 +189,7 @@ export const useCheckListsStore = defineStore("checkList", {
         throw error;
       }
       await checkListItemStore.refreshAllCheckListItems(resChecklist.id);
-      // The board animates the copy out of the source card (utils/cardSpawn.ts).
+      // The board animates the copy out of the source card (utils/cardMotion.ts).
       noteCardSpawn(resChecklist.id, sourceId);
       if (!this.checkLists.some((c) => c.id === resChecklist.id)) this.checkLists.push(resChecklist);
       this._sort();
@@ -257,6 +257,10 @@ export const useCheckListsStore = defineStore("checkList", {
       if (!checkListId) throw new Error("Checklistid empty");
       const checkList = await this.fetch(checkListId);
       const wasArchived = checkList.position.archived;
+      // The card leaves the board the user is looking at (home: archived;
+      // archive view: restored), so the board animates it out
+      // (utils/cardMotion.ts).
+      if ((wasArchived ?? false) !== state) noteCardLeave(checkListId);
       checkList.position.archived = state;
       // Local-first: adjust the sidebar count badges immediately. The delta pull
       // that later confirms this archive is BLIND to it — our optimistic update
@@ -307,6 +311,7 @@ export const useCheckListsStore = defineStore("checkList", {
         console.error("Could not delete checklist 'DELETE /checklist/" + checkListId + "'", error);
         throw error;
       }
+      noteCardLeave(checkListId);
       const index = this.checkLists.findIndex((c) => c.id === checkListId);
       if (index !== -1) {
         this.checkLists.splice(index, 1);
@@ -660,7 +665,7 @@ export const useCheckListsStore = defineStore("checkList", {
         itemStore.total_backend_count_per_checklist[sourceId] = Math.max(0, total - checked);
         itemStore.total_backend_count_checked_per_checklist[sourceId] = 0;
       }
-      // The board animates the copy out of the source card (utils/cardSpawn.ts).
+      // The board animates the copy out of the source card (utils/cardMotion.ts).
       noteCardSpawn(newId, sourceId);
       if (!this.checkLists.some((c) => c.id === newId)) this.checkLists.push(plan.card);
       this._sort();
@@ -708,6 +713,8 @@ export const useCheckListsStore = defineStore("checkList", {
       return row;
     },
     _localDelete(checkListId: string) {
+      // The board animates the card out (utils/cardMotion.ts).
+      noteCardLeave(checkListId);
       const index = this.checkLists.findIndex((c) => c.id === checkListId);
       if (index !== -1) {
         this.checkLists.splice(index, 1);
