@@ -5,6 +5,29 @@ changes see [`../CHANGELOG.md`](../CHANGELOG.md).
 
 ---
 
+## 1.1.0: OIDC client secret checked at startup (no migration)
+
+1.1.0 has no database migrations. One configuration check is new:
+
+- **An enabled OIDC provider needs a client secret.** The server refuses to
+  start when an enabled entry of `AUTH_OIDC_PROVIDERS` has an empty
+  `CLIENT_SECRET`, and the message names the entry and the variable to set.
+  Before, such a server started and logins failed later. Disabled providers are
+  not checked. Check this before you upgrade if the secret comes from a compose
+  variable that might be unset.
+- **The secret can now come from its own environment variable.** Indexed names
+  such as `AUTH_OIDC_PROVIDERS__0__CLIENT_SECRET` set one field of the entry at
+  that position and keep the rest of the entry from `config.yml`. 1.0.x stopped
+  at startup on such names, so the secret had to live in `config.yml`. If you
+  move it into the environment, roll back to 1.0.x only after putting it back
+  into `config.yml`. See
+  [List settings in environment variables](configuration.md#list-settings-in-environment-variables).
+- **Links in card notes need a scheme.** A bare `www.example.com` in a note
+  stays plain text now; users write `https://` or `[text](https://...)` to get a
+  link. Nothing changes in the stored notes.
+
+---
+
 ## API key housekeeping (migration `0020`)
 
 Migration `0020` adds the unique index `ix_user_auth_api_token_id` on

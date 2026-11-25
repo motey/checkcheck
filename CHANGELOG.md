@@ -5,6 +5,14 @@ on [Keep a Changelog](https://keepachangelog.com/); dates are ISO-8601.
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-11-25
+
+New card actions for recurring lists (duplicate a card, move what is done to a
+new card), more item actions in the card menu, cards that only hold a note,
+copying notes to the clipboard, and smoother board updates. There are no
+database migrations. Self-hosters with an OIDC login should read the upgrade
+notes at the end of this entry.
+
 ### Added
 
 - **Duplicate a card.** A card's ⋮ menu has a new **Duplicate card** action for
@@ -109,6 +117,13 @@ on [Keep a Changelog](https://keepachangelog.com/); dates are ISO-8601.
   and indexed variables set next to it now change its entries instead of being
   ignored. See "List settings in environment variables" in
   `docs/configuration.md`.
+
+### Upgrade notes
+
+See [`docs/UPGRADING.md`](docs/UPGRADING.md). There are no database
+migrations. A server with an enabled OIDC provider and an empty client secret
+no longer starts: set the secret first, for example with
+`AUTH_OIDC_PROVIDERS__0__CLIENT_SECRET`.
 
 ## [1.0.0] - 2026-09-19
 

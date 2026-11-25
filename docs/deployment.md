@@ -13,7 +13,7 @@ settings see [configuration.md](configuration.md).
 | `latest` | Newest stable release. |
 | `beta` | Newest pre-release. |
 | `dev` | Latest build from `main` (bleeding edge). |
-| `<version>` | A specific release, for example `1.0.0`. Pin this in production. |
+| `<version>` | A specific release, for example `1.1.0`. Pin this in production. |
 
 ## Data that must persist
 
