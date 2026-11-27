@@ -5,6 +5,11 @@ on [Keep a Changelog](https://keepachangelog.com/); dates are ISO-8601.
 
 ## [Unreleased]
 
+## [1.1.2] - 2026-11-27
+
+The installed app on a phone no longer drops the login. There are no database
+migrations and one new optional setting.
+
 ### Fixed
 
 - **The installed app on a phone stays signed in.** Opening the app on a phone
