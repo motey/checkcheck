@@ -5,6 +5,17 @@ changes see [`../CHANGELOG.md`](../CHANGELOG.md).
 
 ---
 
+## 1.1.2: the login survives a closed phone app (no migration)
+
+1.1.2 has no database migrations. Pull the new image and restart; nobody has to
+log in again. The login cookie now lasts 30 days after the last use, set by the
+new optional setting `AUTH_SESSION_COOKIE_LIFETIME_DAYS`. With an OIDC login
+the session also ends when your identity provider stops renewing it, so check
+that the refresh token lifetime of the CheckCheck client there is at least as
+long as this setting.
+
+---
+
 ## 1.1.1: database password kept out of the log (no migration)
 
 1.1.1 has no database migrations and no configuration changes. Earlier versions

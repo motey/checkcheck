@@ -5,6 +5,26 @@ on [Keep a Changelog](https://keepachangelog.com/); dates are ISO-8601.
 
 ## [Unreleased]
 
+## [1.1.2] - 2026-11-27
+
+The installed app on a phone no longer drops the login. There are no database
+migrations and one new optional setting.
+
+### Fixed
+
+- **The installed app on a phone stays signed in.** Opening the app on a phone
+  after a longer break could still show the login page for a moment before
+  auto-login brought the board back. The phone closes an installed app in the
+  background after a while and the browser then forgot the login, because the
+  login cookie had no lifetime of its own. It now lasts 30 days and every use
+  of the app renews it.
+
+### Added
+
+- **New setting `AUTH_SESSION_COOKIE_LIFETIME_DAYS`** (default `30`): how many
+  days without any use the browser keeps the login. With an OIDC login the
+  session still ends earlier when the identity provider no longer renews it.
+
 ## [1.1.1] - 2026-11-25
 
 A security fix for self-hosters. There are no database migrations and no

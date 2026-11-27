@@ -52,6 +52,7 @@ from checkcheckserver.model.user_auth import (
 )
 from checkcheckserver.api.auth.security import (
     SESSION_COOKIE_NAME,
+    set_session_cookie,
     api_token_security,
     oauth_clients,
     get_current_user,
@@ -200,13 +201,7 @@ async def auth_basic_login_session_based(
         url="/" if not target_path else target_path,
         status_code=status.HTTP_303_SEE_OTHER,
     )
-    response.set_cookie(
-        key=SESSION_COOKIE_NAME,
-        value=str(user_session.id),
-        httponly=True,
-        secure=config.SET_SESSION_COOKIE_SECURE,
-        samesite="Lax",
-    )
+    set_session_cookie(response, user_session.id)
     return response
 
 
@@ -475,13 +470,7 @@ async def auth_oidc_callback(
     elif login_type == "session":
         # Set a session cookie (here, just user ID as session token)
         response = RedirectResponse(url="/" if not target_path else target_path)
-        response.set_cookie(
-            key=SESSION_COOKIE_NAME,
-            value=str(user_session.id),
-            httponly=True,
-            secure=config.SET_SESSION_COOKIE_SECURE,
-            samesite="Lax",
-        )
+        set_session_cookie(response, user_session.id)
         return response
 
 

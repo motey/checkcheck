@@ -38,6 +38,7 @@ the first survives and the rest are wiped + 401'd (the test fails); after the fi
 (serialized refresh + double-checked re-read) every request is authenticated.
 """
 
+from types import SimpleNamespace
 import asyncio
 import copy
 import datetime
@@ -176,6 +177,8 @@ class _FakeContainer:
 class _FakeRequest:
     def __init__(self, cookies: dict):
         self.cookies = cookies
+        # get_current_user_auth notes cookie logins here for the cookie renewal.
+        self.state = SimpleNamespace()
 
 
 # ── The test ──────────────────────────────────────────────────────────────────

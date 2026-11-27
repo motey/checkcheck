@@ -262,6 +262,36 @@ Secret used to sign API access tokens (JWT). Provide a long random string, keep 
 
 ---
 
+## `AUTH_SESSION_COOKIE_LIFETIME_DAYS`
+
+*Login cookie lifetime (days)*
+
+How long the browser keeps the login cookie while the app is not used. Every use renews it, so people who open the app regularly stay signed in, also in an installed app (PWA) that the phone closes in the background. An OIDC login still ends earlier when the identity provider refuses to renew it. Browsers cap cookies at 400 days.
+
+| Property | Value |
+|---|---|
+| Type | int |
+| Required | No |
+| Default | `30` |
+| Constraints | Ge(ge=1), Le(le=400) |
+| Environment variable | `AUTH_SESSION_COOKIE_LIFETIME_DAYS` |
+
+**Examples:**
+
+*Example 1:*
+
+```yaml
+AUTH_SESSION_COOKIE_LIFETIME_DAYS: 30
+```
+
+*Example 2:*
+
+```yaml
+AUTH_SESSION_COOKIE_LIFETIME_DAYS: 90
+```
+
+---
+
 ## `AUTH_BASIC_SESSION_LIFETIME_MINUTES`
 
 *Local session lifetime (minutes)*

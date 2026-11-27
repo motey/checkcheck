@@ -126,6 +126,19 @@ SERVER_SESSION_SECRET:
 AUTH_JWT_SECRET:
   CHANGE_ME_generate_a_long_random_string_at_least_64_characters_long
 
+# ## AUTH_SESSION_COOKIE_LIFETIME_DAYS - Login cookie lifetime (days) ###
+# Type:        int
+# Required:    False
+# Default:     30
+# Constraints: Ge(ge=1), Le(le=400)
+# Env-var:     'AUTH_SESSION_COOKIE_LIFETIME_DAYS'
+# Description: How long the browser keeps the login cookie while the app is not used. Every use renews it, so people who open the app regularly stay signed in, also in an installed app (PWA) that the phone closes in the background. An OIDC login still ends earlier when the identity provider refuses to renew it. Browsers cap cookies at 400 days.
+# Example No. 1:
+#  >AUTH_SESSION_COOKIE_LIFETIME_DAYS: 30
+# Example No. 2:
+#  >AUTH_SESSION_COOKIE_LIFETIME_DAYS: 90
+AUTH_SESSION_COOKIE_LIFETIME_DAYS: 30
+
 # ## AUTH_BASIC_SESSION_LIFETIME_MINUTES - Local session lifetime (minutes) ###
 # Type:        int or null
 # Required:    False
