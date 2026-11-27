@@ -200,6 +200,20 @@ class Config(BaseSettings):
     )
 
     # ── Sessions & API tokens ─────────────────────────────────────────────────
+    AUTH_SESSION_COOKIE_LIFETIME_DAYS: int = Field(
+        default=30,
+        ge=1,
+        le=400,
+        title="Login cookie lifetime (days)",
+        description=(
+            "How long the browser keeps the login cookie while the app is not used. "
+            "Every use renews it, so people who open the app regularly stay signed in, "
+            "also in an installed app (PWA) that the phone closes in the background. "
+            "An OIDC login still ends earlier when the identity provider refuses to "
+            "renew it. Browsers cap cookies at 400 days."
+        ),
+        examples=[30, 90],
+    )
     AUTH_BASIC_SESSION_LIFETIME_MINUTES: Optional[int] = Field(
         default=60 * 24 * 14,  # two weeks
         title="Local session lifetime (minutes)",

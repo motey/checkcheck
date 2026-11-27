@@ -145,6 +145,13 @@ from `SERVER_PUBLIC_URL` by default**: Secure on an `https` URL, not Secure on
 plain-HTTP localhost without any override. Set it explicitly only to force a
 value.
 
+`AUTH_SESSION_COOKIE_LIFETIME_DAYS` (default `30`) sets how long the browser
+keeps the login while the app is not used. Every request renews the cookie, so
+someone who opens CheckCheck at least once a month stays signed in, also in the
+installed app on a phone. With an OIDC login the session can end earlier: when
+the identity provider no longer renews the login (its refresh token lifetime),
+the next visit goes through the login again.
+
 > These names are new in 2.1. `SERVER_PUBLIC_URL` replaces the old
 > `SERVER_PROTOCOL` + `SERVER_HOSTNAME` pair, `SERVER_BIND_HOST`/`SERVER_BIND_PORT`
 > replace `SERVER_LISTENING_HOST`/`SERVER_LISTENING_PORT`, and

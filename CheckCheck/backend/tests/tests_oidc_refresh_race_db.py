@@ -15,6 +15,7 @@ Here every simulated request gets its own ``AsyncSession`` (configured like
 throwaway SQLite file. Only the IdP token endpoint is faked (with rotation).
 """
 
+from types import SimpleNamespace
 import asyncio
 import datetime
 import uuid
@@ -81,6 +82,8 @@ class _FakeContainer:
 class _FakeRequest:
     def __init__(self, cookies: dict):
         self.cookies = cookies
+        # get_current_user_auth notes cookie logins here for the cookie renewal.
+        self.state = SimpleNamespace()
 
 
 def test_concurrent_oidc_refresh_with_real_db_sessions(tmp_path):

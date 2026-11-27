@@ -9,7 +9,13 @@ from starlette.middleware.sessions import SessionMiddleware
 from starlette.datastructures import MutableHeaders
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.responses import Response
 from checkcheckserver.api.routers_map import mount_fast_api_routers
+from checkcheckserver.api.auth.security import (
+    SESSION_COOKIE_NAME,
+    SESSION_COOKIE_RENEW_STATE_KEY,
+    set_session_cookie,
+)
 from pathlib import Path
 import json
 from fastapi.openapi.utils import get_openapi
@@ -57,6 +63,48 @@ class APINoStoreCacheMiddleware:
             await send(message)
 
         await self.app(scope, receive, send_with_no_store)
+
+
+class SessionCookieRenewMiddleware:
+    """Re-send the login cookie with a fresh lifetime on every response to a
+    request that authenticated by that cookie.
+
+    The cookie is persistent (see ``set_session_cookie``); renewing it on use makes
+    its lifetime a "not used for N days" window instead of a fixed date after
+    login. ``get_current_user_auth`` marks the request in the scope state; this
+    middleware adds the ``Set-Cookie`` header on ``http.response.start``.
+
+    Pure ASGI for the same reason as ``APINoStoreCacheMiddleware``: the
+    ``/api/sync`` SSE stream must pass through unbuffered. A response that sets or
+    deletes the cookie itself (login, logout) is left alone.
+    """
+
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+        # Make sure the state dict exists now, so the one `request.state` writes
+        # into further down is the same object this middleware reads.
+        state = scope.setdefault("state", {})
+
+        async def send_with_renewed_cookie(message: Message) -> None:
+            if message["type"] == "http.response.start":
+                session_id = state.get(SESSION_COOKIE_RENEW_STATE_KEY)
+                if session_id:
+                    headers = MutableHeaders(raw=message["headers"])
+                    cookie_prefix = f"{SESSION_COOKIE_NAME}="
+                    if not any(
+                        v.startswith(cookie_prefix) for v in headers.getlist("set-cookie")
+                    ):
+                        carrier = Response()
+                        set_session_cookie(carrier, session_id)
+                        headers.append("set-cookie", carrier.headers["set-cookie"])
+            await send(message)
+
+        await self.app(scope, receive, send_with_renewed_cookie)
 
 
 @dataclass
@@ -129,6 +177,8 @@ class FastApiAppContainer:
     def _apply_api_middleware(self):
         # Prevent any browser/proxy from reusing a dynamic API reply from cache.
         self.app.add_middleware(APINoStoreCacheMiddleware)
+        # Keep the login cookie alive while the app is in use.
+        self.app.add_middleware(SessionCookieRenewMiddleware)
 
         allow_origins = []
         for oidc_config in config.AUTH_OIDC_PROVIDERS:

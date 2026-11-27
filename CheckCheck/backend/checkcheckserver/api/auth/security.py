@@ -16,6 +16,7 @@ from fastapi import (
     Header,
     Query,
     Request,
+    Response,
 )
 
 from fastapi.security import (
@@ -56,6 +57,28 @@ config = Config()
 oauth_clients: dict[str, OAuthContainer] = register_and_create_oauth_clients()
 
 SESSION_COOKIE_NAME = f"session_{slugify_string(config.APP_NAME,'_')}"
+
+# Key in the request scope state under which `get_current_user_auth` notes the
+# session id of a request that authenticated by cookie. `SessionCookieRenewMiddleware`
+# (app.py) reads it and re-sends the cookie with a fresh lifetime.
+SESSION_COOKIE_RENEW_STATE_KEY = "checkcheck_renew_session_cookie"
+
+
+def set_session_cookie(response: Response, session_id: uuid.UUID | str) -> None:
+    """Set the login cookie as a persistent cookie.
+
+    It needs an explicit lifetime: a cookie without one only lives until the
+    browser "session" ends, and Android ends that whenever it closes an installed
+    app (PWA) in the background. The next start then sent no cookie at all and
+    landed on the login page, although the server side session was still valid."""
+    response.set_cookie(
+        key=SESSION_COOKIE_NAME,
+        value=str(session_id),
+        max_age=config.AUTH_SESSION_COOKIE_LIFETIME_DAYS * 24 * 60 * 60,
+        httponly=True,
+        secure=config.SET_SESSION_COOKIE_SECURE,
+        samesite="Lax",
+    )
 
 
 def caller_restricted_to_own_groups(user: "User") -> bool:
@@ -245,6 +268,10 @@ async def get_current_user_auth(
                                 user_session_crud=user_session_crud,
                             )
                             raise e
+    if user_session is not None and not api_token:
+        # Authenticated by the session cookie: have it renewed on the response, so
+        # it only runs out after AUTH_SESSION_COOKIE_LIFETIME_DAYS without any use.
+        setattr(request.state, SESSION_COOKIE_RENEW_STATE_KEY, str(user_session.id))
     return user_auth
 
 

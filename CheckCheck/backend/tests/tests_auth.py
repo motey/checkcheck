@@ -27,7 +27,9 @@ from utils import (
     find_first_dict_in_list,
     get_server_base_url,
     create_test_user,
+    server_config,
 )
+from checkcheckserver.api.auth.security import SESSION_COOKIE_NAME
 from statics import ADMIN_USER_NAME, ADMIN_USER_PW, ADMIN_USER_EMAIL, TEST_USER_NAME, TEST_USER_PW
 
 CHECKCHECK_ACCESS_TOKEN_ENV_NAME = "MEDLOG_ACCESS_TOKEN"
@@ -118,6 +120,77 @@ def test_basic_login_session_and_logout():
 
     # Protected endpoint must now reject the session
     req("api/user/me", session=session, expected_http_code=401)
+
+
+def _session_set_cookies(res: req_lib.Response) -> list[str]:
+    """The raw Set-Cookie values of `res` that carry the login cookie."""
+    raw = res.raw.headers.getlist("set-cookie") if res.raw is not None else []
+    return [c for c in raw if c.startswith(f"{SESSION_COOKIE_NAME}=")]
+
+
+def _max_age(set_cookie: str) -> int | None:
+    for part in set_cookie.split(";"):
+        name, _, value = part.strip().partition("=")
+        if name.lower() == "max-age":
+            return int(value)
+    return None
+
+
+def test_session_cookie_is_persistent_and_renewed_on_use():
+    """The login cookie must carry a lifetime (a browser-session cookie is dropped
+    when Android closes an installed PWA, which bounced users to the login page on
+    the next start) and must be renewed by every request it authenticates."""
+    base = get_server_base_url()
+    lifetime = server_config.AUTH_SESSION_COOKIE_LIFETIME_DAYS * 24 * 60 * 60
+
+    login = req_lib.post(
+        f"{base}/api/auth/basic/login/session",
+        json={"username": ADMIN_USER_NAME, "password": ADMIN_USER_PW},
+        allow_redirects=False,
+    )
+    assert login.status_code == 303, login.text
+    cookies = _session_set_cookies(login)
+    assert len(cookies) == 1, cookies
+    assert _max_age(cookies[0]) == lifetime, cookies[0]
+    session_id = cookies[0].split(";", 1)[0].split("=", 1)[1]
+    jar = {SESSION_COOKIE_NAME: session_id}
+
+    # A normal API call renews the cookie: same session, fresh lifetime.
+    me = req_lib.get(f"{base}/api/user/me", cookies=jar)
+    assert me.status_code == 200, me.text
+    renewed = _session_set_cookies(me)
+    assert len(renewed) == 1, renewed
+    assert renewed[0].startswith(f"{SESSION_COOKIE_NAME}={session_id};"), renewed[0]
+    assert _max_age(renewed[0]) == lifetime, renewed[0]
+    assert "httponly" in renewed[0].lower(), renewed[0]
+
+    # The SSE stream renews it as well (headers go out before the endless body).
+    with req_lib.get(f"{base}/api/sync", cookies=jar, stream=True, timeout=10) as sse:
+        assert sse.status_code == 200
+        assert len(_session_set_cookies(sse)) == 1
+
+    # A rejected cookie is not renewed.
+    bogus = req_lib.get(
+        f"{base}/api/user/me",
+        cookies={SESSION_COOKIE_NAME: "00000000-0000-0000-0000-000000000000"},
+    )
+    assert bogus.status_code == 401
+    assert _session_set_cookies(bogus) == []
+
+    # Bearer token requests never get a login cookie.
+    token = authorize_for_access_token(ADMIN_USER_NAME, ADMIN_USER_PW)
+    bearer = req_lib.get(
+        f"{base}/api/user/me", headers={"Authorization": f"Bearer {token}"}
+    )
+    assert bearer.status_code == 200
+    assert _session_set_cookies(bearer) == []
+
+    # Logout deletes the cookie, and the renewal must not put it back.
+    logout = req_lib.post(f"{base}/api/auth/logout", cookies=jar)
+    assert logout.status_code == 200, logout.text
+    deleted = _session_set_cookies(logout)
+    assert len(deleted) == 1, deleted
+    assert _max_age(deleted[0]) == 0, deleted[0]
 
 # ── Self-registration (disabled by default) ───────────────────────────────────
 
